@@ -296,7 +296,7 @@ function App() {
 
   async function handleLaunchGame(gameId) {
     try {
-      const result = await invoke("launch_game", { gameId });
+      const result = await invoke("prepare_and_launch_game", { gameId });
       
       if (!result.success && result.error) {
         setError(result.error);

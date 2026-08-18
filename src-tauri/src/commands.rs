@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter};
 
 use crate::api::{RomMClient, download::DownloadManager};
 use crate::config::{AppConfig, UpdateChannel};
@@ -359,21 +361,226 @@ pub struct LaunchGameResult {
     pub exit_code: Option<i32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LaunchStage {
+    Resolving,
+    SaveSync,
+    Launching,
+    Running,
+    Completion,
+    Failure,
+}
+
+impl LaunchStage {
+    fn can_transition_to(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (Self::Resolving, Self::SaveSync | Self::Failure)
+                | (Self::SaveSync, Self::Launching | Self::Completion | Self::Failure)
+                | (Self::Launching, Self::Running | Self::Completion | Self::Failure)
+                | (Self::Running, Self::SaveSync | Self::Completion | Self::Failure)
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct LaunchProgressEvent {
+    game_id: i64,
+    game_name: String,
+    stage: LaunchStage,
+    error: Option<String>,
+}
+
+static ACTIVE_GAME_IDS: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
+
+struct ActiveGameGuard {
+    game_id: i64,
+}
+
+impl ActiveGameGuard {
+    fn try_acquire(game_id: i64) -> Option<Self> {
+        let mut active = ACTIVE_GAME_IDS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !active.insert(game_id) {
+            return None;
+        }
+        Some(Self { game_id })
+    }
+}
+
+impl Drop for ActiveGameGuard {
+    fn drop(&mut self) {
+        let mut active = ACTIVE_GAME_IDS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&self.game_id);
+    }
+}
+
+fn launch_progress_event(
+    game_id: i64,
+    game_name: &str,
+    stage: LaunchStage,
+    error: Option<&str>,
+) -> LaunchProgressEvent {
+    LaunchProgressEvent {
+        game_id,
+        game_name: game_name.to_string(),
+        stage,
+        error: error.map(str::to_string),
+    }
+}
+
+fn emit_launch_progress(
+    app: Option<&AppHandle>,
+    game_id: i64,
+    game_name: &str,
+    previous_stage: Option<LaunchStage>,
+    stage: LaunchStage,
+    error: Option<&str>,
+) -> Option<LaunchStage> {
+    if let Some(previous) = previous_stage {
+        if !previous.can_transition_to(stage) {
+            tracing::warn!(
+                "[Launch] Ignoring invalid progress transition: {:?} -> {:?}",
+                previous,
+                stage
+            );
+            return previous_stage;
+        }
+    }
+
+    let Some(app) = app else {
+        return Some(stage);
+    };
+    if let Err(e) = app.emit(
+        "game-launch-progress",
+        launch_progress_event(game_id, game_name, stage, error),
+    ) {
+        tracing::warn!("[Launch] Failed to emit progress: {e}");
+    }
+    Some(stage)
+}
+
+fn emit_launch_failure(
+    app: Option<&AppHandle>,
+    game_id: i64,
+    game_name: &str,
+    previous_stage: Option<LaunchStage>,
+    error: impl Into<String>,
+) -> String {
+    let error = error.into();
+    let _ = emit_launch_progress(
+        app,
+        game_id,
+        game_name,
+        previous_stage,
+        LaunchStage::Failure,
+        Some(&error),
+    );
+    error
+}
+
+fn failed_launch_result(error: String) -> LaunchGameResult {
+    LaunchGameResult {
+        success: false,
+        error: Some(error),
+        save_sync_warnings: vec![],
+        dry_run: false,
+        duration_minutes: None,
+        exit_code: None,
+    }
+}
+
 #[tauri::command]
 pub async fn launch_game(game_id: i64) -> Result<LaunchGameResult, String> {
+    run_launch_pipeline(game_id, None).await
+}
+
+#[tauri::command]
+pub async fn prepare_and_launch_game(
+    app: AppHandle,
+    game_id: i64,
+) -> Result<LaunchGameResult, String> {
+    run_launch_pipeline(game_id, Some(app)).await
+}
+
+async fn run_launch_pipeline(
+    game_id: i64,
+    app: Option<AppHandle>,
+) -> Result<LaunchGameResult, String> {
     tracing::info!("[Launch] Launching game id={}", game_id);
-    
-    let mut config = AppConfig::load().map_err(|e| e.to_string())?;
-    let db = Database::open().map_err(|e| e.to_string())?;
-    
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
-        .ok_or("Game not found")?;
-    
+
+    let mut config = match AppConfig::load() {
+        Ok(config) => config,
+        Err(e) => {
+            let error = emit_launch_failure(app.as_ref(), game_id, "", None, e.to_string());
+            return Err(error);
+        }
+    };
+    let db = match Database::open() {
+        Ok(db) => db,
+        Err(e) => {
+            let error = emit_launch_failure(app.as_ref(), game_id, "", None, e.to_string());
+            return Err(error);
+        }
+    };
+
+    let game = match db.get_game(game_id) {
+        Ok(Some(game)) => game,
+        Ok(None) => {
+            let error = emit_launch_failure(app.as_ref(), game_id, "", None, "Game not found");
+            return Err(error);
+        }
+        Err(e) => {
+            let error = emit_launch_failure(app.as_ref(), game_id, "", None, e.to_string());
+            return Err(error);
+        }
+    };
+
+    let Some(_active_game) = ActiveGameGuard::try_acquire(game.id) else {
+        let error = format!("Game {} is already launching", game.id);
+        let error = emit_launch_failure(app.as_ref(), game.id, &game.name, None, error);
+        return Ok(failed_launch_result(error));
+    };
+
+    let mut previous_stage = emit_launch_progress(
+        app.as_ref(),
+        game.id,
+        &game.name,
+        None,
+        LaunchStage::Resolving,
+        None,
+    );
+    if let Err(e) = EmulatorLauncher::resolve_rom_path(&game) {
+        let error = emit_launch_failure(
+            app.as_ref(),
+            game.id,
+            &game.name,
+            previous_stage,
+            e.to_string(),
+        );
+        return Ok(failed_launch_result(error));
+    }
+
     tracing::info!("[Launch] Game: {} ({})", game.name, game.platform_id);
 
     let launcher = EmulatorLauncher::new(config.clone(), db.clone());
     let launch_command = launcher.build_command(&game).ok();
     let mut save_sync_warnings = Vec::new();
+
+    previous_stage = emit_launch_progress(
+        app.as_ref(),
+        game.id,
+        &game.name,
+        previous_stage,
+        LaunchStage::SaveSync,
+        None,
+    );
 
     let pre_sync_result = if let Some(command) = launch_command.as_ref() {
         if command.emulator_id == "retroarch" {
@@ -398,15 +605,57 @@ pub async fn launch_game(game_id: i64) -> Result<LaunchGameResult, String> {
             let _ = db.clear_save_sync_failure(game.id);
         }
     }
-    
-    let result = launcher.launch(&game).await
-        .map_err(|e| {
+
+    previous_stage = emit_launch_progress(
+        app.as_ref(),
+        game.id,
+        &game.name,
+        previous_stage,
+        LaunchStage::Launching,
+        None,
+    );
+    let running_previous_stage = previous_stage;
+    let running_app = app.clone();
+    let running_game_id = game.id;
+    let running_game_name = game.name.clone();
+    let result = match launcher
+        .launch_with_running_stage(&game, move || {
+            let _ = emit_launch_progress(
+                running_app.as_ref(),
+                running_game_id,
+                &running_game_name,
+                running_previous_stage,
+                LaunchStage::Running,
+                None,
+            );
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(e) => {
             tracing::error!("[Launch] Failed to launch: {}", e);
-            e.to_string()
-        })?;
-    
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                e.to_string(),
+            );
+            return Err(error);
+        }
+    };
+
     match result {
         LaunchResult::Success { duration_minutes, exit_code, .. } => {
+            previous_stage = Some(LaunchStage::Running);
+            previous_stage = emit_launch_progress(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                LaunchStage::SaveSync,
+                None,
+            );
             let post_sync_result = if let Some(command) = launch_command.as_ref() {
                 if command.emulator_id == "retroarch" {
                     crate::sync::retroarch_romm::post_launch_sync(
@@ -431,37 +680,76 @@ pub async fn launch_game(game_id: i64) -> Result<LaunchGameResult, String> {
                 }
             }
             tracing::info!("[Launch] Game exited successfully (duration: {}min, exit_code: {:?})", duration_minutes, exit_code);
-            Ok(LaunchGameResult {
+            let result = LaunchGameResult {
                 success: true,
                 error: None,
                 save_sync_warnings,
                 dry_run: false,
                 duration_minutes: Some(duration_minutes),
                 exit_code,
-            })
+            };
+            let _ = emit_launch_progress(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                LaunchStage::Completion,
+                None,
+            );
+            Ok(result)
         }
         LaunchResult::DryRun { ref command } => {
             tracing::info!("[Launch] Dry run completed for: {}", command.full_command);
-            Ok(LaunchGameResult {
+            let result = LaunchGameResult {
                 success: true,
                 error: None,
                 save_sync_warnings,
                 dry_run: true,
                 duration_minutes: None,
                 exit_code: None,
-            })
+            };
+            let _ = emit_launch_progress(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                LaunchStage::Completion,
+                None,
+            );
+            Ok(result)
+        }
+        LaunchResult::FileNotFound(path) => {
+            let error = format!("ROM file not found: {path}");
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                error,
+            );
+            Ok(failed_launch_result(error))
         }
         _ => {
             let error_msg = result.error_message();
             tracing::error!("[Launch] Launch failed: {:?}", error_msg);
-            Ok(LaunchGameResult {
+            if let Some(error) = error_msg.as_deref() {
+                let _ = emit_launch_failure(
+                    app.as_ref(),
+                    game.id,
+                    &game.name,
+                    previous_stage,
+                    error,
+                );
+            }
+            let result = LaunchGameResult {
                 success: false,
                 error: error_msg,
                 save_sync_warnings,
                 dry_run: false,
                 duration_minutes: None,
                 exit_code: None,
-            })
+            };
+            Ok(result)
         }
     }
 }
@@ -2763,6 +3051,86 @@ mod tests {
         };
         assert!(result.success);
         assert!(result.dry_run);
+    }
+
+    #[test]
+    fn failed_launch_result_preserves_command_contract() {
+        let result = failed_launch_result("ROM is unavailable".to_string());
+        assert!(!result.success);
+        assert_eq!(result.error.as_deref(), Some("ROM is unavailable"));
+        assert!(result.save_sync_warnings.is_empty());
+        assert!(!result.dry_run);
+        assert!(result.duration_minutes.is_none());
+        assert!(result.exit_code.is_none());
+    }
+
+    #[test]
+    fn launch_progress_keeps_identity_and_stage_order() {
+        let stages = [
+            LaunchStage::Resolving,
+            LaunchStage::SaveSync,
+            LaunchStage::Launching,
+            LaunchStage::Running,
+            LaunchStage::SaveSync,
+            LaunchStage::Completion,
+        ];
+        let events: Vec<_> = stages
+            .iter()
+            .map(|stage| launch_progress_event(42, "Cached Game", *stage, None))
+            .collect();
+
+        let observed_stages = events
+            .iter()
+            .map(|event| event.stage)
+            .collect::<Vec<_>>();
+        assert_eq!(observed_stages, stages.to_vec());
+        assert!(stages
+            .windows(2)
+            .all(|pair| pair[0].can_transition_to(pair[1])));
+        assert!(LaunchStage::Launching.can_transition_to(LaunchStage::Completion));
+        assert!(LaunchStage::Launching.can_transition_to(LaunchStage::Failure));
+        assert!(LaunchStage::Running.can_transition_to(LaunchStage::Failure));
+        assert!(!LaunchStage::Launching.can_transition_to(LaunchStage::SaveSync));
+        assert!(!LaunchStage::Completion.can_transition_to(LaunchStage::Failure));
+        assert!(!LaunchStage::Failure.can_transition_to(LaunchStage::Completion));
+        assert_eq!(
+            emit_launch_progress(
+                None,
+                42,
+                "Cached Game",
+                Some(LaunchStage::Launching),
+                LaunchStage::SaveSync,
+                None,
+            ),
+            Some(LaunchStage::Launching)
+        );
+        assert_eq!(
+            serde_json::to_string(&LaunchStage::SaveSync).unwrap(),
+            "\"save_sync\""
+        );
+        assert!(events
+            .iter()
+            .all(|event| event.game_id == 42 && event.game_name == "Cached Game"));
+
+        let failure = launch_progress_event(
+            42,
+            "Cached Game",
+            LaunchStage::Failure,
+            Some("missing ROM"),
+        );
+        assert_eq!(failure.error.as_deref(), Some("missing ROM"));
+        assert_eq!(failure.game_id, 42);
+    }
+
+    #[test]
+    fn active_game_guard_rejects_duplicates_and_releases_on_drop() {
+        let game_id = 9_876_543_210_i64;
+        let first = ActiveGameGuard::try_acquire(game_id).unwrap();
+        assert!(ActiveGameGuard::try_acquire(game_id).is_none());
+        drop(first);
+
+        let released = ActiveGameGuard::try_acquire(game_id).unwrap();
+        drop(released);
     }
 
     // Tests for EmulatorInfo

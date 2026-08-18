@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use crate::config::AppConfig;
 use crate::database::Database;
-use crate::models::{Emulator, Game, retroarch_cores};
+use crate::models::{Emulator, Game, GameSource, retroarch_cores};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaunchCommand {
@@ -33,9 +33,30 @@ impl EmulatorLauncher {
         Self { config, db }
     }
 
+    pub(crate) fn resolve_rom_path(game: &Game) -> Result<String> {
+        if let Some(path) = game.local_file_path.as_deref() {
+            if Path::new(path).is_file() {
+                return Ok(path.to_string());
+            }
+        }
+
+        if game.source == GameSource::Local && Path::new(&game.file_path).is_file() {
+            return Ok(game.file_path.clone());
+        }
+
+        let checked = match (game.source, game.local_file_path.as_deref()) {
+            (GameSource::RomM, Some(path)) => format!("cached path '{}'", path),
+            (GameSource::RomM, None) => "a cached local path".to_string(),
+            (GameSource::Local, Some(path)) => {
+                format!("local path '{}' and file path '{}'", path, game.file_path)
+            }
+            (GameSource::Local, None) => format!("file path '{}'", game.file_path),
+        };
+        bail!("ROM file for '{}' was not found locally (checked {})", game.name, checked)
+    }
+
     pub fn build_command(&self, game: &Game) -> Result<LaunchCommand> {
         let emulator = self.resolve_emulator(game)?;
-
         let rom_path = game
             .local_file_path
             .as_ref()
@@ -69,8 +90,18 @@ impl EmulatorLauncher {
     }
 
     pub async fn launch(&self, game: &Game) -> Result<LaunchResult> {
-        let emulator = self.resolve_emulator(game)?;
+        self.launch_with_running_stage(game, || {}).await
+    }
 
+    pub(crate) async fn launch_with_running_stage<F>(
+        &self,
+        game: &Game,
+        on_running: F,
+    ) -> Result<LaunchResult>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let emulator = self.resolve_emulator(game)?;
         let rom_path = game
             .local_file_path
             .as_ref()
@@ -111,6 +142,7 @@ impl EmulatorLauncher {
             .spawn()
             .context("Failed to launch emulator")?;
 
+        on_running();
         let status = child.wait().context("Failed to wait for emulator")?;
 
         let duration = start_time.elapsed();
@@ -324,5 +356,126 @@ impl LaunchResult {
                 Some(format!("No emulator configured for {}", platform))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    fn test_launcher() -> EmulatorLauncher {
+        let mut config = AppConfig::default();
+        config.emulators.mgba = Some(std::env::current_exe().unwrap());
+        config
+            .emulators
+            .platform_defaults
+            .insert("gba".to_string(), "mgba".to_string());
+        EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+    }
+
+    #[test]
+    fn resolve_rom_path_uses_local_game_file_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.gba");
+        fs::write(&path, b"rom").unwrap();
+
+        let game = Game::new(
+            "Local Game".to_string(),
+            path.to_string_lossy().into_owned(),
+            "gba".to_string(),
+        );
+        assert_eq!(
+            EmulatorLauncher::resolve_rom_path(&game).unwrap(),
+            path.to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn resolve_rom_path_uses_cached_romm_file_without_remote_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cached.gba");
+        fs::write(&path, b"rom").unwrap();
+
+        let mut game = Game::new(
+            "Cached Game".to_string(),
+            "https://romm.example/api/roms/7/content/cached.gba".to_string(),
+            "gba".to_string(),
+        );
+        game.source = GameSource::RomM;
+        game.local_file_path = Some(path.to_string_lossy().into_owned());
+
+        assert_eq!(
+            EmulatorLauncher::resolve_rom_path(&game).unwrap(),
+            path.to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn resolve_rom_path_rejects_missing_romm_file() {
+        let mut game = Game::new(
+            "Missing Game".to_string(),
+            "https://romm.example/api/roms/7/content/missing.gba".to_string(),
+            "gba".to_string(),
+        );
+        game.source = GameSource::RomM;
+        game.local_file_path = Some("missing.gba".to_string());
+
+        let error = EmulatorLauncher::resolve_rom_path(&game).unwrap_err().to_string();
+        assert!(error.contains("Missing Game"));
+        assert!(error.contains("missing.gba"));
+    }
+
+    #[tokio::test]
+    async fn launch_local_game_spawns_and_waits_for_test_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.gba");
+        fs::write(&path, b"rom").unwrap();
+        let game = Game::new(
+            "Local Game".to_string(),
+            path.to_string_lossy().into_owned(),
+            "gba".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = test_launcher()
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, LaunchResult::Success { .. }));
+        assert!(running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn launch_cached_romm_game_spawns_from_local_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("cached.gba");
+        fs::write(&cache_path, b"rom").unwrap();
+        let mut game = Game::new(
+            "Cached Game".to_string(),
+            "https://romm.example/api/roms/7/content/cached.gba".to_string(),
+            "gba".to_string(),
+        );
+        game.source = GameSource::RomM;
+        game.local_file_path = Some(cache_path.to_string_lossy().into_owned());
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = test_launcher()
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, LaunchResult::Success { .. }));
+        assert!(running.load(Ordering::SeqCst));
     }
 }

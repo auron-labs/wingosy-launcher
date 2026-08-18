@@ -125,7 +125,7 @@ export default function ImmersiveModeApp({
 
   const handleLaunchGame = useCallback(async (gameId) => {
     try {
-      const result = await invoke("launch_game", { gameId });
+      const result = await invoke("prepare_and_launch_game", { gameId });
       if (!result.success && result.error) setError(result.error);
       else if (result.save_sync_warnings?.length) setError(result.save_sync_warnings.join("\n"));
       await loadData();

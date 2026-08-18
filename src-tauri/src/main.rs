@@ -87,6 +87,7 @@ fn main() {
             commands::get_favorite_games,
             commands::toggle_favorite,
             commands::launch_game,
+            commands::prepare_and_launch_game,
             commands::get_launch_command,
             commands::scan_directory,
             commands::get_config,
