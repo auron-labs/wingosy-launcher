@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::env;
 
+use crate::emulators::cores::get_cores_dir;
+
 pub fn detect_installed_emulators() -> Vec<DetectedEmulator> {
     tracing::info!("[Emulators] Starting emulator detection scan...");
     let mut detected = Vec::new();
@@ -464,10 +466,7 @@ pub fn find_retroarch_cores(retroarch_path: &PathBuf) -> Vec<RetroArchCore> {
     tracing::debug!("[RetroArch] Scanning for cores near {:?}", retroarch_path);
     let mut cores = Vec::new();
 
-    let cores_dir = retroarch_path
-        .parent()
-        .map(|p| p.join("cores"))
-        .unwrap_or_else(|| PathBuf::from("cores"));
+    let cores_dir = get_cores_dir(retroarch_path);
 
     if cores_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&cores_dir) {
@@ -624,5 +623,24 @@ mod tests {
         let fake_path = PathBuf::from("C:/NonExistent/Path/retroarch.exe");
         let cores = find_retroarch_cores(&fake_path);
         assert!(cores.is_empty());
+    }
+
+    #[test]
+    fn test_find_retroarch_cores_uses_executable_parent_cores_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("RetroArch").join("retroarch.exe");
+        let core = executable
+            .parent()
+            .unwrap()
+            .join("cores")
+            .join("fceumm_libretro.dll");
+        std::fs::create_dir_all(core.parent().unwrap()).unwrap();
+        std::fs::write(&executable, b"retroarch").unwrap();
+        std::fs::write(&core, b"core").unwrap();
+
+        let cores = find_retroarch_cores(&executable);
+
+        assert_eq!(cores.len(), 1);
+        assert_eq!(cores[0].path, core);
     }
 }

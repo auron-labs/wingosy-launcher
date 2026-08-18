@@ -16,6 +16,17 @@ pub fn normalize_libretro_core_filename(name: &str) -> String {
     }
 }
 
+pub fn resolve_core_filename(name: &str) -> Result<String> {
+    let normalized_separators = name.replace('\\', "/");
+    let filename = Path::new(&normalized_separators)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty() && *name != "." && *name != "..")
+        .context("RetroArch core name must include a file name")?;
+
+    Ok(normalize_libretro_core_filename(filename))
+}
+
 pub fn core_download_url(core_filename: &str) -> String {
     // The buildbot uses .dll.zip extension for Windows cores
     // Core filename is like "mgba_libretro.dll", URL is "mgba_libretro.dll.zip"
@@ -45,20 +56,41 @@ fn validate_zip_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub async fn download_core(core_filename: &str, cores_dir: &Path) -> Result<PathBuf> {
-    let normalized = normalize_libretro_core_filename(core_filename);
-    if normalized != core_filename {
+pub fn resolve_core_path(retroarch_path: &Path, core_filename: &str) -> Result<PathBuf> {
+    let core_filename = resolve_core_filename(core_filename)?;
+    let cores_dir = get_cores_dir(retroarch_path);
+    let cores_dir = if cores_dir.is_absolute() {
+        cores_dir
+    } else {
+        std::env::current_dir()
+            .context("Failed to determine the working directory")?
+            .join(cores_dir)
+    };
+
+    Ok(cores_dir.join(core_filename))
+}
+
+pub async fn download_core(core_filename: &str, retroarch_path: &Path) -> Result<PathBuf> {
+    let requested_core_filename = core_filename;
+    let core_path = resolve_core_path(retroarch_path, core_filename)?;
+    let core_filename = core_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("RetroArch core path must include a file name")?
+        .to_owned();
+    if core_filename != requested_core_filename {
         tracing::warn!(
             "[Cores] Correcting malformed core filename: {} -> {}",
-            core_filename,
-            normalized
+            requested_core_filename,
+            core_filename
         );
     }
-    let core_filename = normalized;
+    let cores_dir = core_path
+        .parent()
+        .context("RetroArch core path must include a parent directory")?;
     std::fs::create_dir_all(cores_dir).context("Failed to create cores directory")?;
 
-    let core_path = cores_dir.join(&core_filename);
-    if core_path.exists() {
+    if core_path.is_file() {
         tracing::info!("[Cores] Core already exists: {:?}", core_path);
         return Ok(core_path);
     }
@@ -115,7 +147,7 @@ pub async fn download_core(core_filename: &str, cores_dir: &Path) -> Result<Path
     std::fs::remove_file(&zip_path).ok();
 
     if let Some(dll_path) = extracted_dll {
-        if core_path.exists() {
+        if core_path.is_file() {
             tracing::info!("[Cores] Core installed: {:?}", core_path);
             Ok(core_path)
         } else if dll_path.exists() {
@@ -141,8 +173,9 @@ pub fn get_cores_dir(retroarch_path: &Path) -> PathBuf {
 }
 
 pub fn is_core_installed(retroarch_path: &Path, core_filename: &str) -> bool {
-    let cores_dir = get_cores_dir(retroarch_path);
-    cores_dir.join(core_filename).exists()
+    resolve_core_path(retroarch_path, core_filename)
+        .map(|path| path.is_file())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -170,6 +203,18 @@ mod tests {
         assert_eq!(
             normalize_libretro_core_filename("fceumm_libretro.dll"),
             "fceumm_libretro.dll"
+        );
+    }
+
+    #[test]
+    fn resolve_core_filename_keeps_selection_beneath_cores_directory() {
+        assert_eq!(
+            resolve_core_filename(r"C:\other\fceumm_libretro.dll").unwrap(),
+            "fceumm_libretro.dll"
+        );
+        assert_eq!(
+            resolve_core_filename("../../outside.dll").unwrap(),
+            "outside.dll"
         );
     }
 
@@ -209,6 +254,18 @@ mod tests {
         let retroarch_path = Path::new("C:/Games/Emulators/RetroArch/retroarch.exe");
         let cores_dir = get_cores_dir(retroarch_path);
         assert_eq!(cores_dir, PathBuf::from("C:/Games/Emulators/RetroArch/cores"));
+    }
+
+    #[test]
+    fn resolve_core_path_uses_sanitized_filename_in_install_cores_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let retroarch_path = dir.path().join("retroarch.exe");
+        let expected = dir.path().join("cores").join("fceumm_libretro.dll");
+
+        assert_eq!(
+            resolve_core_path(&retroarch_path, r"..\fceumm_libretro.dll").unwrap(),
+            expected
+        );
     }
 
     #[test]

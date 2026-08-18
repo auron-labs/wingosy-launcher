@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use crate::config::AppConfig;
 use crate::database::Database;
+use crate::emulators::cores::resolve_core_path;
 use crate::models::{Emulator, Game, GameSource, retroarch_cores};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,12 +57,39 @@ impl EmulatorLauncher {
     }
 
     pub fn build_command(&self, game: &Game) -> Result<LaunchCommand> {
-        let emulator = self.resolve_emulator(game)?;
-        let rom_path = game
-            .local_file_path
-            .as_ref()
-            .or(Some(&game.file_path))
-            .context("No ROM path available")?;
+        let mut emulator = self.resolve_emulator(game)?;
+        let rom_path = match game.local_file_path.as_deref() {
+            Some(path) if Path::new(path).is_file() => path,
+            _ if Path::new(&game.file_path).is_file() => game.file_path.as_str(),
+            _ => game
+                .local_file_path
+                .as_deref()
+                .unwrap_or(game.file_path.as_str()),
+        };
+
+        if emulator.is_retroarch {
+            let configured_executable = emulator
+                .executable_path
+                .as_ref()
+                .context("RetroArch executable is not configured")?;
+            let executable = if configured_executable.is_absolute() {
+                configured_executable.clone()
+            } else {
+                std::env::current_dir()
+                    .context("Failed to determine the working directory")?
+                    .join(configured_executable)
+            };
+            emulator.executable_path = Some(executable.clone());
+            let core_name = emulator
+                .core_name
+                .as_deref()
+                .context("No RetroArch core is configured")?;
+            emulator.core_name = Some(
+                resolve_core_path(&executable, core_name)?
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
 
         let (exe_path, args) = emulator
             .build_launch_command(rom_path)
@@ -85,7 +113,7 @@ impl EmulatorLauncher {
             emulator_name: emulator.name.clone(),
             core_name: emulator.core_name.clone(),
             game_name: game.name.clone(),
-            rom_path: rom_path.clone(),
+            rom_path: rom_path.to_string(),
         })
     }
 
@@ -101,34 +129,42 @@ impl EmulatorLauncher {
     where
         F: FnOnce() + Send + 'static,
     {
-        let emulator = self.resolve_emulator(game)?;
-        let rom_path = game
-            .local_file_path
-            .as_ref()
-            .or(Some(&game.file_path))
-            .context("No ROM path available")?;
+        let command = self.build_command(game)?;
+        let rom_path = &command.rom_path;
 
-        if !Path::new(rom_path).exists() {
-            return Ok(LaunchResult::FileNotFound(rom_path.clone()));
+        if !Path::new(rom_path).is_file() {
+            return Ok(LaunchResult::FileNotFound(rom_path.to_string()));
         }
 
-        let (exe_path, args) = emulator
-            .build_launch_command(rom_path)
-            .context("Failed to build launch command")?;
+        let exe_path = Path::new(&command.executable);
 
-        if !exe_path.exists() {
+        if !exe_path.is_file() {
             return Ok(LaunchResult::EmulatorNotInstalled {
-                name: emulator.name.clone(),
-                id: emulator.id.clone(),
+                name: command.emulator_name.clone(),
+                id: command.emulator_id.clone(),
             });
         }
 
-        let command = self.build_command(game)?;
+        if command.emulator_id == "retroarch" {
+            if let Some(core_path) = command.core_name.as_deref() {
+                if !Path::new(core_path).is_file() {
+                    let core_name = Path::new(core_path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(core_path)
+                        .to_string();
+                    return Ok(LaunchResult::CoreNotInstalled {
+                        name: core_name,
+                        path: core_path.to_string(),
+                    });
+                }
+            }
+        }
 
         tracing::info!(
             "[Launch] {} via {} | platform={} | rom={}",
             game.name,
-            emulator.name,
+            command.emulator_name,
             game.platform_id,
             rom_path
         );
@@ -137,8 +173,8 @@ impl EmulatorLauncher {
 
         let start_time = Instant::now();
 
-        let mut child = Command::new(&exe_path)
-            .args(&args)
+        let mut child = Command::new(exe_path)
+            .args(&command.args)
             .spawn()
             .context("Failed to launch emulator")?;
 
@@ -206,10 +242,15 @@ impl EmulatorLauncher {
         // 1. Check per-game emulator config
         if let Ok(Some(config)) = self.db.get_emulator_for_game(game.id, &game.platform_id) {
             let emulators = crate::models::default_emulators();
-            
+
             if let Some(mut emu) = emulators.into_iter().find(|e| e.id == config.emulator_id) {
                 emu.executable_path = self.get_emulator_path(&emu.id);
                 emu.core_name = config.core_name;
+                if emu.is_retroarch && emu.core_name.is_none() {
+                    emu.core_name = retroarch_cores()
+                        .get(&game.platform_id)
+                        .map(|core| core.to_string());
+                }
                 return Ok(emu);
             }
         }
@@ -329,6 +370,10 @@ pub enum LaunchResult {
     EmulatorNotConfigured {
         platform: String,
     },
+    CoreNotInstalled {
+        name: String,
+        path: String,
+    },
 }
 
 impl LaunchResult {
@@ -355,6 +400,10 @@ impl LaunchResult {
             LaunchResult::EmulatorNotConfigured { platform } => {
                 Some(format!("No emulator configured for {}", platform))
             }
+            LaunchResult::CoreNotInstalled { name, path } => Some(format!(
+                "RetroArch core {} was not found at {}. Install the core and try again.",
+                name, path
+            )),
         }
     }
 }
@@ -375,6 +424,247 @@ mod tests {
             .platform_defaults
             .insert("gba".to_string(), "mgba".to_string());
         EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+    }
+
+    #[test]
+    fn build_retroarch_nes_command_uses_external_install_absolute_core_fullscreen_and_safe_rom_arg() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        let rom = dir.path().join("Super Mario Bros 世界.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "Super Mario Bros".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+
+        let command = launcher.build_command(&game).unwrap();
+
+        assert_eq!(command.executable, executable.to_string_lossy().into_owned());
+        assert_eq!(command.args[0], "--fullscreen");
+        assert_eq!(command.args[1], "-L");
+        assert_eq!(command.args[2], core.to_string_lossy().into_owned());
+        assert_eq!(command.args[3], rom.to_string_lossy().into_owned());
+        assert_eq!(command.args.len(), 4);
+        assert_eq!(command.core_name.as_deref(), core.to_str());
+        assert!(command.full_command.contains("--fullscreen"));
+    }
+
+    #[test]
+    fn build_retroarch_command_normalizes_relative_external_install() {
+        let dir = tempfile::tempdir_in(".").unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+
+        let command = launcher.build_command(&game).unwrap();
+        let expected_executable = std::env::current_dir().unwrap().join(&executable);
+        let expected_core = expected_executable
+            .parent()
+            .unwrap()
+            .join("cores")
+            .join("fceumm_libretro.dll");
+
+        assert_eq!(
+            command.executable,
+            expected_executable.to_string_lossy().into_owned()
+        );
+        assert_eq!(command.core_name.as_deref(), expected_core.to_str());
+    }
+
+    #[test]
+    fn build_command_prefers_valid_file_path_over_stale_local_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid_rom = dir.path().join("Super Mario Bros 世界.gba");
+        let stale_path = dir.path().join("stale.gba");
+        fs::write(&valid_rom, b"rom").unwrap();
+
+        let mut game = Game::new(
+            "Super Mario Bros".to_string(),
+            valid_rom.to_string_lossy().into_owned(),
+            "gba".to_string(),
+        );
+        game.local_file_path = Some(stale_path.to_string_lossy().into_owned());
+
+        let command = test_launcher().build_command(&game).unwrap();
+
+        assert_eq!(
+            command.rom_path,
+            valid_rom.to_string_lossy().into_owned()
+        );
+        assert_eq!(command.args.last().map(String::as_str), valid_rom.to_str());
+    }
+
+    #[test]
+    fn build_retroarch_nes_command_uses_managed_layout_and_per_game_default_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir
+            .path()
+            .join("emulators")
+            .join("retroarch")
+            .join("RetroArch")
+            .join("retroarch.exe");
+        let core = executable
+            .parent()
+            .unwrap()
+            .join("cores")
+            .join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        let db = Database::open_in_memory().unwrap();
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        db.set_emulator_for_game(game.id, "retroarch", None)
+            .unwrap();
+
+        let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+
+        assert_eq!(command.core_name.as_deref(), core.to_str());
+        assert_eq!(
+            command.args,
+            vec![
+                "--fullscreen".to_string(),
+                "-L".to_string(),
+                core.to_string_lossy().into_owned(),
+                rom.to_string_lossy().into_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_retroarch_core_selection_cannot_escape_cores_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let rom = dir.path().join("game.nes");
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        let db = Database::open_in_memory().unwrap();
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        db.set_emulator_for_game(game.id, "retroarch", Some("../../outside.dll"))
+            .unwrap();
+
+        let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+        let expected = dir.path().join("cores").join("outside.dll");
+
+        assert_eq!(command.core_name.as_deref(), expected.to_str());
+    }
+
+    #[tokio::test]
+    async fn missing_retroarch_core_returns_without_running_callback() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let rom = dir.path().join("game.nes");
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(&result, LaunchResult::CoreNotInstalled { .. }));
+        assert!(!running.load(Ordering::SeqCst));
+        assert!(result.error_message().unwrap().contains("Install the core"));
+    }
+
+    #[tokio::test]
+    async fn non_file_retroarch_executable_returns_without_running_callback() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(&executable).unwrap();
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable);
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(&result, LaunchResult::EmulatorNotInstalled { .. }));
+        assert!(!running.load(Ordering::SeqCst));
     }
 
     #[test]

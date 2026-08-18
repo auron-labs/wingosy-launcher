@@ -11,7 +11,7 @@ use crate::api::{
 use crate::config::{AppConfig, UpdateChannel};
 use crate::database::Database;
 use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
-use crate::emulators::detection::{detect_installed_emulators, find_retroarch_cores};
+use crate::emulators::detection::detect_installed_emulators;
 use crate::models::{
     default_emulators, retroarch_cores, Collection, Game, GameFilter, GameSort, GameSource,
     Platform,
@@ -56,15 +56,7 @@ fn retroarch_core_installed_for_platform(retroarch_exe: &Path, platform_id: &str
     let Some(dll) = retroarch_cores().get(platform_id).copied() else {
         return false;
     };
-    let core_filename = dll.to_string();
-    let pb = retroarch_exe.to_path_buf();
-    let installed = find_retroarch_cores(&pb);
-    installed.iter().any(|c| {
-        c.path
-            .file_name()
-            .map(|n| n.to_string_lossy() == core_filename)
-            .unwrap_or(false)
-    })
+    crate::emulators::cores::is_core_installed(retroarch_exe, dll)
 }
 
 fn retroarch_has_core_ready_for_platform(platform_id: &str) -> Result<bool, String> {
@@ -2525,10 +2517,7 @@ pub async fn download_retroarch_core(core_name: String) -> Result<String, String
     let retroarch_path = config.emulators.retroarch
         .ok_or("RetroArch not configured")?;
     
-    let cores_dir = crate::emulators::cores::get_cores_dir(&retroarch_path);
-    tracing::debug!("[RetroArch] Cores directory: {:?}", cores_dir);
-    
-    let core_path = crate::emulators::cores::download_core(&core_name, &cores_dir).await
+    let core_path = crate::emulators::cores::download_core(&core_name, &retroarch_path).await
         .map_err(|e| {
             tracing::error!("[RetroArch] Core download failed: {}", e);
             e.to_string()
@@ -2550,24 +2539,17 @@ pub async fn get_missing_cores() -> Result<Vec<MissingCore>, String> {
     
     let platforms = db.get_platforms_with_games().map_err(|e| e.to_string())?;
     let cores_map = retroarch_cores();
-    let installed_cores = find_retroarch_cores(retroarch_path);
-    
     let mut missing = Vec::new();
     
     for (platform, count) in platforms {
         if count == 0 { continue; }
         
         if let Some(core_dll) = cores_map.get(&platform.id).copied() {
-            let core_filename = core_dll.to_string();
-            let is_installed = installed_cores.iter().any(|c| {
-                c.path.file_name()
-                    .map(|n| n.to_string_lossy() == core_filename)
-                    .unwrap_or(false)
-            });
-            
+            let is_installed = crate::emulators::cores::is_core_installed(retroarch_path, core_dll);
+
             if !is_installed {
                 missing.push(MissingCore {
-                    core_filename,
+                    core_filename: core_dll.to_string(),
                     platform_name: platform.name,
                 });
             }

@@ -59,7 +59,7 @@ pub fn default_emulators() -> Vec<Emulator> {
             name: "RetroArch".into(),
             executable_path: None,
             supported_platforms: vec!["*".into()],
-            launch_args: vec![],
+            launch_args: vec!["--fullscreen".into()],
             rom_arg: "{rom}".into(),
             core_name: None,
             is_retroarch: true,
