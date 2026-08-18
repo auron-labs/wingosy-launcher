@@ -26,7 +26,7 @@ export default function Library({
   error,
   onDismissError,
 }) {
-  const { getProgress } = useRomDownloads();
+  const { getProgress, getLaunchProgress } = useRomDownloads();
 
   return (
     <Box sx={{ p: 3 }}>
@@ -158,6 +158,7 @@ export default function Library({
               onToggleFavorite={() => onToggleFavorite(game.id)}
               onLaunch={() => onLaunchGame(game.id)}
               downloadProgress={getProgress(game.id)}
+              launchProgress={getLaunchProgress(game.id)}
             />
           ))}
         </Box>

@@ -15,6 +15,7 @@ const RomDownloadsContext = createContext({
   activeDownloads: [],
   recentDownloads: [],
   getProgress: (_gameId) => null,
+  getLaunchProgress: (_gameId) => null,
   activeCount: 0,
 });
 
@@ -44,6 +45,7 @@ export function formatDownloadLabel(progress) {
 export function RomDownloadsProvider({ children }) {
   const [activeByGameId, setActiveByGameId] = useState({});
   const [recentDownloads, setRecentDownloads] = useState([]);
+  const [launchProgressByGameId, setLaunchProgressByGameId] = useState({});
   const activeRef = useRef({});
 
   useEffect(() => {
@@ -162,6 +164,25 @@ export function RomDownloadsProvider({ children }) {
           ].slice(0, 25)
         );
       });
+
+      await safeListen("game-launch-progress", (event) => {
+        const progress = event.payload || {};
+        if (progress.game_id == null) return;
+        const terminal = progress.stage === "completion" || progress.stage === "failure";
+        setLaunchProgressByGameId((prev) => ({
+          ...prev,
+          [progress.game_id]: {
+            gameId: progress.game_id,
+            gameName: progress.game_name || `Game #${progress.game_id}`,
+            stage: progress.stage,
+            error: progress.error || null,
+            downloaded: progress.downloaded,
+            total: progress.total,
+            percent: progress.percent,
+            active: !terminal,
+          },
+        }));
+      });
     })();
 
     return () => {
@@ -180,15 +201,27 @@ export function RomDownloadsProvider({ children }) {
     [activeByGameId]
   );
 
+  const getLaunchProgress = useCallback(
+    (gameId) => launchProgressByGameId[gameId] ?? null,
+    [launchProgressByGameId]
+  );
+
   const value = useMemo(
     () => ({
       activeByGameId,
       activeDownloads,
       recentDownloads,
       getProgress,
+      getLaunchProgress,
       activeCount: activeDownloads.length,
     }),
-    [activeByGameId, activeDownloads, recentDownloads, getProgress]
+    [
+      activeByGameId,
+      activeDownloads,
+      recentDownloads,
+      getProgress,
+      getLaunchProgress,
+    ]
   );
 
   return (

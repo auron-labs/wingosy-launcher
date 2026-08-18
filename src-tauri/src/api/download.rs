@@ -409,6 +409,38 @@ mod tests {
         assert!(!destination.with_file_name("cached.rom.partial").exists());
     }
 
+    #[tokio::test]
+    async fn atomic_download_retry_recovers_after_validation_failure() {
+        let temp = tempdir().unwrap();
+        let destination = temp.path().join("retry.rom");
+        let body = b"retryable rom";
+        let (first_url, first_server, _) = serve_once(body, None).await;
+
+        let first_error = DownloadManager::new()
+            .download_file_atomic(&first_url, &destination, None, Some(99), |_| {})
+            .await
+            .unwrap_err();
+
+        first_server.await.unwrap();
+        assert!(first_error.to_string().contains("size mismatch"));
+        assert!(!destination.exists());
+
+        let (second_url, second_server, _) = serve_once(body, None).await;
+        DownloadManager::new()
+            .download_file_atomic(
+                &second_url,
+                &destination,
+                None,
+                Some(body.len() as u64),
+                |_| {},
+            )
+            .await
+            .unwrap();
+
+        second_server.await.unwrap();
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), body);
+    }
+
     #[test]
     fn test_format_size_bytes() {
         assert_eq!(DownloadProgress::format_size(0), "0 B");

@@ -95,6 +95,7 @@ function App() {
   const startupUpdateCheckDone = useRef(false);
   const rommSessionRestoreStarted = useRef(false);
   const gamesRequestId = useRef(0);
+  const launchInFlightRef = useRef(new Set());
 
   useEffect(() => {
     checkFirstRun();
@@ -215,6 +216,10 @@ function App() {
       });
       if (requestId === gamesRequestId.current) {
         setGames(gamesData);
+        setSelectedGame((current) => {
+          if (!current) return current;
+          return gamesData.find((game) => game.id === current.id) || current;
+        });
       }
     } catch (err) {
       console.error("Failed to refresh games:", err);
@@ -295,6 +300,8 @@ function App() {
   }
 
   async function handleLaunchGame(gameId) {
+    if (launchInFlightRef.current.has(gameId)) return null;
+    launchInFlightRef.current.add(gameId);
     try {
       const result = await invoke("prepare_and_launch_game", { gameId });
       
@@ -307,8 +314,12 @@ function App() {
       if (!result.dry_run) {
         await refreshGames();
       }
+      return result;
     } catch (err) {
       setError(err.message || String(err));
+      return null;
+    } finally {
+      launchInFlightRef.current.delete(gameId);
     }
   }
 

@@ -43,7 +43,7 @@ function getCoverSrc(coverPath) {
   return coverPath;
 }
 
-export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, downloadProgress }) {
+export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, downloadProgress, launchProgress }) {
   const [imgError, setImgError] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const { colors } = useAppTheme();
@@ -53,7 +53,10 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
 
   const isRemoteOnly = game.sync_state === "remote_only" || game.sync_state === "RemoteOnly";
   const hasLocalFile = game.local_file_path && game.local_file_path.length > 0;
-  const canPlay = hasLocalFile || (!isRemoteOnly && game.source !== "RomM");
+  const canPlay = hasLocalFile || game.source !== "RomM" || Boolean(game.romm_id);
+  const launchActive = Boolean(launchProgress?.active);
+  const downloadActive = Boolean(downloadProgress);
+  const visibleProgress = launchActive ? launchProgress : downloadProgress;
 
   const platformSlug = platformBadgeLabel(game.platform_id);
 
@@ -247,7 +250,7 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
           )}
         </Box>
 
-        {downloadProgress ? (
+        {visibleProgress ? (
           <Box
             sx={{
               position: "absolute",
@@ -258,10 +261,10 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
               pointerEvents: "none",
             }}
           >
-            {downloadProgress.percent != null ? (
+            {visibleProgress.percent != null ? (
               <LinearProgress
                 variant="determinate"
-                value={downloadProgress.percent}
+                value={visibleProgress.percent}
                 sx={{ height: 5, borderRadius: 0 }}
               />
             ) : (
@@ -316,6 +319,7 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
                   e.stopPropagation();
                   onLaunch();
                 }}
+                disabled={launchActive || downloadActive}
                 sx={{
                   bgcolor: colors.primary,
                   color: "#fff",

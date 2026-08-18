@@ -90,6 +90,21 @@ function formatLastPlayed(iso) {
   }
 }
 
+function launchStageLabel(stage) {
+  switch (stage) {
+    case "resolving": return "Resolving RomM session...";
+    case "downloading": return "Downloading ROM...";
+    case "validating": return "Validating ROM...";
+    case "finalizing": return "Finalizing local copy...";
+    case "save_sync": return "Synchronizing saves...";
+    case "launching": return "Launching emulator...";
+    case "running": return "Emulator running";
+    case "completion": return "Launch complete";
+    case "failure": return "Launch failed";
+    default: return "Preparing game...";
+  }
+}
+
 export default function GameDetails({
   game,
   platforms,
@@ -100,10 +115,14 @@ export default function GameDetails({
   rommToken,
   rommUrl,
 }) {
-  const { getProgress } = useRomDownloads();
+  const { getProgress, getLaunchProgress } = useRomDownloads();
   const romDl = getProgress(game.id);
+  const launchProgress = getLaunchProgress(game.id);
   const [downloading, setDownloading] = useState(false);
   const downloadInFlightRef = useRef(false);
+  const [launching, setLaunching] = useState(false);
+  const launchInFlightRef = useRef(false);
+  const [launchError, setLaunchError] = useState(null);
   const [downloadStatus, setDownloadStatus] = useState(null);
   const [saves, setSaves] = useState([]);
   const [savesLoaded, setSavesLoaded] = useState(false);
@@ -173,19 +192,39 @@ export default function GameDetails({
     playHours > 0 ? `${playHours}h ${playMins}m` : `${playMins}m`;
 
   // Check if ROM is available locally
-  const isRemoteOnly = (game.sync_state === "remote_only" || game.sync_state === "RemoteOnly") && !justDownloaded;
   const hasLocalFile = (game.local_file_path && game.local_file_path.length > 0) || justDownloaded;
   const isSynced = game.sync_state === "synced" || game.sync_state === "Synced";
   const isLocalGame = !game.romm_id && game.source !== "RomM";
   // Can play if: has local file, is synced, is a local game, or not remote-only
-  const canPlay = hasLocalFile || isSynced || isLocalGame || !isRemoteOnly;
+  const canPlay = hasLocalFile || isSynced || isLocalGame || Boolean(game.romm_id);
   const canDownload = game.romm_id && rommToken && rommUrl;
+  const launchActive = launching || Boolean(launchProgress?.active);
+  const downloadActive = downloading || Boolean(romDl);
+  const visibleLaunchProgress = launching && launchProgress?.stage === "failure" ? null : launchProgress;
   
   const coverSrc = getCoverSrc(game.cover_path);
   const showCover = coverSrc && !imgError;
 
+  async function handleLaunchGame() {
+    if (launchInFlightRef.current || downloadActive) return;
+    launchInFlightRef.current = true;
+    setLaunching(true);
+    setLaunchError(null);
+    try {
+      const result = await onLaunch(game.id);
+      if (result && !result.success) {
+        setLaunchError(result.error || "Unable to launch game");
+      }
+    } catch (err) {
+      setLaunchError(err.message || String(err));
+    } finally {
+      launchInFlightRef.current = false;
+      setLaunching(false);
+    }
+  }
+
   async function handleDownloadRom() {
-    if (downloadInFlightRef.current || !rommToken || !rommUrl) return;
+    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
     downloadInFlightRef.current = true;
     try {
       setDownloading(true);
@@ -319,6 +358,7 @@ export default function GameDetails({
 
   // Game Actions handlers
   async function handleDeleteDownload() {
+    if (launchActive) return;
     try {
       setDeleteDialogOpen(false);
       setMenuAnchor(null);
@@ -762,13 +802,14 @@ export default function GameDetails({
 
         {/* Play and/or Download buttons */}
         <Box sx={{ display: "flex", gap: 2, mb: 4, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Show Play button if ROM is available locally */}
+          {/* Remote RomM games prepare their ROM as part of Play. */}
           {canPlay && (
             <Button
               variant="contained"
               size="large"
               startIcon={<PlayArrowIcon />}
-              onClick={() => onLaunch(game.id)}
+              onClick={handleLaunchGame}
+              disabled={launchActive || downloadActive}
               sx={{
                 px: 5,
                 py: 1.5,
@@ -776,12 +817,12 @@ export default function GameDetails({
                 borderRadius: 3,
               }}
             >
-              Play
+              {launchActive ? "Preparing..." : "Play"}
             </Button>
           )}
 
-          {/* Show Download button for RomM games that aren't downloaded */}
-          {game.romm_id && !canPlay && (
+          {/* Keep manual Download available for remote-only games. */}
+          {game.romm_id && !hasLocalFile && (
             <Tooltip 
               title={!rommToken || !rommUrl ? "Connect to RomM server in Settings to download" : ""}
               arrow
@@ -792,7 +833,7 @@ export default function GameDetails({
                   size="large"
                   startIcon={downloading ? null : <CloudDownloadIcon />}
                   onClick={handleDownloadRom}
-                  disabled={downloading || !rommToken || !rommUrl}
+                  disabled={downloading || launchActive || !rommToken || !rommUrl}
                   sx={{
                     px: 5,
                     py: 1.5,
@@ -807,13 +848,13 @@ export default function GameDetails({
           )}
 
           {/* Show Re-download option for already downloaded RomM games */}
-          {canDownload && canPlay && (
+          {canDownload && hasLocalFile && (
             <Button
               variant="outlined"
               size="small"
               startIcon={downloading ? null : <CloudDownloadIcon />}
               onClick={handleDownloadRom}
-              disabled={downloading}
+              disabled={downloading || launchActive}
               color="secondary"
               sx={{
                 borderRadius: 3,
@@ -823,6 +864,36 @@ export default function GameDetails({
             </Button>
           )}
         </Box>
+
+        {(visibleLaunchProgress || launchError) && (
+          <Box sx={{ mb: 2 }}>
+            <Alert
+              severity={visibleLaunchProgress?.stage === "failure" || launchError ? "error" : visibleLaunchProgress?.stage === "completion" ? "success" : "info"}
+              action={visibleLaunchProgress?.stage === "failure" || launchError ? (
+                <Button color="inherit" size="small" onClick={handleLaunchGame} disabled={launchActive || downloadActive}>
+                  Retry
+                </Button>
+              ) : undefined}
+            >
+              {visibleLaunchProgress ? launchStageLabel(visibleLaunchProgress.stage) : "Launch failed"}
+              {(visibleLaunchProgress?.error || launchError) ? ` ${visibleLaunchProgress?.error || launchError}` : ""}
+            </Alert>
+            {visibleLaunchProgress?.stage === "downloading" && (
+              <Box sx={{ mt: 1 }}>
+                {visibleLaunchProgress.percent != null ? (
+                  <LinearProgress variant="determinate" value={visibleLaunchProgress.percent} sx={{ borderRadius: 2 }} />
+                ) : (
+                  <LinearProgress sx={{ borderRadius: 2 }} />
+                )}
+                {visibleLaunchProgress.downloaded != null ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                    {formatDownloadLabel(visibleLaunchProgress)}
+                  </Typography>
+                ) : null}
+              </Box>
+            )}
+          </Box>
+        )}
         
         {downloading && (
           <Box sx={{ mb: 2 }}>

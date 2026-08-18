@@ -4,12 +4,18 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::api::{RomMClient, download::DownloadManager};
+use crate::api::{
+    download::{DownloadManager, DownloadProgress},
+    RomMClient,
+};
 use crate::config::{AppConfig, UpdateChannel};
 use crate::database::Database;
 use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::emulators::detection::{detect_installed_emulators, find_retroarch_cores};
-use crate::models::{Game, Platform, Collection, GameFilter, GameSort, default_emulators, retroarch_cores};
+use crate::models::{
+    default_emulators, retroarch_cores, Collection, Game, GameFilter, GameSort, GameSource,
+    Platform,
+};
 use crate::scanner::RomScanner;
 
 /// Path saved in config (e.g. after install or browse) counts as installed when detection missed it.
@@ -365,6 +371,9 @@ pub struct LaunchGameResult {
 #[serde(rename_all = "snake_case")]
 enum LaunchStage {
     Resolving,
+    Downloading,
+    Validating,
+    Finalizing,
     SaveSync,
     Launching,
     Running,
@@ -376,7 +385,10 @@ impl LaunchStage {
     fn can_transition_to(self, next: Self) -> bool {
         matches!(
             (self, next),
-            (Self::Resolving, Self::SaveSync | Self::Failure)
+            (Self::Resolving, Self::Downloading | Self::SaveSync | Self::Failure)
+                | (Self::Downloading, Self::Downloading | Self::Validating | Self::Failure)
+                | (Self::Validating, Self::Finalizing | Self::Failure)
+                | (Self::Finalizing, Self::SaveSync | Self::Failure)
                 | (Self::SaveSync, Self::Launching | Self::Completion | Self::Failure)
                 | (Self::Launching, Self::Running | Self::Completion | Self::Failure)
                 | (Self::Running, Self::SaveSync | Self::Completion | Self::Failure)
@@ -390,6 +402,9 @@ struct LaunchProgressEvent {
     game_name: String,
     stage: LaunchStage,
     error: Option<String>,
+    downloaded: Option<u64>,
+    total: Option<u64>,
+    percent: Option<u8>,
 }
 
 static ACTIVE_GAME_IDS: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
@@ -427,11 +442,28 @@ fn launch_progress_event(
     stage: LaunchStage,
     error: Option<&str>,
 ) -> LaunchProgressEvent {
+    launch_progress_event_with_metrics(game_id, game_name, stage, error, None)
+}
+
+fn launch_progress_event_with_metrics(
+    game_id: i64,
+    game_name: &str,
+    stage: LaunchStage,
+    error: Option<&str>,
+    metrics: Option<&DownloadProgress>,
+) -> LaunchProgressEvent {
+    let downloaded = metrics.map(|progress| progress.downloaded);
+    let total = metrics.and_then(|progress| progress.total);
+    let percent = metrics.and_then(|progress| progress.percent);
+
     LaunchProgressEvent {
         game_id,
         game_name: game_name.to_string(),
         stage,
         error: error.map(str::to_string),
+        downloaded,
+        total,
+        percent,
     }
 }
 
@@ -443,8 +475,28 @@ fn emit_launch_progress(
     stage: LaunchStage,
     error: Option<&str>,
 ) -> Option<LaunchStage> {
+    emit_launch_progress_with_metrics(
+        app,
+        game_id,
+        game_name,
+        previous_stage,
+        stage,
+        error,
+        None,
+    )
+}
+
+fn emit_launch_progress_with_metrics(
+    app: Option<&AppHandle>,
+    game_id: i64,
+    game_name: &str,
+    previous_stage: Option<LaunchStage>,
+    stage: LaunchStage,
+    error: Option<&str>,
+    metrics: Option<&DownloadProgress>,
+) -> Option<LaunchStage> {
     if let Some(previous) = previous_stage {
-        if !previous.can_transition_to(stage) {
+        if previous != stage && !previous.can_transition_to(stage) {
             tracing::warn!(
                 "[Launch] Ignoring invalid progress transition: {:?} -> {:?}",
                 previous,
@@ -459,7 +511,13 @@ fn emit_launch_progress(
     };
     if let Err(e) = app.emit(
         "game-launch-progress",
-        launch_progress_event(game_id, game_name, stage, error),
+        launch_progress_event_with_metrics(
+            game_id,
+            game_name,
+            stage,
+            error,
+            metrics,
+        ),
     ) {
         tracing::warn!("[Launch] Failed to emit progress: {e}");
     }
@@ -496,6 +554,78 @@ fn failed_launch_result(error: String) -> LaunchGameResult {
     }
 }
 
+struct PreparedRom {
+    game: Game,
+    expected_size: Option<u64>,
+}
+
+fn fill_expected_size(
+    mut progress: DownloadProgress,
+    expected_size: Option<u64>,
+) -> DownloadProgress {
+    if progress.total.is_none() {
+        progress.total = expected_size;
+        if progress.percent.is_none() {
+            progress.percent = expected_size.and_then(|total| {
+                (total > 0).then(|| {
+                    (progress.downloaded as f64 / total as f64 * 100.0).min(100.0) as u8
+                })
+            });
+        }
+    }
+    progress
+}
+
+async fn prepare_remote_rom<F>(
+    db: &Database,
+    config: &AppConfig,
+    game: &Game,
+    server_url: &str,
+    token: &str,
+    progress_callback: F,
+) -> Result<PreparedRom, String>
+where
+    F: Fn(DownloadProgress) + Send + 'static,
+{
+    let romm_id = game.romm_id.ok_or("Game has no RomM ID")?;
+    let client = RomMClient::new(server_url).with_token(token.to_string());
+    let rom = client.get_rom(romm_id).await.map_err(|e| e.to_string())?;
+    let expected_size = (rom.fs_size_bytes > 0).then_some(rom.fs_size_bytes as u64);
+    let file_name = if rom.fs_name.is_empty() {
+        rom.name.clone()
+    } else {
+        rom.fs_name.clone()
+    };
+    let dest_dir = config.roms_dir().join(&game.platform_id);
+    let dest_path = dest_dir.join(ensure_rom_extension(&file_name, &game.platform_id));
+    let download_url = client.rom_download_url(romm_id, &file_name);
+
+    DownloadManager::new()
+        .download_file_atomic(
+            &download_url,
+            &dest_path,
+            Some(token),
+            expected_size,
+            move |progress| progress_callback(fill_expected_size(progress, expected_size)),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut updated_game = game.clone();
+    updated_game.local_file_path = Some(dest_path.to_string_lossy().into_owned());
+    updated_game.sync_state = crate::models::SyncState::Synced;
+    db.update_game(&updated_game).map_err(|e| e.to_string())?;
+    let updated_game = db
+        .get_game(game.id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game disappeared after ROM preparation")?;
+
+    Ok(PreparedRom {
+        game: updated_game,
+        expected_size,
+    })
+}
+
 #[tauri::command]
 pub async fn launch_game(game_id: i64) -> Result<LaunchGameResult, String> {
     run_launch_pipeline(game_id, None).await
@@ -530,7 +660,7 @@ async fn run_launch_pipeline(
         }
     };
 
-    let game = match db.get_game(game_id) {
+    let mut game = match db.get_game(game_id) {
         Ok(Some(game)) => game,
         Ok(None) => {
             let error = emit_launch_failure(app.as_ref(), game_id, "", None, "Game not found");
@@ -556,7 +686,167 @@ async fn run_launch_pipeline(
         LaunchStage::Resolving,
         None,
     );
-    if let Err(e) = EmulatorLauncher::resolve_rom_path(&game) {
+
+    let needs_remote_preparation = game.source == GameSource::RomM
+        && game.romm_id.is_some()
+        && EmulatorLauncher::resolve_rom_path(&game).is_err();
+
+    if needs_remote_preparation {
+        if app.is_none() {
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                "Remote ROM preparation requires the desktop launch pipeline",
+            );
+            return Ok(failed_launch_result(error));
+        }
+
+        let session = match restore_romm_session().await {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                let error = emit_launch_failure(
+                    app.as_ref(),
+                    game.id,
+                    &game.name,
+                    previous_stage,
+                    "No saved RomM session is available",
+                );
+                return Ok(failed_launch_result(error));
+            }
+            Err(error) => {
+                let error = emit_launch_failure(
+                    app.as_ref(),
+                    game.id,
+                    &game.name,
+                    previous_stage,
+                    error,
+                );
+                return Ok(failed_launch_result(error));
+            }
+        };
+
+        config = match AppConfig::load() {
+            Ok(config) => config,
+            Err(error) => {
+                let error = emit_launch_failure(
+                    app.as_ref(),
+                    game.id,
+                    &game.name,
+                    previous_stage,
+                    error.to_string(),
+                );
+                return Ok(failed_launch_result(error));
+            }
+        };
+
+        previous_stage = emit_launch_progress(
+            app.as_ref(),
+            game.id,
+            &game.name,
+            previous_stage,
+            LaunchStage::Downloading,
+            None,
+        );
+        let download_app = app.clone();
+        let download_game_id = game.id;
+        let download_game_name = game.name.clone();
+        let prepared = {
+            let _download_activity = match crate::storage::begin_rom_download() {
+                Ok(activity) => activity,
+                Err(error) => {
+                    let error = emit_launch_failure(
+                        app.as_ref(),
+                        game.id,
+                        &game.name,
+                        previous_stage,
+                        error,
+                    );
+                    return Ok(failed_launch_result(error));
+                }
+            };
+            prepare_remote_rom(
+                &db,
+                &config,
+                &game,
+                &session.server_url,
+                &session.access_token,
+                move |progress| {
+                    let _ = emit_launch_progress_with_metrics(
+                        download_app.as_ref(),
+                        download_game_id,
+                        &download_game_name,
+                        Some(LaunchStage::Downloading),
+                        LaunchStage::Downloading,
+                        None,
+                        Some(&progress),
+                    );
+                },
+            )
+            .await
+        };
+
+        let prepared = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let error = emit_launch_failure(
+                    app.as_ref(),
+                    game.id,
+                    &game.name,
+                    previous_stage,
+                    error,
+                );
+                return Ok(failed_launch_result(error));
+            }
+        };
+
+        let downloaded = prepared
+            .game
+            .local_file_path
+            .as_deref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let percent = prepared.expected_size.and_then(|total| {
+            (total > 0).then(|| (downloaded as f64 / total as f64 * 100.0).min(100.0) as u8)
+        });
+        let download_progress = DownloadProgress {
+            downloaded,
+            total: prepared.expected_size,
+            percent,
+        };
+        previous_stage = emit_launch_progress_with_metrics(
+            app.as_ref(),
+            game.id,
+            &game.name,
+            previous_stage,
+            LaunchStage::Validating,
+            None,
+            Some(&download_progress),
+        );
+
+        game = prepared.game;
+        if let Err(error) = EmulatorLauncher::resolve_rom_path(&game) {
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                error.to_string(),
+            );
+            return Ok(failed_launch_result(error));
+        }
+
+        previous_stage = emit_launch_progress(
+            app.as_ref(),
+            game.id,
+            &game.name,
+            previous_stage,
+            LaunchStage::Finalizing,
+            None,
+        );
+    } else if let Err(e) = EmulatorLauncher::resolve_rom_path(&game) {
         let error = emit_launch_failure(
             app.as_ref(),
             game.id,
@@ -1343,29 +1633,10 @@ pub async fn download_rom(
     
     let game = db.get_game(game_id).map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
-    let romm_id = game.romm_id.ok_or("Game has no RomM ID")?;
-    tracing::debug!("[Download] Game: {} (romm_id={})", game.name, romm_id);
-    
-    let client = RomMClient::new(&server_url).with_token(token.clone());
-    let rom = client.get_rom(romm_id).await.map_err(|e| e.to_string())?;
-    let expected_size = if rom.fs_size_bytes > 0 {
-        Some(rom.fs_size_bytes as u64)
-    } else {
-        None
-    };
+    if game.romm_id.is_none() {
+        return Err("Game has no RomM ID".to_string());
+    }
 
-    let file_name = if rom.fs_name.is_empty() { rom.name.clone() } else { rom.fs_name.clone() };
-    let download_url = client.rom_download_url(romm_id, &file_name);
-    
-    let dest_dir = config.roms_dir().join(&game.platform_id);
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    
-    // Ensure file has proper extension for the platform
-    let dest_file_name = ensure_rom_extension(&file_name, &game.platform_id);
-    let dest_path = dest_dir.join(&dest_file_name);
-    tracing::info!("[Download] Downloading to {:?}", dest_path);
-    
     let app_handle = app.clone();
     let gid = game_id;
     let _ = app_handle.emit(
@@ -1378,58 +1649,56 @@ pub async fn download_rom(
 
     let app_progress = app_handle.clone();
     let progress_game_name = game.name.clone();
-    let manager = DownloadManager::new();
-    let download_result = manager
-        .download_file_atomic(
-            &download_url,
-            &dest_path,
-            Some(&token),
-            expected_size,
-            move |p| {
-                let _ = app_progress.emit(
-                    "rom-download-progress",
-                    serde_json::json!({
-                        "game_id": gid,
-                        "game_name": progress_game_name.clone(),
-                        "downloaded": p.downloaded,
-                        "total": p.total,
-                        "percent": p.percent,
-                    }),
-                );
-            },
-        )
-        .await;
+    let download_result = prepare_remote_rom(
+        &db,
+        &config,
+        &game,
+        &server_url,
+        &token,
+        move |p| {
+            let _ = app_progress.emit(
+                "rom-download-progress",
+                serde_json::json!({
+                    "game_id": gid,
+                    "game_name": progress_game_name.clone(),
+                    "downloaded": p.downloaded,
+                    "total": p.total,
+                    "percent": p.percent,
+                }),
+            );
+        },
+    )
+    .await;
 
-    if let Err(e) = download_result {
-        let msg = e.to_string();
-        let _ = app_handle.emit(
-            "rom-download-error",
-            serde_json::json!({
-                "game_id": gid,
-                "game_name": game.name.clone(),
-                "message": msg,
-            }),
-        );
-        tracing::error!("[Download] Download failed: {}", msg);
-        return Err(msg);
-    }
-    
-    let mut updated_game = game.clone();
-    updated_game.local_file_path = Some(dest_path.to_string_lossy().to_string());
-    updated_game.sync_state = crate::models::SyncState::Synced;
-    db.update_game(&updated_game).map_err(|e| e.to_string())?;
-    
-    let dest_str = dest_path.to_string_lossy().to_string();
+    let updated_game = match download_result {
+        Ok(prepared) => prepared.game,
+        Err(msg) => {
+            let _ = app_handle.emit(
+                "rom-download-error",
+                serde_json::json!({
+                    "game_id": gid,
+                    "game_name": game.name.clone(),
+                    "message": msg,
+                }),
+            );
+            tracing::error!("[Download] Download failed: {}", msg);
+            return Err(msg);
+        }
+    };
+    let dest_str = updated_game
+        .local_file_path
+        .clone()
+        .ok_or("ROM download completed without a local path")?;
     let _ = app_handle.emit(
         "rom-download-complete",
         serde_json::json!({
             "game_id": gid,
-            "game_name": game.name,
+            "game_name": updated_game.name,
             "path": dest_str,
         }),
     );
 
-    tracing::info!("[Download] ROM download complete: {}", file_name);
+    tracing::info!("[Download] ROM download complete: {}", dest_str);
     Ok(dest_str)
 }
 
@@ -3068,6 +3337,9 @@ mod tests {
     fn launch_progress_keeps_identity_and_stage_order() {
         let stages = [
             LaunchStage::Resolving,
+            LaunchStage::Downloading,
+            LaunchStage::Validating,
+            LaunchStage::Finalizing,
             LaunchStage::SaveSync,
             LaunchStage::Launching,
             LaunchStage::Running,
@@ -3090,6 +3362,10 @@ mod tests {
         assert!(LaunchStage::Launching.can_transition_to(LaunchStage::Completion));
         assert!(LaunchStage::Launching.can_transition_to(LaunchStage::Failure));
         assert!(LaunchStage::Running.can_transition_to(LaunchStage::Failure));
+        assert!(LaunchStage::Downloading.can_transition_to(LaunchStage::Downloading));
+        assert!(LaunchStage::Downloading.can_transition_to(LaunchStage::Validating));
+        assert!(LaunchStage::Validating.can_transition_to(LaunchStage::Finalizing));
+        assert!(LaunchStage::Finalizing.can_transition_to(LaunchStage::SaveSync));
         assert!(!LaunchStage::Launching.can_transition_to(LaunchStage::SaveSync));
         assert!(!LaunchStage::Completion.can_transition_to(LaunchStage::Failure));
         assert!(!LaunchStage::Failure.can_transition_to(LaunchStage::Completion));
@@ -3108,6 +3384,33 @@ mod tests {
             serde_json::to_string(&LaunchStage::SaveSync).unwrap(),
             "\"save_sync\""
         );
+        let download = launch_progress_event_with_metrics(
+            42,
+            "Cached Game",
+            LaunchStage::Downloading,
+            None,
+            Some(&DownloadProgress {
+                downloaded: 512,
+                total: Some(1024),
+                percent: Some(50),
+            }),
+        );
+        assert_eq!(download.downloaded, Some(512));
+        assert_eq!(download.total, Some(1024));
+        assert_eq!(download.percent, Some(50));
+        let indeterminate = launch_progress_event_with_metrics(
+            42,
+            "Cached Game",
+            LaunchStage::Downloading,
+            None,
+            Some(&DownloadProgress {
+                downloaded: 512,
+                total: None,
+                percent: None,
+            }),
+        );
+        assert_eq!(indeterminate.total, None);
+        assert_eq!(indeterminate.percent, None);
         assert!(events
             .iter()
             .all(|event| event.game_id == 42 && event.game_name == "Cached Game"));
@@ -3120,6 +3423,42 @@ mod tests {
         );
         assert_eq!(failure.error.as_deref(), Some("missing ROM"));
         assert_eq!(failure.game_id, 42);
+    }
+
+    #[test]
+    fn download_progress_uses_expected_size_only_when_header_values_are_missing() {
+        let fallback = fill_expected_size(
+            DownloadProgress {
+                downloaded: 512,
+                total: None,
+                percent: None,
+            },
+            Some(1024),
+        );
+        assert_eq!(fallback.total, Some(1024));
+        assert_eq!(fallback.percent, Some(50));
+
+        let header = fill_expected_size(
+            DownloadProgress {
+                downloaded: 512,
+                total: Some(2048),
+                percent: Some(25),
+            },
+            Some(1024),
+        );
+        assert_eq!(header.total, Some(2048));
+        assert_eq!(header.percent, Some(25));
+
+        let unknown = fill_expected_size(
+            DownloadProgress {
+                downloaded: 512,
+                total: None,
+                percent: None,
+            },
+            None,
+        );
+        assert_eq!(unknown.total, None);
+        assert_eq!(unknown.percent, None);
     }
 
     #[test]
