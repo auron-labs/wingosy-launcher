@@ -1061,7 +1061,12 @@ pub async fn download_rom(
     
     let client = RomMClient::new(&server_url).with_token(token.clone());
     let rom = client.get_rom(romm_id).await.map_err(|e| e.to_string())?;
-    
+    let expected_size = if rom.fs_size_bytes > 0 {
+        Some(rom.fs_size_bytes as u64)
+    } else {
+        None
+    };
+
     let file_name = if rom.fs_name.is_empty() { rom.name.clone() } else { rom.fs_name.clone() };
     let download_url = client.rom_download_url(romm_id, &file_name);
     
@@ -1087,18 +1092,24 @@ pub async fn download_rom(
     let progress_game_name = game.name.clone();
     let manager = DownloadManager::new();
     let download_result = manager
-        .download_file(&download_url, &dest_path, Some(&token), move |p| {
-            let _ = app_progress.emit(
-                "rom-download-progress",
-                serde_json::json!({
-                    "game_id": gid,
-                    "game_name": progress_game_name.clone(),
-                    "downloaded": p.downloaded,
-                    "total": p.total,
-                    "percent": p.percent,
-                }),
-            );
-        })
+        .download_file_atomic(
+            &download_url,
+            &dest_path,
+            Some(&token),
+            expected_size,
+            move |p| {
+                let _ = app_progress.emit(
+                    "rom-download-progress",
+                    serde_json::json!({
+                        "game_id": gid,
+                        "game_name": progress_game_name.clone(),
+                        "downloaded": p.downloaded,
+                        "total": p.total,
+                        "percent": p.percent,
+                    }),
+                );
+            },
+        )
         .await;
 
     if let Err(e) = download_result {
