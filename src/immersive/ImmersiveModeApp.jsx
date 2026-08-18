@@ -32,6 +32,7 @@ export default function ImmersiveModeApp({
   const [audioCfg, setAudioCfg] = useState(null);
   const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
   const hasLoadedOnce = useRef(false);
+  const launchInFlightRef = useRef(false);
   const [showHints, setShowHints] = useState(true);
 
   // Match desktop `GameDetails` Chip: platform?.name || game.platform_id (not short_name-first / uppercase).
@@ -74,6 +75,10 @@ export default function ImmersiveModeApp({
         invoke("get_config"),
       ]);
       setGames(gamesData);
+      setSelectedGame((current) => {
+        if (!current) return current;
+        return gamesData.find((game) => game.id === current.id) || current;
+      });
       setPlatforms(platformsData);
       setDisplayCfg({
         big_picture: Boolean(cfg.display?.big_picture),
@@ -81,6 +86,7 @@ export default function ImmersiveModeApp({
       });
       setAudioCfg(cfg.audio || {});
       setRetroachievementsEnabled(Boolean(cfg.display?.retroachievements_enabled));
+      return gamesData;
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
@@ -124,28 +130,36 @@ export default function ImmersiveModeApp({
   }, [onExit, persistDisplay, setFullscreen]);
 
   const handleLaunchGame = useCallback(async (gameId) => {
+    if (launchInFlightRef.current) return null;
+    launchInFlightRef.current = true;
     try {
       const result = await invoke("prepare_and_launch_game", { gameId });
       if (!result.success && result.error) setError(result.error);
       else if (result.save_sync_warnings?.length) setError(result.save_sync_warnings.join("\n"));
       await loadData();
+      return result;
     } catch (err) {
-      setError(err?.message || String(err));
+      const message = err?.message || String(err);
+      setError(message);
+      return { success: false, error: message };
+    } finally {
+      launchInFlightRef.current = false;
     }
   }, [loadData]);
 
   useEffect(() => {
     function shouldDeferImmersiveHotkey(e) {
+      const selector = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+      if (document.querySelector(selector)) return true;
       const t = e.target;
       if (t && typeof t.closest === "function") {
-        return Boolean(
-          t.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')
-        );
+        return Boolean(t.closest(selector));
       }
       return false;
     }
 
     function onKeyDown(e) {
+      if (shouldDeferImmersiveHotkey(e)) return;
       if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
@@ -156,16 +170,8 @@ export default function ImmersiveModeApp({
         setShowHints((v) => !v);
         return;
       }
-      if (e.key === "Enter" && view === "details" && selectedGame) {
-        if (e.repeat) return;
-        if (shouldDeferImmersiveHotkey(e)) return;
-        e.preventDefault();
-        handleLaunchGame(selectedGame.id);
-        return;
-      }
       if (e.key === "Escape") {
         if (e.repeat) return;
-        if (shouldDeferImmersiveHotkey(e)) return;
         e.preventDefault();
         if (view === "details") {
           setView("library");
@@ -182,7 +188,7 @@ export default function ImmersiveModeApp({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleFullscreen, view, selectedGame, loadData, handleLaunchGame, handleExit]);
+  }, [toggleFullscreen, view, loadData, handleExit]);
 
   async function handleToggleFavorite(gameId) {
     try {
@@ -263,8 +269,8 @@ export default function ImmersiveModeApp({
         onLaunch={handleLaunchGame}
         onToggleFavorite={handleToggleFavorite}
         onGameUpdate={async (gameId) => {
-          await loadData();
-          const updated = games.find((g) => g.id === gameId);
+          const refreshedGames = await loadData();
+          const updated = refreshedGames?.find((g) => g.id === gameId);
           if (updated) setSelectedGame(updated);
         }}
         rommToken={rommToken}

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRomDownloads, formatDownloadLabel } from "../RomDownloadsContext";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -57,6 +57,29 @@ function getMediaSrc(url) {
   return url;
 }
 
+function launchStageLabel(stage) {
+  switch (stage) {
+    case "resolving": return "Preparing game...";
+    case "downloading": return "Downloading ROM...";
+    case "validating": return "Validating ROM...";
+    case "finalizing": return "Finalizing local copy...";
+    case "save_sync": return "Synchronizing saves...";
+    case "launching": return "Launching emulator...";
+    case "running": return "Emulator running";
+    case "completion": return "Launch complete";
+    case "failure": return "Launch failed";
+    default: return "Preparing game...";
+  }
+}
+
+function launchProgressLabel(progress) {
+  const downloadLabel = formatDownloadLabel(progress);
+  if (progress?.percent != null && progress.total == null) {
+    return `${progress.percent}%${downloadLabel ? ` · ${downloadLabel}` : ""}`;
+  }
+  return downloadLabel;
+}
+
 export default function ImmersiveGameDetails({
   game,
   platformLabel,
@@ -69,11 +92,18 @@ export default function ImmersiveGameDetails({
   retroachievementsEnabled = false,
 }) {
   const { colors } = useAppTheme();
-  const { getProgress } = useRomDownloads();
+  const { getProgress, getLaunchProgress } = useRomDownloads();
   const romDl = getProgress(game.id);
+  const launchProgress = getLaunchProgress(game.id);
   const [downloading, setDownloading] = useState(false);
   const downloadInFlightRef = useRef(false);
   const [downloadStatus, setDownloadStatus] = useState(null);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState(null);
+  const launchInFlightRef = useRef(false);
+  const staleLaunchProgressRef = useRef(null);
+  const playButtonRef = useRef(null);
+  const wasLaunchingRef = useRef(false);
   const [justDownloaded, setJustDownloaded] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [actionStatus, setActionStatus] = useState(null);
@@ -85,17 +115,77 @@ export default function ImmersiveGameDetails({
   const [ratingsDialogOpen, setRatingsDialogOpen] = useState(false);
   const savesSectionRef = useRef(null);
 
-  const isRemoteOnly = (game.sync_state === "remote_only" || game.sync_state === "RemoteOnly") && !justDownloaded;
   const hasLocalFile = (game.local_file_path && game.local_file_path.length > 0) || justDownloaded;
   const isSynced = game.sync_state === "synced" || game.sync_state === "Synced";
   const isLocalGame = !game.romm_id && game.source !== "RomM";
-  const canPlay = hasLocalFile || isSynced || isLocalGame || !isRemoteOnly;
+  const canPlay = hasLocalFile || isSynced || isLocalGame || Boolean(game.romm_id);
   const canDownload = game.romm_id && rommToken && rommUrl;
+  const launchActive = launching;
+  const attemptProgress = launchProgress &&
+    launchProgress !== staleLaunchProgressRef.current
+    ? launchProgress
+    : null;
+  const visibleLaunchProgress = (launching || launchError)
+    ? attemptProgress
+    : null;
+  const launchFailure = Boolean(launchError || visibleLaunchProgress?.stage === "failure");
+  const launchDialogOpen = Boolean(launching || visibleLaunchProgress || launchFailure);
+
+  const handleLaunchGame = useCallback(async () => {
+    if (launchInFlightRef.current || downloadInFlightRef.current || launchActive) return;
+    launchInFlightRef.current = true;
+    staleLaunchProgressRef.current = launchProgress;
+    setLaunching(true);
+    setLaunchError(null);
+    try {
+      const result = await onLaunch(game.id);
+      if (result && !result.success) {
+        setLaunchError(result.error || "Unable to launch game");
+      }
+    } catch (err) {
+      setLaunchError(err?.message || String(err));
+    } finally {
+      launchInFlightRef.current = false;
+      setLaunching(false);
+    }
+  }, [game.id, launchActive, launchProgress, onLaunch]);
+
+  useEffect(() => {
+    if (wasLaunchingRef.current && !launching && !launchFailure) {
+      playButtonRef.current?.focus();
+    }
+    wasLaunchingRef.current = launching;
+  }, [launchFailure, launching]);
+
+  useEffect(() => {
+    function onWindowKeyDown(e) {
+      const targetIsWindow = e.target === window || e.target?.window === e.target;
+      if (!targetIsWindow) return;
+      if (e.repeat) return;
+      if (e.key === "Enter") {
+        if (launchFailure) {
+          e.preventDefault();
+          handleLaunchGame();
+          return;
+        }
+        if (launching || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+        e.preventDefault();
+        handleLaunchGame();
+      } else if (e.key === "Escape") {
+        if (!launchFailure) return;
+        e.preventDefault();
+        onBack();
+      }
+    }
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [handleLaunchGame, launchFailure, launching, onBack]);
 
   const screenshots = Array.isArray(game.screenshot_paths) ? game.screenshot_paths : [];
 
   async function handleDownloadRom() {
-    if (downloadInFlightRef.current || !rommToken || !rommUrl) return;
+    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
     downloadInFlightRef.current = true;
     try {
       setDownloading(true);
@@ -439,17 +529,19 @@ export default function ImmersiveGameDetails({
           <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
             {canPlay && (
               <Button
+                ref={playButtonRef}
                 variant="contained"
                 size="large"
                 startIcon={<PlayArrowIcon />}
-                onClick={() => onLaunch(game.id)}
+                onClick={handleLaunchGame}
+                disabled={launchActive || downloading}
                 sx={{ borderRadius: 2, px: 4, py: 1.6, fontSize: "1.05rem", textTransform: "none", fontWeight: 700 }}
               >
-                Play
+                {launchActive ? "Preparing..." : "Play"}
               </Button>
             )}
 
-            {game.romm_id && !canPlay && (
+            {game.romm_id && !hasLocalFile && (
               <Tooltip title={!rommToken || !rommUrl ? "Connect to RomM server in Settings to download" : ""} arrow>
                 <span>
                   <Button
@@ -466,7 +558,7 @@ export default function ImmersiveGameDetails({
               </Tooltip>
             )}
 
-            {canDownload && canPlay && (
+            {canDownload && hasLocalFile && (
               <Button
                 variant="outlined"
                 size="large"
@@ -567,6 +659,47 @@ export default function ImmersiveGameDetails({
             OK
           </Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={launchDialogOpen}
+        fullWidth
+        maxWidth="sm"
+        onClose={launchFailure ? onBack : undefined}
+        aria-labelledby="immersive-launch-title"
+      >
+        <DialogTitle id="immersive-launch-title">{game.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            {launchStageLabel(visibleLaunchProgress?.stage || (launchFailure ? "failure" : "resolving"))}
+          </Typography>
+          {launchFailure ? (
+            <Alert severity="error">
+              {launchError || visibleLaunchProgress?.error || "Unable to launch game."}
+            </Alert>
+          ) : (
+            <Box>
+              <LinearProgress
+                variant={visibleLaunchProgress?.percent != null ? "determinate" : "indeterminate"}
+                value={visibleLaunchProgress?.percent ?? undefined}
+                sx={{ borderRadius: 2, height: 8 }}
+              />
+              {visibleLaunchProgress && launchProgressLabel(visibleLaunchProgress) ? (
+                <Typography variant="body1" color="text.secondary" sx={{ mt: 1 }}>
+                  {launchProgressLabel(visibleLaunchProgress)}
+                </Typography>
+              ) : null}
+            </Box>
+          )}
+        </DialogContent>
+        {launchFailure ? (
+          <DialogActions>
+            <Button onClick={onBack}>Back</Button>
+            <Button onClick={handleLaunchGame} variant="contained" autoFocus disabled={launchActive}>
+              Retry
+            </Button>
+          </DialogActions>
+        ) : null}
       </Dialog>
     </Box>
   );
