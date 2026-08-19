@@ -6,6 +6,7 @@ import { MuiTestProvider } from "../test/muiHarness";
 
 const { listen } = vi.hoisted(() => ({ listen: vi.fn() }));
 
+// These mocks provide deterministic UI/command sequencing evidence, not proof of a real emulator launch.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   convertFileSrc: (path) => path,

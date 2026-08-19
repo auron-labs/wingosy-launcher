@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import GameDetails from "./GameDetails";
 import { RomDownloadsProvider } from "../RomDownloadsContext";
 import { MuiTestProvider } from "../test/muiHarness";
@@ -11,10 +11,12 @@ afterEach(() => {
   cleanup();
   eventListeners.clear();
   delete window.__TAURI_INTERNALS__;
+  invoke.mockReset();
   listen.mockReset();
 });
 
 vi.mock("@tauri-apps/api/core", () => ({
+  // These mocks are deterministic UI/command-dispatch evidence, not proof that a real emulator process launches.
   invoke,
   convertFileSrc: (path) => path,
 }));
@@ -45,17 +47,23 @@ const remoteOnlyGame = {
   is_hidden: false,
 };
 
-function renderDetails(onLaunch = vi.fn()) {
+function renderDetails({
+  game = remoteOnlyGame,
+  onLaunch = vi.fn(),
+  onBack = vi.fn(),
+  onToggleFavorite = vi.fn(),
+  onGameUpdate = vi.fn(),
+} = {}) {
   return render(
     <MuiTestProvider>
       <RomDownloadsProvider>
         <GameDetails
-          game={remoteOnlyGame}
+          game={game}
           platforms={[]}
-          onBack={vi.fn()}
+          onBack={onBack}
           onLaunch={onLaunch}
-          onToggleFavorite={vi.fn()}
-          onGameUpdate={vi.fn()}
+          onToggleFavorite={onToggleFavorite}
+          onGameUpdate={onGameUpdate}
           rommToken="saved-token"
           rommUrl="https://romm.example"
         />
@@ -76,6 +84,46 @@ describe("GameDetails remote Play", () => {
     expect(screen.getByRole("button", { name: "Download ROM" })).toBeInTheDocument();
   });
 
+  it("downloads a ROM manually and updates the game", async () => {
+    const onGameUpdate = vi.fn();
+    renderDetails({ onGameUpdate });
+
+    fireEvent.click(screen.getByRole("button", { name: "Download ROM" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("download_rom", {
+        gameId: remoteOnlyGame.id,
+        serverUrl: "https://romm.example",
+        token: "saved-token",
+      });
+    });
+    expect(await screen.findByText("Downloaded! Ready to play.")).toBeInTheDocument();
+    expect(onGameUpdate).toHaveBeenCalledWith(remoteOnlyGame.id);
+    expect(screen.getByRole("button", { name: "Re-download" })).toBeInTheDocument();
+  });
+
+  it("deletes a cached RomM download through More options", async () => {
+    const cachedGame = {
+      ...remoteOnlyGame,
+      local_file_path: "/roms/cloud-game.gba",
+      sync_state: "synced",
+    };
+    const onGameUpdate = vi.fn();
+    renderDetails({ game: cachedGame, onGameUpdate });
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete Download" }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("delete_local_rom", { gameId: cachedGame.id });
+    });
+    expect(await screen.findByText("ROM deleted successfully")).toBeInTheDocument();
+    expect(onGameUpdate).toHaveBeenCalledWith(cachedGame.id);
+  });
+
   it("deduplicates Play activation until the preparation finishes", async () => {
     let finish = (_result) => {};
     const onLaunch = vi.fn(
@@ -83,7 +131,7 @@ describe("GameDetails remote Play", () => {
         finish = resolve;
       })
     );
-    renderDetails(onLaunch);
+    renderDetails({ onLaunch });
 
     const play = screen.getByRole("button", { name: "Play" });
     fireEvent.click(play);
@@ -101,7 +149,7 @@ describe("GameDetails remote Play", () => {
       .fn()
       .mockResolvedValueOnce({ success: false, error: "download failed" })
       .mockResolvedValueOnce({ success: true });
-    renderDetails(onLaunch);
+    renderDetails({ onLaunch });
 
     const play = screen.getByRole("button", { name: "Play" });
     fireEvent.click(play);

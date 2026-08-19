@@ -300,7 +300,7 @@ impl Database {
         conn.execute(
             r#"
             UPDATE games SET
-                last_played_at = CURRENT_TIMESTAMP,
+                last_played_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                 play_count = play_count + 1,
                 play_time_minutes = play_time_minutes + ?2,
                 updated_at = CURRENT_TIMESTAMP
@@ -673,6 +673,43 @@ mod tests {
         game.romm_id = Some(romm_id);
         game.sync_state = SyncState::RemoteOnly;
         game
+    }
+
+    #[test]
+    fn test_record_play_session_updates_play_stats_and_last_played() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+        let mut game = create_test_game("Played Game");
+        game.play_count = 2;
+        game.play_time_minutes = 41;
+        let id = db.insert_game(&game).unwrap();
+
+        db.record_play_session(id, 17).unwrap();
+
+        let game = db.get_game(id).unwrap().unwrap();
+        assert_eq!(game.play_count, 3);
+        assert_eq!(game.play_time_minutes, 58);
+        assert!(game.last_played_at.is_some());
+    }
+
+    #[test]
+    fn test_clear_local_path_preserves_romm_game_as_remote_only() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+        let mut game = create_romm_game("Cached RomM Game", 101);
+        game.local_file_path = Some("/roms/cached.gba".to_string());
+        game.sync_state = SyncState::Synced;
+        let id = db.insert_game(&game).unwrap();
+
+        db.clear_local_path(id).unwrap();
+
+        let game = db.get_game(id).unwrap().unwrap();
+        assert_eq!(game.source, GameSource::RomM);
+        assert_eq!(game.romm_id, Some(101));
+        assert!(game.local_file_path.is_none());
+        assert_eq!(game.sync_state, SyncState::RemoteOnly);
     }
 
     #[test]

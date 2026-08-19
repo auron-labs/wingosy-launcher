@@ -19,6 +19,7 @@ function dispatchControllerKey(key, { repeat = false } = {}) {
   });
 }
 
+// These mocks provide deterministic UI/command sequencing evidence, not proof of a real emulator launch.
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 vi.mock("./useFullscreen", () => ({
