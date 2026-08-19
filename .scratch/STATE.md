@@ -1,14 +1,13 @@
 # Local Issue State
 
-Generated: 2026-08-19T02:39:51Z
+Generated: 2026-08-19T03:26:51Z
 
-Tickets: 2 active, 9 resolved
+Tickets: 1 active, 10 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [transparent-romm-launching](transparent-romm-launching) | [10-emulator-certification-evidence](transparent-romm-launching/issues/10-emulator-certification-evidence.md) | — | — | ready-for-agent | 09 — Exercise the complete one-Play regression matrix. |
 | [transparent-romm-launching](transparent-romm-launching) | [11-phase-1-release-gate](transparent-romm-launching/issues/11-phase-1-release-gate.md) | — | — | ready-for-agent | 10 — Record evidence-based emulator certification. |
 
 ## Resolved Tickets
@@ -24,3 +23,4 @@ Tickets: 2 active, 9 resolved
 | [transparent-romm-launching](transparent-romm-launching) | [07-retroarch-game-boy-family](transparent-romm-launching/issues/07-retroarch-game-boy-family.md) | — | — | resolved | 05 — Establish the reliable RetroArch NES slice. |
 | [transparent-romm-launching](transparent-romm-launching) | [08-standalone-mgba-game-boy-family](transparent-romm-launching/issues/08-standalone-mgba-game-boy-family.md) | — | — | resolved | 05 — Establish the reliable RetroArch NES slice. |
 | [transparent-romm-launching](transparent-romm-launching) | [09-one-play-regression-matrix](transparent-romm-launching/issues/09-one-play-regression-matrix.md) | — | — | resolved | 04 — Enable the controller-only remote Play flow; 06 — Extend RetroArch reliability to SNES and Genesis; 07 — Extend RetroArch reliability to the Game Boy family; 08 — Make standalone mGBA reliable for the Game Boy family. |
+| [transparent-romm-launching](transparent-romm-launching) | [10-emulator-certification-evidence](transparent-romm-launching/issues/10-emulator-certification-evidence.md) | — | — | resolved | 09 — Exercise the complete one-Play regression matrix. |
