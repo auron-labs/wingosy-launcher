@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn build_retroarch_snes_and_genesis_commands_use_external_layout_and_platform_defaults() {
+    fn build_retroarch_mapped_platforms_use_external_layout_and_platform_defaults() {
         let cases = [
             ("snes", "snes9x_libretro.dll", "Super Metroid 世界.sfc"),
             (
@@ -471,6 +471,9 @@ mod tests {
                 "genesis_plus_gx_libretro.dll",
                 "Sonic the Hedgehog 世界.md",
             ),
+            ("gb", "gambatte_libretro.dll", "Pokemon Red 世界.gb"),
+            ("gbc", "gambatte_libretro.dll", "Zelda DX 世界.gbc"),
+            ("gba", "mgba_libretro.dll", "Metroid Fusion 世界.gba"),
         ];
 
         for (platform, core_name, rom_name) in cases {
@@ -621,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn build_retroarch_snes_and_genesis_commands_use_managed_layout_and_per_game_selection() {
+    fn build_retroarch_mapped_platforms_use_managed_layout_and_per_game_selection() {
         let cases = [
             ("snes", "snes9x_libretro.dll", "Chrono Trigger 世界.sfc"),
             (
@@ -629,6 +632,9 @@ mod tests {
                 "genesis_plus_gx_libretro.dll",
                 "Streets of Rage 世界.md",
             ),
+            ("gb", "gambatte_libretro.dll", "Pokemon Blue 世界.gb"),
+            ("gbc", "gambatte_libretro.dll", "Oracle of Ages 世界.gbc"),
+            ("gba", "mgba_libretro.dll", "Advance Wars 世界.gba"),
         ];
 
         for (platform, core_name, rom_name) in cases {
@@ -733,10 +739,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_retroarch_snes_and_genesis_cores_return_structured_errors_before_running() {
+    async fn missing_retroarch_mapped_platforms_return_structured_core_errors_before_running() {
         let cases = [
-            ("snes", "snes9x_libretro.dll", "game.sfc"),
-            ("genesis", "genesis_plus_gx_libretro.dll", "game.md"),
+            ("snes", "snes9x_libretro.dll", "Super Metroid 世界.sfc"),
+            (
+                "genesis",
+                "genesis_plus_gx_libretro.dll",
+                "Sonic the Hedgehog 世界.md",
+            ),
+            ("gb", "gambatte_libretro.dll", "Pokemon Red 世界.gb"),
+            ("gbc", "gambatte_libretro.dll", "Zelda DX 世界.gbc"),
+            ("gba", "mgba_libretro.dll", "Metroid Fusion 世界.gba"),
         ];
 
         for (platform, core_name, rom_name) in cases {
