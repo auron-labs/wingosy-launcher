@@ -463,6 +463,56 @@ mod tests {
     }
 
     #[test]
+    fn build_retroarch_snes_and_genesis_commands_use_external_layout_and_platform_defaults() {
+        let cases = [
+            ("snes", "snes9x_libretro.dll", "Super Metroid 世界.sfc"),
+            (
+                "genesis",
+                "genesis_plus_gx_libretro.dll",
+                "Sonic the Hedgehog 世界.md",
+            ),
+        ];
+
+        for (platform, core_name, rom_name) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let executable = dir.path().join("retroarch.exe");
+            let core = dir.path().join("cores").join(core_name);
+            let rom = dir.path().join(rom_name);
+            fs::create_dir_all(core.parent().unwrap()).unwrap();
+            fs::write(&executable, b"retroarch").unwrap();
+            fs::write(&core, b"core").unwrap();
+            fs::write(&rom, b"rom").unwrap();
+
+            let mut config = AppConfig::default();
+            config.emulators.retroarch = Some(executable.clone());
+            config
+                .emulators
+                .platform_defaults
+                .insert(platform.to_string(), "retroarch".to_string());
+            let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+            let game = Game::new(
+                format!("{platform} game"),
+                rom.to_string_lossy().into_owned(),
+                platform.to_string(),
+            );
+
+            let command = launcher.build_command(&game).unwrap();
+            let executable = executable.to_string_lossy().into_owned();
+            let core = core.to_string_lossy().into_owned();
+            let rom = rom.to_string_lossy().into_owned();
+
+            assert_eq!(command.executable, executable);
+            assert_eq!(command.emulator_id, "retroarch");
+            assert_eq!(command.core_name.as_deref(), Some(core.as_str()));
+            assert!(Path::new(&core).is_absolute());
+            assert_eq!(
+                command.args,
+                vec!["--fullscreen".to_string(), "-L".to_string(), core, rom]
+            );
+        }
+    }
+
+    #[test]
     fn build_retroarch_command_normalizes_relative_external_install() {
         let dir = tempfile::tempdir_in(".").unwrap();
         let executable = dir.path().join("retroarch.exe");
@@ -571,6 +621,58 @@ mod tests {
     }
 
     #[test]
+    fn build_retroarch_snes_and_genesis_commands_use_managed_layout_and_per_game_selection() {
+        let cases = [
+            ("snes", "snes9x_libretro.dll", "Chrono Trigger 世界.sfc"),
+            (
+                "genesis",
+                "genesis_plus_gx_libretro.dll",
+                "Streets of Rage 世界.md",
+            ),
+        ];
+
+        for (platform, core_name, rom_name) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let executable = dir
+                .path()
+                .join("emulators")
+                .join("retroarch")
+                .join("RetroArch")
+                .join("retroarch.exe");
+            let core = executable.parent().unwrap().join("cores").join(core_name);
+            let rom = dir.path().join(rom_name);
+            fs::create_dir_all(core.parent().unwrap()).unwrap();
+            fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            fs::write(&executable, b"retroarch").unwrap();
+            fs::write(&core, b"core").unwrap();
+            fs::write(&rom, b"rom").unwrap();
+
+            let mut config = AppConfig::default();
+            config.emulators.retroarch = Some(executable.clone());
+            let db = Database::open_in_memory().unwrap();
+            let game = Game::new(
+                format!("{platform} game"),
+                rom.to_string_lossy().into_owned(),
+                platform.to_string(),
+            );
+            db.set_emulator_for_game(game.id, "retroarch", None)
+                .unwrap();
+
+            let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+            let core = core.to_string_lossy().into_owned();
+            let rom = rom.to_string_lossy().into_owned();
+
+            assert_eq!(command.emulator_id, "retroarch");
+            assert_eq!(command.core_name.as_deref(), Some(core.as_str()));
+            assert!(Path::new(&core).is_absolute());
+            assert_eq!(
+                command.args,
+                vec!["--fullscreen".to_string(), "-L".to_string(), core, rom]
+            );
+        }
+    }
+
+    #[test]
     fn build_retroarch_core_selection_cannot_escape_cores_directory() {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("retroarch.exe");
@@ -628,6 +730,57 @@ mod tests {
         assert!(matches!(&result, LaunchResult::CoreNotInstalled { .. }));
         assert!(!running.load(Ordering::SeqCst));
         assert!(result.error_message().unwrap().contains("Install the core"));
+    }
+
+    #[tokio::test]
+    async fn missing_retroarch_snes_and_genesis_cores_return_structured_errors_before_running() {
+        let cases = [
+            ("snes", "snes9x_libretro.dll", "game.sfc"),
+            ("genesis", "genesis_plus_gx_libretro.dll", "game.md"),
+        ];
+
+        for (platform, core_name, rom_name) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let executable = dir.path().join("retroarch.exe");
+            let expected_core = dir.path().join("cores").join(core_name);
+            let rom = dir.path().join(rom_name);
+            fs::write(&executable, b"retroarch").unwrap();
+            fs::write(&rom, b"rom").unwrap();
+            let expected_core = expected_core.to_string_lossy().into_owned();
+
+            let mut config = AppConfig::default();
+            config.emulators.retroarch = Some(executable);
+            config
+                .emulators
+                .platform_defaults
+                .insert(platform.to_string(), "retroarch".to_string());
+            let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+            let game = Game::new(
+                format!("{platform} game"),
+                rom.to_string_lossy().into_owned(),
+                platform.to_string(),
+            );
+            let running = Arc::new(AtomicBool::new(false));
+            let callback_running = Arc::clone(&running);
+
+            let result = launcher
+                .launch_with_running_stage(&game, move || {
+                    callback_running.store(true, Ordering::SeqCst);
+                })
+                .await
+                .unwrap();
+
+            match &result {
+                LaunchResult::CoreNotInstalled { name, path } => {
+                    assert_eq!(name, core_name);
+                    assert_eq!(path, &expected_core);
+                }
+                other => panic!("expected missing core, got {other:?}"),
+            }
+            assert!(result.command().is_none());
+            assert!(!running.load(Ordering::SeqCst));
+            assert!(result.error_message().unwrap().contains("Install the core"));
+        }
     }
 
     #[tokio::test]
