@@ -57,7 +57,15 @@ impl EmulatorLauncher {
     }
 
     pub fn build_command(&self, game: &Game) -> Result<LaunchCommand> {
-        let mut emulator = self.resolve_emulator(game)?;
+        let emulator = self.resolve_emulator(game)?;
+        self.build_command_with_emulator(game, emulator)
+    }
+
+    fn build_command_with_emulator(
+        &self,
+        game: &Game,
+        mut emulator: Emulator,
+    ) -> Result<LaunchCommand> {
         let rom_path = match game.local_file_path.as_deref() {
             Some(path) if Path::new(path).is_file() => path,
             _ if Path::new(&game.file_path).is_file() => game.file_path.as_str(),
@@ -129,7 +137,15 @@ impl EmulatorLauncher {
     where
         F: FnOnce() + Send + 'static,
     {
-        let command = self.build_command(game)?;
+        let emulator = self.resolve_emulator(game)?;
+        if emulator.executable_path.is_none() {
+            return Ok(LaunchResult::EmulatorNotInstalled {
+                name: emulator.name,
+                id: emulator.id,
+            });
+        }
+
+        let command = self.build_command_with_emulator(game, emulator)?;
         let rom_path = &command.rom_path;
 
         if !Path::new(rom_path).is_file() {
@@ -173,10 +189,16 @@ impl EmulatorLauncher {
 
         let start_time = Instant::now();
 
-        let mut child = Command::new(exe_path)
-            .args(&command.args)
-            .spawn()
-            .context("Failed to launch emulator")?;
+        let mut child = match Command::new(exe_path).args(&command.args).spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                return Ok(LaunchResult::EmulatorStartFailed {
+                    name: command.emulator_name.clone(),
+                    id: command.emulator_id.clone(),
+                    reason: error.to_string(),
+                });
+            }
+        };
 
         on_running();
         let status = child.wait().context("Failed to wait for emulator")?;
@@ -267,11 +289,11 @@ impl EmulatorLauncher {
                         emu.core_name = Some(core.to_string());
                     }
                 }
-                
+
                 if emu.executable_path.is_some() {
                     tracing::info!("[Launch] Using platform default emulator: {} for {}", emu.name, game.platform_id);
-                    return Ok(emu);
                 }
+                return Ok(emu);
             }
         }
 
@@ -345,7 +367,7 @@ impl EmulatorLauncher {
             })
             .map(|mut e| {
                 e.executable_path = self.get_emulator_path(&e.id);
-                e.is_installed = e.executable_path.as_ref().map(|p| p.exists()).unwrap_or(false);
+                e.is_installed = e.executable_path.as_ref().map(|p| p.is_file()).unwrap_or(false);
                 e
             })
             .collect()
@@ -366,6 +388,11 @@ pub enum LaunchResult {
     EmulatorNotInstalled {
         name: String,
         id: String,
+    },
+    EmulatorStartFailed {
+        name: String,
+        id: String,
+        reason: String,
     },
     EmulatorNotConfigured {
         platform: String,
@@ -395,8 +422,15 @@ impl LaunchResult {
             LaunchResult::DryRun { .. } => None,
             LaunchResult::FileNotFound(path) => Some(format!("ROM file not found: {}", path)),
             LaunchResult::EmulatorNotInstalled { name, .. } => {
-                Some(format!("{} is not installed", name))
+                Some(format!(
+                    "{} executable is unavailable at its configured path. Install {} or choose a valid executable path in Settings.",
+                    name, name
+                ))
             }
+            LaunchResult::EmulatorStartFailed { name, reason, .. } => Some(format!(
+                "Failed to start {}. Verify its configured executable is a valid {} executable and try again. Details: {}",
+                name, name, reason
+            )),
             LaunchResult::EmulatorNotConfigured { platform } => {
                 Some(format!("No emulator configured for {}", platform))
             }
@@ -575,6 +609,88 @@ mod tests {
             valid_rom.to_string_lossy().into_owned()
         );
         assert_eq!(command.args.last().map(String::as_str), valid_rom.to_str());
+    }
+
+    #[test]
+    fn build_mgba_game_boy_family_commands_use_selected_install_and_fullscreen() {
+        let cases = [
+            ("gb", "Pokemon Red 世界.gb", false),
+            ("gbc", "Zelda DX 世界.gbc", false),
+            ("gba", "Metroid Fusion 世界.gba", false),
+            ("gb", "Pokemon Blue 世界.gb", true),
+            ("gbc", "Oracle of Ages 世界.gbc", true),
+            ("gba", "Advance Wars 世界.gba", true),
+        ];
+
+        for (platform, rom_name, per_game) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let executable = if per_game {
+                dir.path().join("emulators").join("mgba").join("mGBA.exe")
+            } else {
+                dir.path().join("external mGBA").join("mGBA.exe")
+            };
+            let rom = dir.path().join(rom_name);
+            fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            fs::write(&executable, b"mgba").unwrap();
+            fs::write(&rom, b"rom").unwrap();
+
+            let mut config = AppConfig::default();
+            config.emulators.mgba = Some(executable.clone());
+            let db = Database::open_in_memory().unwrap();
+            let game = Game::new(
+                format!("{platform} game"),
+                rom.to_string_lossy().into_owned(),
+                platform.to_string(),
+            );
+            if per_game {
+                let retroarch = dir.path().join("retroarch.exe");
+                fs::write(&retroarch, b"retroarch").unwrap();
+                config.emulators.retroarch = Some(retroarch);
+                config
+                    .emulators
+                    .platform_defaults
+                    .insert(platform.to_string(), "retroarch".to_string());
+                db.set_emulator_for_game(game.id, "mgba", None).unwrap();
+            } else {
+                config
+                    .emulators
+                    .platform_defaults
+                    .insert(platform.to_string(), "mgba".to_string());
+            }
+
+            let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+
+            assert_eq!(command.emulator_id, "mgba");
+            assert_eq!(command.executable, executable.to_string_lossy().into_owned());
+            assert_eq!(
+                command.args,
+                vec!["-f".to_string(), rom.to_string_lossy().into_owned()]
+            );
+            assert_eq!(command.rom_path, rom.to_string_lossy().into_owned());
+        }
+    }
+
+    #[test]
+    fn build_mgba_preserves_windows_style_rom_path_as_one_argument() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("mGBA.exe");
+        fs::write(&executable, b"mgba").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.mgba = Some(executable);
+        config
+            .emulators
+            .platform_defaults
+            .insert("gbc".to_string(), "mgba".to_string());
+        let rom_path = r"C:\Games\Pokemon Blue 世界.gbc".to_string();
+        let game = Game::new("Pokemon Blue".to_string(), rom_path.clone(), "gbc".to_string());
+
+        let command = EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+            .build_command(&game)
+            .unwrap();
+
+        assert_eq!(command.rom_path, rom_path);
+        assert_eq!(command.args, vec!["-f".to_string(), command.rom_path.clone()]);
     }
 
     #[test]
@@ -831,6 +947,129 @@ mod tests {
 
         assert!(matches!(&result, LaunchResult::EmulatorNotInstalled { .. }));
         assert!(!running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn non_file_mgba_executable_returns_actionable_error_before_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("mGBA");
+        let rom = dir.path().join("Pokemon Red 世界.gb");
+        fs::create_dir_all(&executable).unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.mgba = Some(executable);
+        config
+            .emulators
+            .platform_defaults
+            .insert("gb".to_string(), "mgba".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "Pokemon Red".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "gb".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            &result,
+            LaunchResult::EmulatorNotInstalled { name, id }
+                if name == "mGBA" && id == "mgba"
+        ));
+        assert!(!running.load(Ordering::SeqCst));
+        assert!(result
+            .error_message()
+            .unwrap()
+            .contains("unavailable at its configured path"));
+    }
+
+    #[tokio::test]
+    async fn invalid_mgba_executable_returns_structured_start_failure_before_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("mGBA.exe");
+        let rom = dir.path().join("Pokemon Red 世界.gb");
+        fs::write(&executable, b"not an executable").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.mgba = Some(executable);
+        config
+            .emulators
+            .platform_defaults
+            .insert("gb".to_string(), "mgba".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "Pokemon Red".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "gb".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            &result,
+            LaunchResult::EmulatorStartFailed { name, id, reason }
+                if name == "mGBA" && id == "mgba" && !reason.is_empty()
+        ));
+        assert!(!running.load(Ordering::SeqCst));
+        let error = result.error_message().unwrap();
+        assert!(error.contains("valid mGBA executable"));
+        assert!(error.contains("Details:"));
+    }
+
+    #[tokio::test]
+    async fn explicitly_selected_emulator_without_executable_returns_before_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = dir.path().join("Pokemon Red 世界.gb");
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.mgba = None;
+        config
+            .emulators
+            .platform_defaults
+            .insert("gb".to_string(), "mgba".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "Pokemon Red".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "gb".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            &result,
+            LaunchResult::EmulatorNotInstalled { name, id }
+                if name == "mGBA" && id == "mgba"
+        ));
+        assert!(!running.load(Ordering::SeqCst));
+        assert!(result
+            .error_message()
+            .unwrap()
+            .contains("unavailable at its configured path"));
     }
 
     #[test]

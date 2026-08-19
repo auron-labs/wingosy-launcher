@@ -213,7 +213,8 @@ pub fn default_emulators() -> Vec<Emulator> {
             name: "mGBA".into(),
             executable_path: None,
             supported_platforms: vec!["gb".into(), "gbc".into(), "gba".into()],
-            launch_args: vec![],
+            // Qt mGBA builds support the stable short form before --fullscreen.
+            launch_args: vec!["-f".into()],
             rom_arg: "{rom}".into(),
             core_name: None,
             is_retroarch: false,

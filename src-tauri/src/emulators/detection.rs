@@ -132,7 +132,7 @@ fn detect_from_registry() -> Vec<DetectedEmulator> {
                         let loc_path = PathBuf::from(loc);
                         for exe in *executables {
                             let exe_path = loc_path.join(exe);
-                            if exe_path.exists() {
+                            if exe_path.is_file() {
                                 tracing::debug!(
                                     "[Emulators] Found {} via registry at {:?}",
                                     name,
@@ -235,7 +235,7 @@ fn detect_steam_emulators() -> Vec<DetectedEmulator> {
 
                 if let Some(dir) = install_dir {
                     let exe_path = common.join(&dir).join(exe);
-                    if exe_path.exists() {
+                    if exe_path.is_file() {
                         tracing::debug!("[Emulators] Found {} via Steam at {:?}", name, exe_path);
                         detected.push(DetectedEmulator {
                             id: id.to_string(),
@@ -280,7 +280,7 @@ fn detect_managed_emulators() -> Vec<DetectedEmulator> {
         'exe_search: for exe in *executables {
             // Direct path
             let exe_path = emu_dir.join(exe);
-            if exe_path.exists() {
+            if exe_path.is_file() {
                 tracing::debug!("[Emulators] Found managed {} at {:?}", name, exe_path);
                 detected.push(DetectedEmulator {
                     id: id.to_string(),
@@ -298,7 +298,7 @@ fn detect_managed_emulators() -> Vec<DetectedEmulator> {
                     let entry_path = entry.path();
                     if entry_path.is_dir() {
                         let nested_exe = entry_path.join(exe);
-                        if nested_exe.exists() {
+                        if nested_exe.is_file() {
                             tracing::debug!("[Emulators] Found managed {} at {:?}", name, nested_exe);
                             detected.push(DetectedEmulator {
                                 id: id.to_string(),
@@ -341,7 +341,7 @@ fn detect_from_filesystem() -> Vec<DetectedEmulator> {
                 ];
 
                 for path in potential_paths {
-                    if path.exists() {
+                    if path.is_file() {
                         tracing::debug!("[Emulators] Found {} on filesystem at {:?}", name, path);
                         detected.push(DetectedEmulator {
                             id: id.to_string(),
@@ -592,6 +592,19 @@ mod tests {
         assert!(ids.contains(&"retroarch"));
         assert!(ids.contains(&"dolphin"));
         assert!(ids.contains(&"pcsx2"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_mgba_pattern_includes_official_executable_aliases() {
+        let (_, name, executables) = get_emulator_patterns()
+            .into_iter()
+            .find(|(id, _, _)| *id == "mgba")
+            .expect("mGBA detection pattern should exist");
+
+        assert_eq!(name, "mGBA");
+        assert!(executables.contains(&"mGBA.exe"));
+        assert!(executables.contains(&"mgba.exe"));
     }
 
     #[cfg(windows)]
