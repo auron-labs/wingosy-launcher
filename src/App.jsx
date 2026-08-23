@@ -16,13 +16,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setFullscreenReliable } from "./windowFullscreen";
 import WindowChrome from "./components/WindowChrome";
 import { isTauri, mousedownTargetElement } from "./utils/isTauri";
-import { filterVisibleGames } from "./utils/gameFilters";
 import { UiSoundsProvider } from "./UiSoundsContext";
 
 const appWindow = isTauri() ? getCurrentWindow() : null;
 const getCurrent = getCurrentWindow;
 
 const DRAWER_WIDTH = 260;
+const GAMES_PER_PAGE = 60;
 
 function AppShell({ children }) {
   useEffect(() => {
@@ -71,6 +71,8 @@ function App() {
   const [showSetup, setShowSetup] = useState(null);
   const [view, setView] = useState("library");
   const [games, setGames] = useState([]);
+  const [gameTotal, setGameTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [platforms, setPlatforms] = useState([]);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
@@ -96,6 +98,7 @@ function App() {
   const rommSessionRestoreStarted = useRef(false);
   const gamesRequestId = useRef(0);
   const launchInFlightRef = useRef(new Set());
+  const libraryScrollRef = useRef(null);
 
   useEffect(() => {
     checkFirstRun();
@@ -122,21 +125,13 @@ function App() {
 
   useEffect(() => {
     if (showSetup === false) {
-      refreshGames(selectedPlatform, searchQuery);
+      refreshGames(selectedPlatform, searchQuery, page);
     }
-  }, [selectedPlatform, searchQuery, showSetup]);
+  }, [selectedPlatform, searchQuery, page, showSetup]);
 
   async function loadData() {
-    const requestId = ++gamesRequestId.current;
     try {
-      setLoading(true);
-      const [gamesData, platformsData] = await Promise.all([
-        invoke("get_all_games"),
-        invoke("get_platforms_with_games"),
-      ]);
-      if (requestId === gamesRequestId.current) {
-        setGames(gamesData);
-      }
+      const platformsData = await invoke("get_platforms_with_games");
       setPlatforms(platformsData);
 
       try {
@@ -200,30 +195,47 @@ function App() {
       }
     } catch (err) {
       setError(err.message || String(err));
-    } finally {
-      setLoading(false);
     }
   }
 
-  async function refreshGames(platformId = selectedPlatform, query = searchQuery) {
+  async function refreshGames(
+    platformId = selectedPlatform,
+    query = searchQuery,
+    requestedPage = page,
+  ) {
     const requestId = ++gamesRequestId.current;
+    setLoading(true);
     try {
-      const gamesData = await invoke("get_games_filtered", {
+      const result = await invoke("get_games_page", {
         platformId,
         searchQuery: query || null,
-        favoritesOnly: false,
-        sortBy: null,
+        page: requestedPage,
+        pageSize: GAMES_PER_PAGE,
       });
       if (requestId === gamesRequestId.current) {
-        setGames(gamesData);
+        const lastPage = Math.max(1, Math.ceil(result.total / GAMES_PER_PAGE));
+        if (requestedPage > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setGames(result.games);
+        setGameTotal(result.total);
         setSelectedGame((current) => {
           if (!current) return current;
-          return gamesData.find((game) => game.id === current.id) || current;
+          return result.games.find((game) => game.id === current.id) || current;
         });
       }
     } catch (err) {
       console.error("Failed to refresh games:", err);
+    } finally {
+      if (requestId === gamesRequestId.current) {
+        setLoading(false);
+      }
     }
+  }
+
+  async function reloadLibrary() {
+    await Promise.all([loadData(), refreshGames()]);
   }
 
   async function runSignedUpdateInstall() {
@@ -329,9 +341,20 @@ function App() {
   }
 
   function handleSelectPlatform(platformId) {
+    setPage(1);
     setSelectedPlatform(platformId);
     setView("library");
     setSelectedGame(null);
+  }
+
+  function handleSearchChange(query) {
+    setPage(1);
+    setSearchQuery(query);
+  }
+
+  function handlePageChange(nextPage) {
+    setPage(nextPage);
+    libraryScrollRef.current?.scrollTo({ top: 0 });
   }
 
   function handleNavigate(newView, options) {
@@ -395,7 +418,7 @@ function App() {
           onExit={async () => {
             setImmersiveModeEnabled(false);
             setImmersiveModeFullscreen(false);
-            await loadData();
+            await reloadLibrary();
             // loadData reapplies `cfg.display.big_picture`; after exit the config write can
             // lag behind get_config in rare cases — keep desktop shell until next full reload.
             setImmersiveModeEnabled(false);
@@ -406,8 +429,6 @@ function App() {
       </AppShell>
     );
   }
-
-  const visibleGames = filterVisibleGames(games, selectedPlatform, searchQuery);
 
   return wrapUiSounds(
     <AppShell>
@@ -448,6 +469,7 @@ function App() {
         )}
         {view === "library" && (
           <Box
+            ref={libraryScrollRef}
             sx={{
               flex: 1,
               minHeight: 0,
@@ -457,10 +479,14 @@ function App() {
             }}
           >
           <Library
-            games={visibleGames}
+            games={games}
+            total={gameTotal}
+            page={page}
+            pageSize={GAMES_PER_PAGE}
+            onPageChange={handlePageChange}
             loading={loading}
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
+            onSearchChange={handleSearchChange}
             onSelectGame={handleSelectGame}
             onToggleFavorite={handleToggleFavorite}
             onLaunchGame={handleLaunchGame}
@@ -490,19 +516,18 @@ function App() {
             platforms={platforms}
             onBack={() => {
               handleNavigate("library");
-              loadData();
+              reloadLibrary();
             }}
             onLaunch={handleLaunchGame}
             onToggleFavorite={handleToggleFavorite}
             onGameUpdate={async (gameId) => {
               // Refresh game data and update selected game
               try {
-                const gamesData = await invoke("get_all_games");
-                setGames(gamesData);
-                const updated = gamesData.find(g => g.id === gameId);
-                if (updated) {
-                  setSelectedGame(updated);
-                }
+                const updated = await invoke("get_game_details", { gameId });
+                setSelectedGame(updated);
+                setGames((current) =>
+                  current.map((game) => (game.id === gameId ? updated : game)),
+                );
               } catch (err) {
                 console.error("Failed to refresh after download:", err);
               }
@@ -518,13 +543,13 @@ function App() {
             initialSection={settingsInitialSection}
             onBack={() => {
               handleNavigate("library");
-              loadData();
+              reloadLibrary();
             }}
             rommToken={rommToken}
             rommUrl={rommUrl}
             onRommConnect={handleRommConnect}
             onRommDisconnect={handleRommDisconnect}
-            onLibraryChange={loadData}
+            onLibraryChange={reloadLibrary}
           />
           </Box>
         )}

@@ -104,6 +104,8 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
             component="img"
             src={coverSrc}
             alt={game.name}
+            loading="lazy"
+            decoding="async"
             onError={() => setImgError(true)}
             draggable={false}
             sx={{

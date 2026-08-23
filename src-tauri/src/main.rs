@@ -81,6 +81,7 @@ fn main() {
             commands::complete_setup,
             commands::get_all_games,
             commands::get_games_filtered,
+            commands::get_games_page,
             commands::get_all_platforms,
             commands::get_platforms_with_games,
             commands::get_recent_games,

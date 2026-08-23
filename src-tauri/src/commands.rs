@@ -315,6 +315,37 @@ pub async fn get_games_filtered(
     db.get_games_filtered(&filter).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+pub struct GamesPage {
+    games: Vec<Game>,
+    total: i64,
+}
+
+#[tauri::command]
+pub async fn get_games_page(
+    platform_id: Option<String>,
+    search_query: Option<String>,
+    page: u32,
+    page_size: u32,
+) -> Result<GamesPage, String> {
+    let db = Database::open().map_err(|e| e.to_string())?;
+    let filter = GameFilter {
+        platform_id,
+        genre: None,
+        search_query,
+        favorites_only: false,
+        sort_by: GameSort::Name,
+        sort_descending: false,
+    };
+    let page_size = page_size.clamp(1, 200);
+    let offset = i64::from(page.saturating_sub(1)) * i64::from(page_size);
+    let (games, total) = db
+        .get_games_page(&filter, i64::from(page_size), offset)
+        .map_err(|error| error.to_string())?;
+
+    Ok(GamesPage { games, total })
+}
+
 #[tauri::command]
 pub async fn get_all_platforms() -> Result<Vec<Platform>, String> {
     let db = Database::open().map_err(|e| e.to_string())?;

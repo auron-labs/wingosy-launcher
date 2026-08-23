@@ -198,28 +198,29 @@ impl Database {
     }
 
     pub fn get_games_filtered(&self, filter: &GameFilter) -> Result<Vec<Game>> {
+        self.query_games_filtered(filter, None)
+    }
+
+    pub fn get_games_page(
+        &self,
+        filter: &GameFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Game>, i64)> {
+        let total = self.count_games_filtered(filter)?;
+        let games = self.query_games_filtered(filter, Some((limit, offset)))?;
+        Ok((games, total))
+    }
+
+    fn query_games_filtered(
+        &self,
+        filter: &GameFilter,
+        pagination: Option<(i64, i64)>,
+    ) -> Result<Vec<Game>> {
         let conn = self.conn.lock().unwrap();
 
-        let mut sql = String::from("SELECT * FROM games WHERE 1=1");
-        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-        if !filter.favorites_only {
-            sql.push_str(" AND is_hidden = 0");
-        }
-
-        if let Some(ref platform_id) = filter.platform_id {
-            sql.push_str(" AND platform_id = ?");
-            params_vec.push(Box::new(platform_id.clone()));
-        }
-
-        if filter.favorites_only {
-            sql.push_str(" AND is_favorite = 1");
-        }
-
-        if let Some(ref query) = filter.search_query {
-            sql.push_str(" AND name LIKE ?");
-            params_vec.push(Box::new(format!("%{}%", query)));
-        }
+        let (where_clause, mut params_vec) = Self::games_filter_where(filter);
+        let mut sql = format!("SELECT * FROM games{where_clause}");
 
         let order = match filter.sort_by {
             GameSort::Name => "name",
@@ -234,6 +235,12 @@ impl Database {
         let direction = if filter.sort_descending { "DESC" } else { "ASC" };
         sql.push_str(&format!(" ORDER BY {} {} NULLS LAST", order, direction));
 
+        if let Some((limit, offset)) = pagination {
+            sql.push_str(" LIMIT ? OFFSET ?");
+            params_vec.push(Box::new(limit));
+            params_vec.push(Box::new(offset));
+        }
+
         let mut stmt = conn.prepare(&sql).context("Failed to prepare statement")?;
 
         let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
@@ -245,6 +252,44 @@ impl Database {
             .collect();
 
         Ok(games)
+    }
+
+    fn count_games_filtered(&self, filter: &GameFilter) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let (where_clause, params_vec) = Self::games_filter_where(filter);
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|param| param.as_ref()).collect();
+
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM games{where_clause}"),
+            params_refs.as_slice(),
+            |row| row.get(0),
+        )
+        .context("Failed to count games")
+    }
+
+    fn games_filter_where(
+        filter: &GameFilter,
+    ) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
+        let mut sql = String::from(" WHERE 1=1");
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if !filter.favorites_only {
+            sql.push_str(" AND is_hidden = 0");
+        }
+        if let Some(ref platform_id) = filter.platform_id {
+            sql.push_str(" AND platform_id = ?");
+            params_vec.push(Box::new(platform_id.clone()));
+        }
+        if filter.favorites_only {
+            sql.push_str(" AND is_favorite = 1");
+        }
+        if let Some(ref query) = filter.search_query {
+            sql.push_str(" AND name LIKE ?");
+            params_vec.push(Box::new(format!("%{}%", query)));
+        }
+
+        (sql, params_vec)
     }
 
     pub fn get_recent_games(&self, limit: i32) -> Result<Vec<Game>> {
@@ -646,6 +691,27 @@ mod tests {
         game.sync_state = SyncState::Synced;
         assert!(game.local_file_path.is_some());
         assert!(matches!(game.sync_state, SyncState::Synced));
+    }
+
+    #[test]
+    fn test_get_games_page_limits_results_and_returns_total() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+        for name in ["Alpha", "Bravo", "Charlie", "Delta", "Echo"] {
+            db.insert_game(&create_test_game(name)).unwrap();
+        }
+
+        let (games, total) = db.get_games_page(&GameFilter::default(), 2, 2).unwrap();
+
+        assert_eq!(total, 5);
+        assert_eq!(
+            games
+                .iter()
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Charlie", "Delta"]
+        );
     }
 
     #[test]

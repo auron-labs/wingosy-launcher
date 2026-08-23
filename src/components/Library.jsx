@@ -6,6 +6,7 @@ import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Button from "@mui/material/Button";
+import Pagination from "@mui/material/Pagination";
 import SearchIcon from "@mui/icons-material/Search";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
@@ -15,6 +16,10 @@ import { useRomDownloads } from "../RomDownloadsContext";
 
 export default function Library({
   games,
+  total,
+  page,
+  pageSize,
+  onPageChange,
   loading,
   searchQuery,
   onSearchChange,
@@ -27,6 +32,7 @@ export default function Library({
   onDismissError,
 }) {
   const { getProgress, getLaunchProgress } = useRomDownloads();
+  const pageCount = Math.ceil(total / pageSize);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -136,32 +142,45 @@ export default function Library({
           </Box>
         </Box>
       ) : (
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "repeat(2, 1fr)",
-              sm: "repeat(3, 1fr)",
-              md: "repeat(4, 1fr)",
-              lg: "repeat(5, 1fr)",
-              xl: "repeat(6, 1fr)",
-            },
-            gap: 2.5,
-            pb: 4,
-          }}
-        >
-          {games.map((game) => (
-            <GameCard
-              key={game.id}
-              game={game}
-              onClick={() => onSelectGame(game)}
-              onToggleFavorite={() => onToggleFavorite(game.id)}
-              onLaunch={() => onLaunchGame(game.id)}
-              downloadProgress={getProgress(game.id)}
-              launchProgress={getLaunchProgress(game.id)}
+        <>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "repeat(2, 1fr)",
+                sm: "repeat(3, 1fr)",
+                md: "repeat(4, 1fr)",
+                lg: "repeat(5, 1fr)",
+                xl: "repeat(6, 1fr)",
+              },
+              gap: 2.5,
+              pb: 3,
+            }}
+          >
+            {games.map((game) => (
+              <GameCard
+                key={game.id}
+                game={game}
+                onClick={() => onSelectGame(game)}
+                onToggleFavorite={() => onToggleFavorite(game.id)}
+                onLaunch={() => onLaunchGame(game.id)}
+                downloadProgress={getProgress(game.id)}
+                launchProgress={getLaunchProgress(game.id)}
+              />
+            ))}
+          </Box>
+          {pageCount > 1 && (
+            <Pagination
+              count={pageCount}
+              page={page}
+              onChange={(_event, nextPage) => onPageChange(nextPage)}
+              showFirstButton
+              showLastButton
+              color="primary"
+              sx={{ display: "flex", justifyContent: "center", pb: 4 }}
             />
-          ))}
-        </Box>
+          )}
+        </>
       )}
     </Box>
   );
