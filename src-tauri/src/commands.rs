@@ -144,12 +144,35 @@ pub async fn is_first_run() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn complete_setup() -> Result<(), String> {
+pub async fn complete_setup(
+    romm_url: Option<String>,
+    romm_username: Option<String>,
+    roms_directory: Option<String>,
+) -> Result<(), String> {
     tracing::info!("[Setup] Completing initial setup");
-    let config = AppConfig::default();
+    let config = AppConfig::load().map_err(|e| e.to_string())?;
+    let config = merge_setup_config(config, romm_url, romm_username, roms_directory);
     config.save().map_err(|e| e.to_string())?;
     tracing::info!("[Setup] Setup completed successfully");
     Ok(())
+}
+
+fn merge_setup_config(
+    mut config: AppConfig,
+    romm_url: Option<String>,
+    romm_username: Option<String>,
+    roms_directory: Option<String>,
+) -> AppConfig {
+    if let Some(url) = romm_url {
+        config.romm.server_url = Some(url);
+    }
+    if let Some(username) = romm_username {
+        config.romm.username = Some(username);
+    }
+    if let Some(directory) = roms_directory {
+        config.library.roms_directory = Some(PathBuf::from(directory));
+    }
+    config
 }
 
 #[tauri::command]
@@ -3360,6 +3383,82 @@ pub async fn install_signed_app_update(app: tauri::AppHandle, channel: String) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setup_merge_preserves_paired_config_and_applies_setup_values() {
+        let mut existing = AppConfig::default();
+        existing.romm.server_url = Some("https://paired.example".to_string());
+        existing.romm.auth_method = Some("pairing".to_string());
+        existing.romm.username = Some("paired-user".to_string());
+        existing.romm.password = Some("legacy-password".to_string());
+        existing.romm.auth_token = Some("legacy-session-token".to_string());
+        existing.romm.auto_sync = true;
+        existing.romm.sync_saves = true;
+        existing.romm.device_id = Some("device-123".to_string());
+        existing.library.roms_directory = Some(PathBuf::from("C:/old-roms"));
+        existing.library.bios_directory = Some(PathBuf::from("C:/bios"));
+        existing.library.scan_subdirectories = false;
+        existing.display.theme = crate::config::Theme::Light;
+        existing.display.grid_columns = 7;
+        existing.audio.ambient_enabled = true;
+        existing.audio.ambient_path = Some("C:/music".to_string());
+        existing.updater.auto_update_enabled = true;
+        existing.updater.channel = UpdateChannel::Beta;
+        existing.emulators.retroarch = Some(PathBuf::from("C:/retroarch.exe"));
+        existing
+            .emulators
+            .platform_defaults
+            .insert("gba".to_string(), "mgba".to_string());
+
+        let merged = merge_setup_config(
+            existing,
+            Some("https://new.example".to_string()),
+            None,
+            Some("D:/roms".to_string()),
+        );
+
+        assert_eq!(
+            merged.romm.server_url.as_deref(),
+            Some("https://new.example")
+        );
+        assert_eq!(merged.romm.auth_method.as_deref(), Some("pairing"));
+        assert_eq!(merged.romm.username.as_deref(), Some("paired-user"));
+        assert_eq!(merged.romm.password.as_deref(), Some("legacy-password"));
+        assert_eq!(
+            merged.romm.auth_token.as_deref(),
+            Some("legacy-session-token")
+        );
+        assert!(merged.romm.auto_sync);
+        assert!(merged.romm.sync_saves);
+        assert_eq!(merged.romm.device_id.as_deref(), Some("device-123"));
+        assert_eq!(
+            merged.library.roms_directory,
+            Some(PathBuf::from("D:/roms"))
+        );
+        assert_eq!(
+            merged.library.bios_directory,
+            Some(PathBuf::from("C:/bios"))
+        );
+        assert!(!merged.library.scan_subdirectories);
+        assert_eq!(merged.display.theme, crate::config::Theme::Light);
+        assert_eq!(merged.display.grid_columns, 7);
+        assert!(merged.audio.ambient_enabled);
+        assert_eq!(merged.audio.ambient_path.as_deref(), Some("C:/music"));
+        assert!(merged.updater.auto_update_enabled);
+        assert_eq!(merged.updater.channel, UpdateChannel::Beta);
+        assert_eq!(
+            merged.emulators.retroarch,
+            Some(PathBuf::from("C:/retroarch.exe"))
+        );
+        assert_eq!(
+            merged
+                .emulators
+                .platform_defaults
+                .get("gba")
+                .map(String::as_str),
+            Some("mgba")
+        );
+    }
 
     #[test]
     fn signed_updater_manifest_uses_canonical_repository() {
