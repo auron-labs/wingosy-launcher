@@ -4,7 +4,7 @@
  * - beta:    MINOR + 1, PATCH = 0  (0.1.3 → 0.2.0) — resets nightly counter
  * - release: MAJOR + 1, MINOR = 0, PATCH = 0  (1.2.3 → 2.0.0) — resets beta and nightly
  *
- * Usage: node scripts/bump-version.mjs <nightly|beta|release>
+ * Usage: bun scripts/bump-version.mjs <nightly|beta|release>
  * Prints the new semver as the only stdout line (for CI).
  */
 import { readFileSync } from "node:fs";
@@ -37,7 +37,7 @@ function bump(kind, cur) {
 
 const kind = (process.argv[2] || "").toLowerCase();
 if (!kind) {
-  console.error("Usage: node scripts/bump-version.mjs <nightly|beta|release>");
+  console.error("Usage: bun scripts/bump-version.mjs <nightly|beta|release>");
   process.exit(1);
 }
 

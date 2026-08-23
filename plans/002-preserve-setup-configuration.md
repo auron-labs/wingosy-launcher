@@ -49,8 +49,8 @@ methods, BIOS behavior, or rebuilding the wizard.
 
 ## Verification and done criteria
 
-- [ ] `npm run typecheck` exits 0.
-- [ ] `npm run test:unit` passes.
+- [ ] `bun run typecheck` exits 0.
+- [ ] `bun run test:unit` passes.
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [ ] Manual Windows flow Pair → Sync → Finish → restart retains the connection.
 - [ ] Opening BIOS after restart no longer reports an unconfigured server.
@@ -67,4 +67,3 @@ methods, BIOS behavior, or rebuilding the wizard.
 
 Setup completion must remain a merge, never a factory reset. Future wizard steps
 should persist their own fields without replacing unrelated config sections.
-

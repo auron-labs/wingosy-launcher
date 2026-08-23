@@ -1,7 +1,7 @@
 /**
  * Build `latest.json` for the Tauri v2 signed updater and upload it to the current GitHub release.
  *
- * Expects (after `npm run build && tauri build`):
+ * Expects (after `bun run build && tauri build`):
  * - `src-tauri/target/release/bundle/nsis/*-setup.exe` and matching `*.sig`
  * - The same release tag already published by `tauri-action` (installer assets on GitHub)
  *

@@ -18,14 +18,6 @@ export function writeAppVersion(version) {
   pkg.version = v;
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-  const lockPath = join(root, "package-lock.json");
-  const lock = JSON.parse(readFileSync(lockPath, "utf8"));
-  lock.version = v;
-  if (lock.packages?.[""]) {
-    lock.packages[""].version = v;
-  }
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n");
-
   const cargoPath = join(root, "src-tauri", "Cargo.toml");
   let cargo = readFileSync(cargoPath, "utf8");
   cargo = cargo.replace(/^version = "[^"]+"/m, `version = "${v}"`);

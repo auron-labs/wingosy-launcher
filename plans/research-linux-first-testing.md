@@ -24,13 +24,13 @@ does not expand the current Windows beta contract.
 
 ### Local audit on 2026-08-23
 
-- On Ubuntu, `npm run build`, `npm run typecheck`, and all 37 Vitest cases
+- On Ubuntu, `bun run build`, `bun run typecheck`, and all 37 Vitest cases
   passed. Frontend lint exited successfully with 8 warnings.
 - Frontend coverage was 19.61% statements/lines. The report is uploaded in CI,
   but no threshold currently turns a regression into a failure. Do not impose a
   broad target immediately; add tests around changed or beta-critical behavior,
   then ratchet a baseline instead of writing low-value tests for a percentage.
-- `npm run test:rust` did not reach the tests because this Linux machine lacks
+- `bun run test:rust` did not reach the tests because this Linux machine lacks
   `javascriptcoregtk-4.1` and the other documented Tauri system packages. This
   is an environment/bootstrap gap, not a Rust test failure.
 - The Windows E2E directory contains 159 `it(...)` cases, 177 fixed
@@ -63,8 +63,8 @@ WebDriver run as Windows certification.
 ### 1. Split the current CI into a Linux required gate and a narrow Windows lane — recommended now
 
 Add an Ubuntu job that runs the commands already owned by the repository:
-`npm ci`, frontend build/lint/typecheck, `npm run test:unit`, `npm run test:rust`,
-and `npm run lint:rust`. Install the standard Linux Tauri build dependencies;
+`bun install --frozen-lockfile`, frontend build/lint/typecheck, `bun run test:unit`, `bun run test:rust`,
+and `bun run lint:rust`. Install the standard Linux Tauri build dependencies;
 Tauri documents `libwebkit2gtk-4.1-dev`, build tools, OpenSSL, appindicator,
 and librsvg for Debian/Ubuntu
 ([official prerequisites](https://v2.tauri.app/start/prerequisites/)).
@@ -92,8 +92,8 @@ command, result, and intentionally unrun Windows-only checks:
 
 | Change surface | Agent must run on Linux | Escalate to Windows |
 | --- | --- | --- |
-| Pure React/helper behavior | `npm run test:unit`, typecheck, frontend lint | Only if it changes a user-visible native flow |
-| Rust logic, storage, URL/path parsing | `npm run test:rust`, Rust lint | If it touches Windows paths, keyring, process launch, or installer behavior |
+| Pure React/helper behavior | `bun run test:unit`, typecheck, frontend lint | Only if it changes a user-visible native flow |
+| Rust logic, storage, URL/path parsing | `bun run test:rust`, Rust lint | If it touches Windows paths, keyring, process launch, or installer behavior |
 | Tauri command/UI boundary | Relevant unit tests plus build | Existing E2E spec or a focused Windows smoke |
 | External emulator/RomM contract | Relevant ignored integration test, when safe | Manual evidence with the real permitted environment |
 

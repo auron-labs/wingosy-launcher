@@ -72,7 +72,7 @@ owns that).
 - [ ] Hints describe actions without assuming Xbox, Nintendo, or PlayStation labels.
 - [ ] Keyboard navigation remains available when no supported pad exists.
 - [ ] The deadzone setting is bounded, persists, and resets to `0.35`.
-- [ ] `npm run test:unit`, `npm run typecheck`, and `npm run lint:frontend` pass
+- [ ] `bun run test:unit`, `bun run typecheck`, and `bun run lint:frontend` pass
       without new warnings.
 
 ## STOP conditions

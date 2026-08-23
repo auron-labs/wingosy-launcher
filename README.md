@@ -28,13 +28,12 @@ A Windows game launcher with RomM integration. Inspired by [Argosy Launcher](htt
 
 ## Run from source
 
-Development requires Node.js 20+, npm 11, a current Rust toolchain, and the
-Visual Studio C++ Build Tools. Make sure `node`, `npm`, and `cargo` are all
+Development requires Bun 1.3.14+, a current Rust toolchain, and the Visual
+Studio C++ Build Tools. Make sure `bun` and `cargo` are both
 available in the same PowerShell window:
 
 ```powershell
-node -v
-npm -v
+bun --version
 cargo -v
 ```
 
@@ -43,16 +42,16 @@ Clone, install, and launch the native desktop app:
 ```powershell
 git clone https://github.com/yash-1o1/wingosy-launcher.git
 cd wingosy-launcher
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 The first Rust debug build can take a few minutes. Leave the command running
-until the **Wingosy Launcher** window opens. `npm run dev:web` starts only the
-browser frontend; use `npm run dev` (or `npm run tauri dev`) for the Windows
+until the **Wingosy Launcher** window opens. `bun run dev:web` starts only the
+browser frontend; use `bun run dev` (or `bun run tauri dev`) for the Windows
 desktop application.
 
-If PowerShell reports that `npm` or `cargo` is not recognized, install the
+If PowerShell reports that `bun` or `cargo` is not recognized, install the
 missing tool or reopen the terminal after updating `Path`. See
 [CONTRIBUTING.md](CONTRIBUTING.md#setup) for detailed setup and troubleshooting.
 

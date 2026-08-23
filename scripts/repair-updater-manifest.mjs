@@ -2,7 +2,7 @@
  * Rebuild and re-upload latest.json for an existing GitHub release (fixes bad installer URLs).
  *
  * Usage (requires `gh` auth):
- *   GITHUB_REPOSITORY=yash-1o1/wingosy-launcher RELEASE_TAG=nightly-26156660512 node scripts/repair-updater-manifest.mjs
+ *   GITHUB_REPOSITORY=yash-1o1/wingosy-launcher RELEASE_TAG=nightly-26156660512 bun scripts/repair-updater-manifest.mjs
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

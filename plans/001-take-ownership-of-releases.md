@@ -52,7 +52,7 @@ license/authorship removal, stable public launch.
 
 | Purpose | Command | Expected |
 |---|---|---|
-| Baseline | `npm run typecheck && npm run test:unit` | exit 0; 37+ tests pass |
+| Baseline | `bun run typecheck && bun run test:unit` | exit 0; 37+ tests pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml --tests --target x86_64-pc-windows-gnu` | exit 0 |
 | Old origin audit | `rg -n "yash-1o1/wingosy-launcher" README.md CONTRIBUTING.md .github src-tauri/src src-tauri/tauri.conf.json` | no operational update/release links remain |
 
@@ -97,4 +97,3 @@ license/authorship removal, stable public launch.
 Treat the update origin and updater public key as release infrastructure. Any
 future repository transfer must update runtime discovery, workflow publication,
 and installer verification together.
-

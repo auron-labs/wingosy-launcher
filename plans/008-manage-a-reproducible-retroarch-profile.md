@@ -75,7 +75,7 @@ general configuration editor.
 - [ ] The managed launch appends the Wingosy delta; an existing external launch
       is byte-for-byte unchanged unless explicitly opted in.
 - [ ] Repair restores the generated delta and preserves all sentinel user files.
-- [ ] `npm run test:unit`, `npm run typecheck`, and the relevant Rust tests pass.
+- [ ] `bun run test:unit`, `bun run typecheck`, and the relevant Rust tests pass.
 - [ ] No dependency is added solely to parse or generate the two-setting delta.
 
 ## STOP conditions
@@ -90,4 +90,3 @@ general configuration editor.
 Update the manifest only with a new plan 006 Windows certification run. Add a
 delta setting only to fix a reproduced beta problem; the small overlay is the
 feature.
-

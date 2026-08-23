@@ -1,6 +1,6 @@
 /**
  * One-shot: build src/data/consoleIconSet.json from @iconify-json/simple-icons.
- * Run: node scripts/extract-console-icons.mjs
+ * Run: bun scripts/extract-console-icons.mjs
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

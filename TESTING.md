@@ -5,9 +5,9 @@
 | Type | Count | Location | Run Command |
 |------|-------|----------|-------------|
 | Unit Tests (Rust) | ~151+ | Inline `#[cfg(test)]` | `cargo test` |
-| Unit Tests (JS) | growing | `src/**/*.test.{js,jsx}` (Vitest) | `npm run test:unit` |
+| Unit Tests (JS) | growing | `src/**/*.test.{js,jsx}` (Vitest) | `bun run test:unit` |
 | Integration | 14 | `src-tauri/tests/` | `cargo test --test '*' -- --ignored` |
-| E2E | ~154 cases | `e2e-webdriver/` | `npm run test:e2e` |
+| E2E | ~154 cases | `e2e-webdriver/` | `bun run test:e2e` |
 
 ## Unit Tests (JavaScript)
 
@@ -19,9 +19,9 @@
 | `*.test.jsx` | React components — import `@testing-library/react`’s `render` / `screen` |
 
 ```bash
-npm install
-npm run test:unit
-npm run test:unit:watch   # Vitest watch mode
+bun install
+bun run test:unit
+bun run test:unit:watch   # Vitest watch mode
 ```
 
 | Module | What it Tests |
@@ -40,7 +40,7 @@ cd src-tauri && cargo test
 **RetroArch — all mapped cores (network, large downloads):** validates every distinct `*_libretro.dll` in `retroarch_cores()` against the Libretro buildbot. Opt-in (ignored by default so `cargo test` stays quick):
 
 ```bash
-npm run test:rust:cores
+bun run test:rust:cores
 ```
 
 | Module | What it Tests |
@@ -54,7 +54,7 @@ npm run test:rust:cores
 
 ### RetroArch vs standalone emulators
 
-**RetroArch** is a single install that pulls **many small cores** (`*_libretro.dll`). The launcher maps each platform id to one core (`retroarch_cores()`), so automated checks can iterate **those many buildbot artefacts** — see **`npm run test:rust:cores`** (opt-in; large downloads).
+**RetroArch** is a single install that pulls **many small cores** (`*_libretro.dll`). The launcher maps each platform id to one core (`retroarch_cores()`), so automated checks can iterate **those many buildbot artefacts** — see **`bun run test:rust:cores`** (opt-in; large downloads).
 
 **Standalone emulators** (Dolphin, PCSX2, mGBA as its own zip, PPSSPP, etc.) don’t expose a separate “cores” matrix in Wingosy: typically **one exe or one release archive per emulator**. Integration coverage is structured **per emulator**, not per sub-DLL — e.g. **`test_all_emulator_sources_accessible`** in **`emulator_integration.rs`** HEADs RetroArch stable and probes GitHub **`releases/latest`** plus asset regexes for listed repos.
 
@@ -94,7 +94,7 @@ Test full app with Rust backend.
 
 ### Prerequisites
 
-1. Install **tauri-driver** and ensure it is on `PATH` (same shell you use for `npm run test:e2e`):
+1. Install **tauri-driver** and ensure it is on `PATH` (same shell you use for `bun run test:e2e`):
 
    ```bash
    cargo install tauri-driver
@@ -102,25 +102,25 @@ Test full app with Rust backend.
 
    Default install location: `%USERPROFILE%\.cargo\bin` (already on `PATH` after a normal Rustup setup).
 
-2. **Edge WebDriver** — `npm install` includes the `edgedriver` package; **WebdriverIO’s `onPrepare` downloads** `msedgedriver.exe` into `e2e-webdriver/` before starting `tauri-driver` (needs Microsoft Edge installed for version detection). Override CDN with `EDGEDRIVER_CDNURL` if required.
+2. **Edge WebDriver** — `bun install` includes the `edgedriver` package; **WebdriverIO’s `onPrepare` downloads** `msedgedriver.exe` into `e2e-webdriver/` before starting `tauri-driver` (needs Microsoft Edge installed for version detection). Override CDN with `EDGEDRIVER_CDNURL` if required.
 
-3. Build app: `npm run tauri build` (release binary path is set in `wdio.conf.js`).
+3. Build app: `bun run tauri build` (release binary path is set in `wdio.conf.js`).
 
 ### Running
 
 ```bash
-npm run test:e2e              # All tests
-npm run test:e2e:setup        # Setup wizard only
-npm run test:e2e:app          # Core navigation
-npm run test:e2e:settings     # Settings page
-npm run test:e2e:sensing      # Emulator auto-detection
-npm run test:e2e:download     # Emulator downloads
-npm run test:e2e:cores        # RetroArch cores
-npm run test:e2e:roms         # ROM download flows
-npm run test:e2e:games        # Game launching
-npm run test:e2e:gba          # GBA-focused launch checks
-npm run test:e2e:coverage     # Broad UI coverage pass
-npm run test:e2e:immersive    # Immersive mode only
+bun run test:e2e              # All tests
+bun run test:e2e:setup        # Setup wizard only
+bun run test:e2e:app          # Core navigation
+bun run test:e2e:settings     # Settings page
+bun run test:e2e:sensing      # Emulator auto-detection
+bun run test:e2e:download     # Emulator downloads
+bun run test:e2e:cores        # RetroArch cores
+bun run test:e2e:roms         # ROM download flows
+bun run test:e2e:games        # Game launching
+bun run test:e2e:gba          # GBA-focused launch checks
+bun run test:e2e:coverage     # Broad UI coverage pass
+bun run test:e2e:immersive    # Immersive mode only
 ```
 
 ### Test Files

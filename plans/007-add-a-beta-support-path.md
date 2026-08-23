@@ -51,7 +51,7 @@ analytics, automatic uploads, attaching databases/configs, or collecting secrets
 
 ## Verification and done criteria
 
-- [ ] `npm run typecheck && npm run test:unit` exits 0.
+- [ ] `bun run typecheck && bun run test:unit` exits 0.
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [ ] Settings opens the same log folder documented in README.
 - [ ] A test report can identify app version, OS, and relevant log without sharing
@@ -69,4 +69,3 @@ analytics, automatic uploads, attaching databases/configs, or collecting secrets
 
 Add telemetry only if local logs repeatedly fail to answer concrete beta issues.
 The private cohort should generate product evidence, not a new observability stack.
-

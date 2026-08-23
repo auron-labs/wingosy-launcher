@@ -17,16 +17,16 @@ tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream", "multipart", "cookies"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
-directories = "5"
-toml = "0.8"
+reqwest = { version = "0.13", features = ["json", "stream", "multipart", "cookies"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+directories = "6"
+toml = "1.1"
 walkdir = "2"
-zip = "2"
+zip = "8.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 tokio-stream = "0.1"
@@ -36,11 +36,12 @@ sevenz-rust = "0.6"
 urlencoding = "2"
 url = "2"
 md5 = "0.8"
-aes = "0.8"
+sha2 = "0.11"
+aes = "0.9"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.52"
-keyring = { version = "3.6", default-features = false, features = ["windows-native"] }
+winreg = "0.56"
+keyring = { version = "4.1", default-features = false, features = ["v1", "windows-native-keyring-store"] }
 
 [dev-dependencies]
 tempfile = "3"

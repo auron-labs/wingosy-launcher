@@ -2,7 +2,7 @@
 #
 # The git tag sets the app version (e.g. v2.0.0 → 2.0.0): CI runs `scripts/set-version.mjs`
 # so installers match the tag. This is a MAJOR-style release relative to prior betas/nightlies
-# (you normally tag after `npm run version:bump -- release` on main, or set the tag to the
+# (you normally tag after `bun run version:bump -- release` on main, or set the tag to the
 # desired X.0.0 manually — see CONTRIBUTING.md).
 #
 # Do not use this workflow for nightly/beta tags — those are built by nightly.yml / beta.yml.
@@ -47,14 +47,10 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Enable Corepack (pinned npm from package.json)
-        run: corepack enable
+          bun-version: '1.3.14'
 
       - name: Sync app version from release tag
         shell: bash
@@ -62,7 +58,7 @@ jobs:
           set -e
           TAG="${{ env.RELEASE_TAG }}"
           VER="${TAG#v}"
-          node scripts/set-version.mjs "$VER"
+          bun scripts/set-version.mjs "$VER"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -75,7 +71,7 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -102,4 +98,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: node scripts/write-updater-manifest.mjs
+        run: bun scripts/write-updater-manifest.mjs

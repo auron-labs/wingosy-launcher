@@ -22,7 +22,7 @@ Informal backlog and QA checklist — not shipped in the installer; for contribu
 
    **Buildbot validation (network; can be large downloads):** validates every distinct `*_libretro.dll` above against Libretro buildbot (sanity check, separate from the per-core launch checklist):
 
-   `npm run test:rust:cores`
+   `bun run test:rust:cores`
 
    See `TESTING.md` for details/troubleshooting.
 2. **Save sync:** Test **save sync** against RomM (listing saves, upload, download, and local integration with launches).

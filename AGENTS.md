@@ -2,12 +2,12 @@
 
 ### Issue tracker
 
-Issues live as Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues are tracked as local Markdown under `.scratch/`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Uses the default five triage labels. See `docs/agents/triage-labels.md`.
+Triage uses the five default canonical labels. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context layout with root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+Domain documentation uses a single-context layout. See `docs/agents/domain.md`.

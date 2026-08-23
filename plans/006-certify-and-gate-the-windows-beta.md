@@ -63,9 +63,9 @@ emulator certification, or weakening tests to obtain green results.
 
 ## Commands and done criteria
 
-- [ ] `npm ci`, `npm run build`, `npm run lint:frontend`, `npm run typecheck`,
-      `npm run test:unit`, `npm run test:rust`, and `npm run lint:rust` exit 0 on Windows.
-- [ ] `npm run test:e2e` executes specs (not merely workers) and all beta-critical
+- [ ] `bun install --frozen-lockfile`, `bun run build`, `bun run lint:frontend`, `bun run typecheck`,
+      `bun run test:unit`, `bun run test:rust`, and `bun run lint:rust` exit 0 on Windows.
+- [ ] `bun run test:e2e` executes specs (not merely workers) and all beta-critical
       setup/sync/download/launch/immersive cases pass.
 - [ ] All six promised RetroArch ledger rows contain real Windows 11 evidence.
 - [ ] The tested installer contains the recorded RetroArch/core manifest, and

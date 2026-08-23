@@ -1,6 +1,6 @@
 /**
  * Rasterize branding/windows/wingosy-launcher-icon.svg → Tauri bundle icons + web favicon.
- * Run from repo root: npm run icons:windows
+ * Run from repo root: bun run icons:windows
  */
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

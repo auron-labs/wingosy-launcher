@@ -4,8 +4,8 @@
   "version": "0.0.111",
   "identifier": "com.wingosy.launcher",
   "build": {
-    "beforeDevCommand": "npm run dev:web",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "bun run dev:web",
+    "beforeBuildCommand": "bun run build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },

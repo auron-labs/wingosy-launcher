@@ -60,8 +60,8 @@ new dependencies, custom image caching, database replacement, or design changes.
 
 ## Verification and done criteria
 
-- [ ] `npm run typecheck`, `npm run test:unit`, and `npm run build` exit 0.
-- [ ] `npm run lint:frontend` has no new warnings and the `App.jsx:130` warning is gone.
+- [ ] `bun run typecheck`, `bun run test:unit`, and `bun run build` exit 0.
+- [ ] `bun run lint:frontend` has no new warnings and the `App.jsx:130` warning is gone.
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [ ] Desktop and immersive initial loads request at most 60 games.
 - [ ] Immersive navigation can reach later pages without losing controller focus.
@@ -78,4 +78,3 @@ new dependencies, custom image caching, database replacement, or design changes.
 
 Keep one backend paging contract for both UI modes. Image caching is a later,
 measurement-driven change, not part of this fix.
-

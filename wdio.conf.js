@@ -9,10 +9,10 @@
  * 1. Install tauri-driver: cargo install tauri-driver (on PATH)
  * 2. Edge WebDriver: downloaded automatically via devDependency `edgedriver` into e2e-webdriver/
  *    (override CDN with EDGEDRIVER_CDNURL if needed)
- * 3. Build the app: npm run tauri build
+ * 3. Build the app: bun run tauri build
  * 
  * Run tests:
- *   npm run test:e2e
+ *   bun run test:e2e
  */
 
 import { spawn } from 'child_process';

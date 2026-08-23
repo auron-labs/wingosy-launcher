@@ -55,7 +55,7 @@ save sync is not promised until plan 006 records a real round trip.
 
 - [ ] `rg -n "Private Beta|experimental|manual save" README.md DEV_README.md src/components/Settings.jsx` finds the contract in user-visible locations.
 - [ ] No README checkmark claims a combination absent from the certification ledger.
-- [ ] `npm run typecheck && npm run test:unit` exits 0 if UI copy changes.
+- [ ] `bun run typecheck && bun run test:unit` exits 0 if UI copy changes.
 - [ ] Release notes contain scope, backup guidance, and the feedback route from 007.
 
 ## STOP conditions
@@ -68,4 +68,3 @@ save sync is not promised until plan 006 records a real round trip.
 
 Expand the support table only after a real Windows ledger row passes. Features
 may remain accessible without becoming part of the beta promise.
-

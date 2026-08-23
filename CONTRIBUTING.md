@@ -4,20 +4,22 @@
 
 ## Setup
 
-Prerequisites: **Windows 10/11**, **Node.js 20+** (22 LTS recommended; required for the `edgedriver` devDependency), **npm 11** (pinned in `package.json` as `packageManager`), **Rust 1.77.2+** (Tauri v2 / updater plugin), **VS Build Tools (C++)**.
+Prerequisites: **Windows 10/11**, **Bun 1.3.14+** (pinned in `package.json` as `packageManager`), **Rust stable** (Tauri v2 / updater plugin), **VS Build Tools (C++)**.
 
 ### PATH on Windows
 
-`node`, `npm`, and `cargo` must be on your `Path`. This repo’s `.vscode/settings.json` prepends **Node** (`C:\Program Files\nodejs`) and **Rust** (`%USERPROFILE%\.cargo\bin`) for Cursor/VS Code integrated terminals. If a shell still cannot find them, prepend manually for that session:
+`bun` and `cargo` must be on your `Path`. Bun normally installs under
+`%USERPROFILE%\.bun\bin`, and Rust under `%USERPROFILE%\.cargo\bin`. If a shell
+still cannot find them, prepend both manually for that session:
 
 ```powershell
-$env:Path = "C:\Program Files\nodejs;$env:USERPROFILE\.cargo\bin;" + $env:Path
+$env:Path = "$env:USERPROFILE\.bun\bin;$env:USERPROFILE\.cargo\bin;" + $env:Path
 ```
 
 Verify in that same terminal:
 
 ```powershell
-node -v
+bun --version
 cargo -v
 ```
 
@@ -25,45 +27,39 @@ cargo -v
 
 | What you see | What it usually means | What to do |
 |----------------|----------------------|------------|
-| `npm` / `node` is not recognized | Node.js is not on `Path` for this terminal | Use the `$env:Path = ...` line above, or open a **new** terminal after installing Node; confirm with `node -v`. |
+| `bun` is not recognized | Bun is not on `Path` for this terminal | Use the `$env:Path = ...` line above, or open a **new** terminal after installing Bun; confirm with `bun --version`. |
 | `failed to get cargo metadata: program not found` | **Cargo** is not on `Path` (Tauri needs Rust) | Add `%USERPROFILE%\.cargo\bin` (see line above), then `cargo -v`. Install Rust via `winget` / rustup if needed. |
 | No window yet, only compile logs | First **debug** build of `src-tauri` can take **30–120+ seconds** | Wait until you see **`Finished` `dev` profile** and the log line **Starting Wingosy Launcher**; check the taskbar for the window. |
-| Only the browser / `localhost:5173` | You ran **`npm run dev:web`** instead of the full app | Use **`npm run tauri dev`** (or **`npm run dev`**, which is the same) so the **native** window opens. |
+| Only the browser / `localhost:5173` | You ran **`bun run dev:web`** instead of the full app | Use **`bun run tauri dev`** (or **`bun run dev`**, which is the same) so the **native** window opens. |
 | Can’t drag the frameless window / title bar feels “dead” | Vite **HMR** doesn’t reload **`tauri.conf.json`** or the **Rust** shell; `-webkit-app-region` can also lag until a full reload | **Stop** `tauri dev` (Ctrl+C), start it again. After changing **`src-tauri/tauri.conf.json`** or **`src-tauri/capabilities/`**, restart so the native binary picks up the new config. |
 
 Install if missing:
 
 ```powershell
-winget install OpenJS.NodeJS.LTS --accept-package-agreements
+winget install Oven-sh.Bun --accept-package-agreements
 winget install Rustlang.Rustup --accept-package-agreements
 rustup default stable
 ```
 
 After installing, **close and reopen** terminals (or sign out) so `Path` updates apply.
 
-Enable [Corepack](https://nodejs.org/api/corepack.html) once so installs use the pinned npm version:
-
-```bash
-corepack enable
-```
-
 ```bash
 git clone https://github.com/yash-1o1/wingosy-launcher.git
 cd wingosy-launcher
-npm install
-npm run tauri dev
+bun install
+bun run tauri dev
 ```
 
 ### Development vs release
 
-**Development — `npm run tauri dev`**
+**Development — `bun run tauri dev`**
 
 - Runs a **debug** native shell and serves the React app from your **`src/`** tree with Vite.
 - **Frontend:** Vite **hot module replacement** — many React/CSS changes show up while the window stays open.
 - **Rust (`src-tauri/`):** Saving files **rebuilds** the native side; the dev app **restarts** (not the same instant refresh as the web UI).
 - You are always tied to **whatever is on disk** in your clone when you run this command.
 
-**Release — `npm run tauri build`**
+**Release — `bun run tauri build`**
 
 - Produces an optimized **`Wingosy Launcher.exe`** under `src-tauri/target/release/` (and installers if configured).
 - The UI and Rust code are **fixed at build time**. New commits do **not** change an `.exe` you already built until you **build again** and **open the new binary**.
@@ -87,12 +83,12 @@ Pre-release workflows set **`prerelease: true`** so they do not replace **stable
 
 Release, Beta, and Nightly workflows build **signed** NSIS artifacts and upload **`latest.json`** next to the installer so the app can call **`install_signed_app_update`** (in-place update, then restart).
 
-`scripts/write-updater-manifest.mjs` reads the **published** NSIS asset URL from the GitHub API (GitHub renames `Wingosy Launcher` → `Wingosy.Launcher` in filenames). If an older release has a broken manifest (installer URL 404), run the **Repair updater manifest** workflow (`.github/workflows/repair-updater-manifest.yml`) with that release tag, or locally: `RELEASE_TAG=<tag> GITHUB_TOKEN=… node scripts/repair-updater-manifest.mjs`.
+`scripts/write-updater-manifest.mjs` reads the **published** NSIS asset URL from the GitHub API (GitHub renames `Wingosy Launcher` → `Wingosy.Launcher` in filenames). If an older release has a broken manifest (installer URL 404), run the **Repair updater manifest** workflow (`.github/workflows/repair-updater-manifest.yml`) with that release tag, or locally: `RELEASE_TAG=<tag> GITHUB_TOKEN=… bun scripts/repair-updater-manifest.mjs`.
 
 1. **One-time:** generate a minisign keypair (keep the private key secret; the public key is already in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey` — replace it if you rotate keys):
 
    ```bash
-   npm run tauri -- signer generate -w src-tauri/tauri-signing.key
+   bun run tauri -- signer generate -w src-tauri/tauri-signing.key
    ```
 
    Commit only the **public** key line into `tauri.conf.json` (never commit `tauri-signing.key`; it is listed in `.gitignore`).
@@ -107,7 +103,7 @@ Release, Beta, and Nightly workflows build **signed** NSIS artifacts and upload 
    ```powershell
    $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content -Raw "$PWD\src-tauri\tauri-signing.key").Trim()
    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "your-password"   # omit if the key has no password
-   npm run tauri build
+   bun run tauri build
    ```
 
    `TAURI_SIGNING_PRIVATE_KEY_PATH` is supported by newer CLIs for some commands, but **inlining the key** (as above) matches CI (`secrets.TAURI_SIGNING_PRIVATE_KEY`) and avoids “public key found, but no private key” if the path form is not picked up for updater signing.
@@ -116,13 +112,13 @@ Release, Beta, and Nightly workflows build **signed** NSIS artifacts and upload 
 
 ### App versioning (automated in CI)
 
-The app semver is **`MAJOR.MINOR.PATCH`** in **`package.json`**, mirrored to **`package-lock.json`**, **`src-tauri/Cargo.toml`**, **`src-tauri/tauri.conf.json`** (root `version` field in Tauri v2), and **`src-tauri/Cargo.lock`** via:
+The app semver is **`MAJOR.MINOR.PATCH`** in **`package.json`**, mirrored to **`src-tauri/Cargo.toml`**, **`src-tauri/tauri.conf.json`** (root `version` field in Tauri v2), and **`src-tauri/Cargo.lock`** via:
 
 ```bash
-npm run version:set -- 1.2.3    # node scripts/set-version.mjs — set all files to an exact version
-npm run version:bump -- nightly # PATCH + 1
-npm run version:bump -- beta    # MINOR + 1, PATCH = 0 (resets “nightly” counter)
-npm run version:bump -- release # MAJOR + 1, MINOR = 0, PATCH = 0 (resets beta and nightly counters)
+bun run version:set -- 1.2.3    # bun scripts/set-version.mjs — set all files to an exact version
+bun run version:bump -- nightly # PATCH + 1
+bun run version:bump -- beta    # MINOR + 1, PATCH = 0 (resets “nightly” counter)
+bun run version:bump -- release # MAJOR + 1, MINOR = 0, PATCH = 0 (resets beta and nightly counters)
 ```
 
 | Workflow | What happens to the version |
@@ -154,14 +150,14 @@ See [TESTING.md](TESTING.md) for the full matrix, **opt-in** (network) integrati
 
 ```bash
 cargo test              # Rust unit tests + integration tests that are not #[ignore]
-npm run test:unit       # Vitest: pure JS (`*.test.js`) + React (`*.test.jsx` with Testing Library)
+bun run test:unit       # Vitest: pure JS (`*.test.js`) + React (`*.test.jsx` with Testing Library)
 ```
 
 See [TESTING.md](TESTING.md) → *Unit Tests (JavaScript)* for `MuiTestProvider` and file naming.
 
 **Integration tests** that talk to the real network are marked `#[ignore]` in Rust so `cargo test` stays offline-friendly. **Do run them** when you change RomM, downloads, or emulator fetch code — see [TESTING.md](TESTING.md) → *Integration Tests (Rust)* for the exact `cargo test --test … -- --ignored` commands. That is “opt in with a flag,” not “pretend integration tests do not exist.”
 
-**E2E** (`npm run test:e2e`) is optional and needs more than `npm install` + `tauri dev`:
+**E2E** (`bun run test:e2e`) is optional and needs more than `bun install` + `tauri dev`:
 
 1. **`tauri-driver` on your `PATH`** — WebDriver talks to the native app through it. Install with Rust’s toolchain:
 
@@ -176,7 +172,7 @@ See [TESTING.md](TESTING.md) → *Unit Tests (JavaScript)* for `MuiTestProvider`
 3. **Release build** — `wdio.conf.js` expects `src-tauri/target/release/Wingosy Launcher.exe`:
 
    ```bash
-   npm run tauri build
+   bun run tauri build
    ```
 
 Step (1) was documented in [TESTING.md](TESTING.md) and in `wdio.conf.js` comments, but not in this file until now, so it was easy to miss when only reading **Contributing**.
