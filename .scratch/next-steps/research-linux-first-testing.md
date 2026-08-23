@@ -167,7 +167,7 @@ permitted content, or the local RomM/emulator environment.
 
 The repository already has the right high-value artifacts:
 
-- [`Plan 006`](006-certify-and-gate-the-windows-beta.md) specifies clean-install,
+- [`Plan 006`](issues/06-certify-and-gate-the-windows-beta.md) specifies clean-install,
   update, controller, save-round-trip, and six-platform certification gates.
 - The [emulator certification ledger](../.scratch/transparent-romm-launching/emulator-certification.md)
   separates source/mock evidence from real Windows runtime evidence.

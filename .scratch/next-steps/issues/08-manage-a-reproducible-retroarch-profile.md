@@ -1,6 +1,11 @@
-# Plan 008: Manage a reproducible RetroArch profile
+# Manage a reproducible RetroArch profile
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 01, 02
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src-tauri/src/models/emulator.rs src-tauri/src/emulators src-tauri/src/config src-tauri/src/commands.rs src/components/Settings.jsx`
 

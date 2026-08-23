@@ -1,6 +1,11 @@
-# Plan 003: Keep RomM access tokens out of TOML
+# Keep RomM access tokens out of TOML
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 02
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src-tauri/src/config/mod.rs src-tauri/src/commands.rs src-tauri/src/romm_credentials.rs`
 
@@ -66,4 +71,3 @@ inspection. Never copy token values into a test fixture, log, issue, or plan.
 
 Configuration may describe which auth method is used, but secret-bearing values
 belong only in the platform credential store or process memory.
-

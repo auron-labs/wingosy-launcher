@@ -1,6 +1,11 @@
-# Plan 002: Preserve RomM configuration through setup
+# Preserve RomM configuration through setup
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: none
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src/components/SetupWizard.jsx src-tauri/src/commands.rs src-tauri/src/config/mod.rs`
 

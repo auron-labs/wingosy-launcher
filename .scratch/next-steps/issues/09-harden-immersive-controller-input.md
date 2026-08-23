@@ -1,6 +1,11 @@
-# Plan 009: Harden immersive controller input
+# Harden immersive controller input
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 04
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src/immersive DEV_README.md`
 

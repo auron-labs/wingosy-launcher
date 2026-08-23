@@ -1,8 +1,13 @@
-# Plan 004: Bound desktop and immersive library loading
+# Bound desktop and immersive library loading
+
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 02
 
 > Preserve current user-owned changes. Run `git status --short` before editing;
 > if an in-scope file is still being edited by another person, stop and
-> coordinate. Update `plans/README.md` when done.
+> coordinate. Update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src/App.jsx src/components/Library.jsx src/immersive/ImmersiveModeApp.jsx src-tauri/src/commands.rs src-tauri/src/database/games.rs`
 

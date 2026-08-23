@@ -22,15 +22,15 @@ The first private beta is deliberately narrow:
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| [001](001-take-ownership-of-releases.md) | Take ownership of releases and updates | P0 | M | — | TODO |
-| [002](002-preserve-setup-configuration.md) | Preserve RomM configuration through setup | P0 | S | — | TODO |
-| [003](003-secure-romm-access-tokens.md) | Keep RomM access tokens out of TOML | P0 | S | 002 | TODO |
-| [004](004-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 002 | TODO |
-| [005](005-publish-an-honest-beta-contract.md) | Publish an honest beta support contract | P1 | S | 001 | TODO |
-| [007](007-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 001 | TODO |
-| [008](008-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 001, 002 | TODO |
-| [009](009-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 004 | TODO |
-| [006](006-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 001–005, 008, 009 | TODO |
+| [01](issues/01-take-ownership-of-releases.md) | Take ownership of releases and updates | P0 | M | — | TODO |
+| [02](issues/02-preserve-setup-configuration.md) | Preserve RomM configuration through setup | P0 | S | — | TODO |
+| [03](issues/03-secure-romm-access-tokens.md) | Keep RomM access tokens out of TOML | P0 | S | 02 | TODO |
+| [04](issues/04-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 02 | TODO |
+| [05](issues/05-publish-an-honest-beta-contract.md) | Publish an honest beta support contract | P1 | S | 01 | TODO |
+| [07](issues/07-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 01 | TODO |
+| [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | TODO |
+| [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | TODO |
+| [06](issues/06-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 01-05, 08, 09 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with reason) | REJECTED
 

@@ -1,6 +1,11 @@
-# Plan 005: Publish an honest beta support contract
+# Publish an honest beta support contract
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 01
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- README.md DEV_README.md src/components/Settings.jsx .scratch/transparent-romm-launching/emulator-certification.md`
 

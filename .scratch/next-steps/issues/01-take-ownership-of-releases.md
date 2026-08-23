@@ -1,8 +1,13 @@
-# Plan 001: Take ownership of releases and updates
+# Take ownership of releases and updates
+
+Type: task
+Mode: human
+Status: ready-for-human
+Blocked by: none
 
 > Follow this plan step by step. Run each verification before continuing. If a
 > STOP condition occurs, report it instead of improvising. On completion, update
-> the status in `plans/README.md`.
+> the status in `../spec.md`.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- README.md CONTRIBUTING.md .github/workflows src-tauri/tauri.conf.json src-tauri/src/commands.rs`
 

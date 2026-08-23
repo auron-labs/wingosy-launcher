@@ -1,6 +1,11 @@
-# Plan 007: Add a minimal beta support path
+# Add a minimal beta support path
 
-> Follow this plan step by step and update `plans/README.md` when done.
+Type: task
+Mode: agent
+Status: ready-for-agent
+Blocked by: 01
+
+> Follow this plan step by step and update `../spec.md` when done.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- src-tauri/src/main.rs src-tauri/src/config/mod.rs src-tauri/src/commands.rs src/components/Settings.jsx README.md .github/ISSUE_TEMPLATE/bug_report.md`
 

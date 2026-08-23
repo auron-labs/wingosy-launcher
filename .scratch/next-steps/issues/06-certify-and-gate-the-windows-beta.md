@@ -1,7 +1,12 @@
-# Plan 006: Certify and gate the Windows beta
+# Certify and gate the Windows beta
+
+Type: task
+Mode: human
+Status: ready-for-human
+Blocked by: 01, 02, 03, 04, 05, 08, 09
 
 > Follow this plan on Windows 11 with permitted content and a beta RomM instance.
-> Update `plans/README.md` only after every must-pass gate is evidenced.
+> Update `../spec.md` only after every must-pass gate is evidenced.
 >
 > Drift check: `git diff --stat a96ce03..HEAD -- .github/workflows/beta.yml e2e-webdriver .scratch/transparent-romm-launching`
 
