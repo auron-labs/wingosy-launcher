@@ -41,10 +41,12 @@ export default function ScreenshotLightbox({ open, onClose, urls, getSrc, index,
       open={open && Boolean(src)}
       onClose={onClose}
       fullScreen
-      PaperProps={{
-        sx: {
-          bgcolor: "rgba(0,0,0,0.94)",
-          backgroundImage: "none",
+      slotProps={{
+        paper: {
+          sx: {
+            bgcolor: "rgba(0,0,0,0.94)",
+            backgroundImage: "none",
+          },
         },
       }}
     >

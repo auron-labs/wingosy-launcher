@@ -1,10 +1,8 @@
-export {};
+declare module "*.css";
 
-declare global {
-  interface Window {
-    __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: object;
-  }
-
-  var isTauri: boolean | undefined;
+interface Window {
+  __TAURI__?: unknown;
+  __TAURI_INTERNALS__?: object;
 }
+
+declare var isTauri: boolean | undefined;

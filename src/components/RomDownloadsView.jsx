@@ -19,7 +19,7 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
 
   return (
     <Box sx={{ p: 3, maxWidth: 900, mx: "auto", width: "100%" }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+      <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: "center" }}>
         {immersive && onBack ? (
           <Button
             startIcon={<ArrowBackIcon />}
@@ -30,7 +30,7 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
           </Button>
         ) : null}
         <Box {...tauriDragRegionProps()} sx={{ flex: 1, minWidth: 0, ...tauriDragRegionSx }}>
-          <Stack direction="row" alignItems="center" spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <CloudDownloadIcon color="primary" />
             <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
               Downloads
@@ -92,8 +92,10 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
                       : "Finished"
                     : item.message || "Download failed"
                 }
-                secondaryTypographyProps={{
-                  color: item.kind === "error" ? "error" : "text.secondary",
+                slotProps={{
+                  secondary: {
+                    color: item.kind === "error" ? "error" : "text.secondary",
+                  },
                 }}
               />
             </ListItem>

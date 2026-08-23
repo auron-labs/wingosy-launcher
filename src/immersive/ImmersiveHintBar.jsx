@@ -6,7 +6,7 @@ import { alpha } from "@mui/material/styles";
 
 function Hint({ label, detail }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
       <Box
         sx={(t) => ({
           px: 1,
@@ -27,33 +27,33 @@ function Hint({ label, detail }) {
   );
 }
 
-export default function ImmersiveHintBar({ view, visible = true }) {
+export default function ImmersiveHintBar({ view, visible = true, unsupportedGamepad = false }) {
   if (!visible) return null;
 
   const hints =
     view === "details"
       ? [
           { label: "D-pad / Stick", detail: "Navigate" },
-          { label: "A / Enter", detail: "Play" },
-          { label: "B / Esc", detail: "Back" },
+          { label: "South / Enter", detail: "Play" },
+          { label: "East / Esc", detail: "Back" },
           { label: "View / H", detail: "Hide help" },
         ]
       : view === "settings"
         ? [
             { label: "D-pad / Stick", detail: "Navigate" },
-            { label: "A / Enter", detail: "Select" },
-            { label: "B / Esc", detail: "Back" },
+            { label: "South / Enter", detail: "Select" },
+            { label: "East / Esc", detail: "Back" },
             { label: "View / H", detail: "Hide help" },
           ]
         : view === "downloads"
           ? [
-              { label: "B / Esc", detail: "Back to library" },
+              { label: "East / Esc", detail: "Back to library" },
               { label: "View / H", detail: "Hide help" },
             ]
         : [
             { label: "D-pad / Stick", detail: "Move" },
-            { label: "A / Enter", detail: "Open" },
-            { label: "B / Esc", detail: "Exit" },
+            { label: "South / Enter", detail: "Open" },
+            { label: "East / Esc", detail: "Back" },
             { label: "LB/RB", detail: "All / Favorites / Recent" },
             { label: "Menu / S", detail: "Settings" },
             { label: "View / H", detail: "Hide help" },
@@ -79,7 +79,17 @@ export default function ImmersiveHintBar({ view, visible = true }) {
         boxShadow: `0 18px 60px ${alpha("#000", 0.52)}`,
       })}
     >
-      <Stack direction="row" spacing={1.5} alignItems="center" divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />}>
+      {unsupportedGamepad ? (
+        <Typography
+          role="status"
+          variant="caption"
+          color="warning.main"
+          sx={{ display: "block", mb: 1, fontWeight: 650 }}
+        >
+          Unsupported controller. Use a standard/XInput controller or keyboard for immersive navigation.
+        </Typography>
+      ) : null}
+      <Stack direction="row" spacing={1.5} divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />} sx={{ alignItems: "center" }}>
         {hints.map((h) => (
           <Hint key={`${h.label}-${h.detail}`} label={h.label} detail={h.detail} />
         ))}
@@ -87,4 +97,3 @@ export default function ImmersiveHintBar({ view, visible = true }) {
     </Box>
   );
 }
-

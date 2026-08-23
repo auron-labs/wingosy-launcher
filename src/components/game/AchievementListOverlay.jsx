@@ -33,8 +33,10 @@ export default function AchievementListOverlay({
       open={open}
       onClose={onClose}
       fullScreen
-      PaperProps={{
-        sx: { bgcolor: "background.default" },
+      slotProps={{
+        paper: {
+          sx: { bgcolor: "background.default" },
+        },
       }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -51,7 +53,7 @@ export default function AchievementListOverlay({
         >
           <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 28 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={600} noWrap>
+            <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
               {gameTitle}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -154,7 +156,7 @@ function AchievementRow({ achievement, locked }) {
         )}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" fontWeight={600}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
           {achievement.title}
         </Typography>
         {achievement.description ? (

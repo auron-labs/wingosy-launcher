@@ -147,7 +147,7 @@ export default function Sidebar({
           ...tauriDragRegionSx,
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1.5}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
           <LauncherIcon size={40} />
           <Box sx={{ minWidth: 0 }}>
             <Typography
@@ -262,7 +262,7 @@ export default function Sidebar({
             </ListItemIcon>
             <ListItemText
               primary={platform.short_name || platform.name}
-              primaryTypographyProps={{ fontSize: "0.875rem" }}
+              slotProps={{ primary: { sx: { fontSize: "0.875rem" } } }}
             />
             <Typography variant="caption" color="text.secondary">
               {count}

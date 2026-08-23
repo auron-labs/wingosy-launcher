@@ -199,7 +199,7 @@ export default function ImmersiveLibrary({
           WebkitBackdropFilter: "blur(14px)",
         })}
       >
-        <Stack direction="row" alignItems="center" spacing={2}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
           <LauncherIcon size={48} />
           <Box sx={{ minWidth: 0 }}>
             <Typography

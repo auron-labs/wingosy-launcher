@@ -63,7 +63,7 @@ export default function ImmersiveModeApp({
     },
   });
 
-  useGamepadKeyboardMapper({ enabled: true });
+  const { unsupportedGamepad } = useGamepadKeyboardMapper({ enabled: true });
 
   const loadData = useCallback(async () => {
     try {
@@ -307,7 +307,7 @@ export default function ImmersiveModeApp({
     >
       <AmbientAudioPlayer audio={audioCfg} />
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{main}</Box>
-      <ImmersiveHintBar view={view} visible={showHints} />
+      <ImmersiveHintBar view={view} visible={showHints} unsupportedGamepad={unsupportedGamepad} />
     </Box>
   );
 }

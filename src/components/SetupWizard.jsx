@@ -327,7 +327,7 @@ export default function SetupWizard({ onComplete, onRommConnect }) {
                   value={romsDir}
                   onChange={(e) => setRomsDir(e.target.value)}
                   placeholder="C:\Games\ROMs"
-                  InputProps={{ readOnly: true }}
+                  slotProps={{ input: { readOnly: true } }}
                 />
                 <Button
                   variant="outlined"

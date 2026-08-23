@@ -55,7 +55,7 @@ export default function GameAchievementsSection({
         </Box>
 
         {!retroAchievementsEnabled ? (
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
             Enable RetroAchievements in Settings → Integrations to track progress.
           </Typography>
         ) : null}

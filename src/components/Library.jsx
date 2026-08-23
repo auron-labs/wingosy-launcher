@@ -45,9 +45,11 @@ export default function Library({
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={2}
-        alignItems={{ xs: "stretch", sm: "center" }}
-        justifyContent="space-between"
-        sx={{ mb: 3 }}
+        sx={{
+          mb: 3,
+          alignItems: { xs: "stretch", sm: "center" },
+          justifyContent: "space-between",
+        }}
       >
         <Typography
           variant="h4"
@@ -80,12 +82,14 @@ export default function Library({
             flexShrink: 0,
             ...tauriNoDragSx,
           }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon color="action" />
-              </InputAdornment>
-            ),
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+            },
           }}
         />
       </Stack>

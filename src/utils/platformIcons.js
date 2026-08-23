@@ -1,7 +1,7 @@
 /**
  * Sidebar: RomM platform artwork with a bundled console icon fallback
  * (`src/data/consoleIconSet.json`, Simple Icons-derived, CC0).
- * Regenerate: `npm i -D @iconify-json/simple-icons` then `node scripts/extract-console-icons.mjs`.
+ * Regenerate: `bun add -d @iconify-json/simple-icons` then `bun scripts/extract-console-icons.mjs`.
  */
 
 export const PLATFORM_COLORS = {

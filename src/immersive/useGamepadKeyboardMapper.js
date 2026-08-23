@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
@@ -62,10 +62,10 @@ function dispatchKey(key) {
 /**
  * Minimal "Big Picture" style controller mapping by translating gamepad input to existing keyboard handlers.
  *
- * Defaults (Xbox-style):
+ * Standard-layout actions:
  * - D-pad / Left stick: Arrow keys
- * - A: Enter
- * - B: Escape
+ * - South: Enter
+ * - East: Escape
  * - LB/RB: PageUp/PageDown (section switching in library)
  * - Start: "s" (open settings in library)
  * - Back/View: "h" (toggle on-screen help/hints)
@@ -79,6 +79,8 @@ export function useGamepadKeyboardMapper({
   const rafRef = useRef(0);
   const lastFireAt = useRef(new Map());
   const connectedOnce = useRef(false);
+  const unsupportedGamepadRef = useRef(false);
+  const [unsupportedGamepad, setUnsupportedGamepad] = useState(false);
   const lastDigital = useRef({
     up: false,
     down: false,
@@ -93,7 +95,19 @@ export function useGamepadKeyboardMapper({
   });
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      if (unsupportedGamepadRef.current) {
+        unsupportedGamepadRef.current = false;
+        setUnsupportedGamepad(false);
+      }
+      return undefined;
+    }
+
+    function updateUnsupportedGamepad(value) {
+      if (unsupportedGamepadRef.current === value) return;
+      unsupportedGamepadRef.current = value;
+      setUnsupportedGamepad(value);
+    }
 
     function canFire(key, isHeld) {
       const now = Date.now();
@@ -106,7 +120,9 @@ export function useGamepadKeyboardMapper({
 
     function tick() {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const gp = pads && pads.length ? pads.find(Boolean) : null;
+      const connectedPads = Array.from(pads || []).filter(Boolean);
+      const gp = connectedPads.find((pad) => pad.mapping === "standard") || null;
+      updateUnsupportedGamepad(connectedPads.length > 0 && !gp);
       if (!gp) {
         rafRef.current = requestAnimationFrame(tick);
         return;
@@ -181,5 +197,6 @@ export function useGamepadKeyboardMapper({
     window.addEventListener("gamepadconnected", onConnect);
     return () => window.removeEventListener("gamepadconnected", onConnect);
   }, [enabled]);
-}
 
+  return { unsupportedGamepad };
+}

@@ -1,7 +1,7 @@
 import Box from "@mui/material/Box";
 
 /**
- * Raster launcher mark from `public/icon.svg` (kept in sync via `npm run icons:windows`).
+ * Raster launcher mark from `public/icon.svg` (kept in sync via `bun run icons:windows`).
  */
 export default function LauncherIcon({ size = 40, sx = {} }) {
   return (

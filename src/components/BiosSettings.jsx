@@ -233,8 +233,10 @@ export default function BiosSettings() {
                           <ListItemText
                             primary={item.file_name}
                             secondary={item.missing_from_fs ? "Missing from RomM filesystem" : item.is_downloaded ? item.local_path : formatBytes(item.file_size_bytes)}
-                            primaryTypographyProps={{ fontFamily: "monospace", variant: "body2" }}
-                            secondaryTypographyProps={{ sx: { overflowWrap: "anywhere", pr: 12 } }}
+                            slotProps={{
+                              primary: { sx: { fontFamily: "monospace" }, variant: "body2" },
+                              secondary: { sx: { overflowWrap: "anywhere", pr: 12 } },
+                            }}
                           />
                         </ListItem>
                       ))}

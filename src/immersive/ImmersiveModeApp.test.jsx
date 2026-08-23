@@ -30,7 +30,7 @@ vi.mock("./useFullscreen", () => ({
 }));
 
 vi.mock("./useGamepadKeyboardMapper", () => ({
-  useGamepadKeyboardMapper: () => {},
+  useGamepadKeyboardMapper: () => ({ unsupportedGamepad: false }),
 }));
 
 vi.mock("./AmbientAudioPlayer", () => ({ default: () => null }));

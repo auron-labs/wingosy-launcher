@@ -8,7 +8,7 @@ use crate::api::{
     download::{DownloadManager, DownloadProgress},
     RomMClient,
 };
-use crate::config::{AppConfig, UpdateChannel};
+use crate::config::{AppConfig, RetroArchInstallKind, UpdateChannel};
 use crate::database::Database;
 use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::emulators::detection::detect_installed_emulators;
@@ -65,6 +65,11 @@ fn retroarch_has_core_ready_for_platform(platform_id: &str) -> Result<bool, Stri
         return Ok(false);
     };
     if !ra_exe.exists() {
+        return Ok(false);
+    }
+    if config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed
+        && !crate::emulators::retroarch::managed_install_is_ready(&config, ra_exe)
+    {
         return Ok(false);
     }
     Ok(retroarch_core_installed_for_platform(ra_exe, platform_id))
@@ -2013,12 +2018,24 @@ pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
         let detected_match = detected.iter().find(|d| d.id == emu.id);
         let configured_path = configured_emulator_path(&config, &emu.id);
 
-        let (is_installed, installed_path, install_type, version) = if let Some(d) = detected_match {
+        let configured_retroarch = emu.id == "retroarch" && configured_path.is_some();
+        let (is_installed, installed_path, install_type, version) = if configured_retroarch {
+            let path = configured_path.expect("configured RetroArch path was checked");
+            let managed = crate::emulators::retroarch::managed_profile_enabled(&config, &path)
+                && AppConfig::emulators_dir().ok().is_some_and(|root| path.starts_with(root));
+            (true, Some(path.to_string_lossy().to_string()), Some(if managed { "managed" } else { "external" }.to_string()), if managed { config.emulators.retroarch_manifest_version.clone() } else { None })
+        } else if let Some(d) = detected_match {
+            let detected_managed = emu.id == "retroarch"
+                && d.install_type == crate::emulators::detection::InstallType::Managed
+                && crate::emulators::retroarch::managed_manifest_marker_matches(&d.path);
+            let detected_install_type = if emu.id == "retroarch" {
+                if detected_managed { "managed" } else { "external" }
+            } else { d.install_type.as_str() };
             (
                 true,
                 Some(d.path.to_string_lossy().to_string()),
-                Some(d.install_type.as_str().to_string()),
-                d.version.clone(),
+                Some(detected_install_type.to_string()),
+                if detected_managed { Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string()) } else if emu.id == "retroarch" { None } else { d.version.clone() },
             )
         } else if let Some(p) = configured_path {
             let kind = AppConfig::emulators_dir()
@@ -2061,6 +2078,50 @@ pub async fn launch_emulator(emulator_path: String) -> Result<(), String> {
     tracing::info!("[Emulators] Launching emulator: {}", emulator_path);
     let path = std::path::PathBuf::from(&emulator_path);
     crate::emulators::detection::launch_emulator(&path)
+}
+
+#[tauri::command]
+pub async fn open_retroarch_input_setup() -> Result<(), String> {
+    let config = AppConfig::load().map_err(|e| e.to_string())?;
+    let executable = config.emulators.retroarch.as_ref().ok_or_else(|| "RetroArch is not configured".to_string())?;
+    if !executable.is_file() {
+        return Err("Configured RetroArch executable was not found".to_string());
+    }
+    let mut command = std::process::Command::new(executable);
+    if (config.emulators.retroarch_install_kind == RetroArchInstallKind::External
+        && config.emulators.retroarch_use_beta_profile)
+        || crate::emulators::retroarch::managed_profile_enabled(&config, executable)
+    {
+        let profile = crate::emulators::retroarch::ensure_profile().map_err(|e| e.to_string())?;
+        command.arg(format!("--appendconfig={}", profile.to_string_lossy()));
+    }
+    command.spawn().map_err(|e| format!("Failed to launch RetroArch input setup: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_retroarch_beta_profile(enabled: bool) -> Result<(), String> {
+    let mut config = AppConfig::load().map_err(|e| e.to_string())?;
+    let executable = config.emulators.retroarch.as_ref().ok_or_else(|| "RetroArch is not configured".to_string())?;
+    if !executable.is_file() {
+        return Err("Configured RetroArch executable was not found".to_string());
+    }
+    let managed = crate::emulators::retroarch::managed_profile_enabled(&config, executable)
+        && AppConfig::emulators_dir().ok().is_some_and(|root| executable.starts_with(root));
+    if managed {
+        return Err("Managed RetroArch always uses the certified Wingosy profile".to_string());
+    }
+    config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
+    config.emulators.retroarch_manifest_version = None;
+    config.emulators.retroarch_use_beta_profile = enabled;
+    config.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_retroarch_controller_additions() -> Result<Option<String>, String> {
+    crate::emulators::retroarch::reset_profile()
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2173,9 +2234,113 @@ async fn fetch_dolphin_download_url() -> anyhow::Result<String> {
     Ok(artifact.url.clone())
 }
 
+async fn download_verified_retroarch_artifact(
+    app: Option<&tauri::AppHandle>,
+    artifact: crate::emulators::retroarch::Artifact,
+) -> Result<PathBuf, String> {
+    let archive_path = crate::emulators::retroarch::temporary_archive_path(artifact.filename);
+    if let Err(error) = crate::emulators::installer::download_file_with_progress(
+        artifact.url,
+        &archive_path,
+        |progress| {
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "emulator-download-progress",
+                    serde_json::json!({
+                        "emulator_id": "retroarch",
+                        "phase": "download",
+                        "filename": artifact.filename,
+                        "downloaded": progress.downloaded,
+                        "total": progress.total,
+                        "percent": progress.percent,
+                    }),
+                );
+            }
+        },
+    )
+    .await
+    {
+        std::fs::remove_file(&archive_path).ok();
+        return Err(error.to_string());
+    }
+    if let Err(error) = crate::emulators::retroarch::verify_sha256(&archive_path, artifact.sha256) {
+        std::fs::remove_file(&archive_path).ok();
+        return Err(error.to_string());
+    }
+    Ok(archive_path)
+}
+
+fn extract_certified_retroarch_cores(archive: &Path, install_root: &Path, format: &str) -> Result<(), String> {
+    let staging_dir = crate::emulators::retroarch::temporary_archive_path("cores-extraction");
+    std::fs::create_dir_all(&staging_dir).map_err(|e| e.to_string())?;
+    let result = (|| {
+        crate::emulators::installer::extract_archive(archive, &staging_dir, format).map_err(|e| e.to_string())?;
+        let cores_dir = install_root.join("cores");
+        std::fs::create_dir_all(&cores_dir).map_err(|e| e.to_string())?;
+        let mut copied_filenames = HashSet::new();
+        for core in crate::emulators::retroarch::core_artifacts() {
+            if !copied_filenames.insert(core.filename) {
+                continue;
+            }
+            let source = walkdir::WalkDir::new(&staging_dir)
+                .into_iter().filter_map(Result::ok)
+                .find(|entry| entry.file_type().is_file() && entry.file_name().to_string_lossy() == core.filename)
+                .map(|entry| entry.into_path())
+                .ok_or_else(|| format!("Certified RetroArch core archive did not contain {}", core.filename))?;
+            let destination = cores_dir.join(core.filename);
+            std::fs::copy(source, &destination).map_err(|e| e.to_string())?;
+            crate::emulators::retroarch::verify_sha256(&destination, core.sha256)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    })();
+    std::fs::remove_dir_all(&staging_dir).ok();
+    result
+}
+
+async fn download_managed_retroarch(_app: tauri::AppHandle) -> Result<String, String> {
+    let emulators_dir = AppConfig::emulators_dir().map_err(|e| e.to_string())?;
+    let emu_dir = emulators_dir.join("retroarch");
+    std::fs::create_dir_all(&emu_dir).map_err(|e| e.to_string())?;
+    let artifact = crate::emulators::retroarch::retroarch_artifact();
+    let archive = download_verified_retroarch_artifact(Some(&_app), artifact).await?;
+    let extracted = crate::emulators::installer::extract_archive(&archive, &emu_dir, artifact.format).map_err(|e| e.to_string())?;
+    std::fs::remove_file(&archive).ok();
+    let executable = crate::emulators::installer::find_executable(&extracted, &["retroarch.exe", "RetroArch.exe"])
+        .ok_or_else(|| "RetroArch executable was not found after extraction".to_string())?;
+    let install_root = executable.parent().ok_or_else(|| "RetroArch executable has no install directory".to_string())?;
+    let cores_artifact = crate::emulators::retroarch::retroarch_cores_artifact();
+    let cores_archive = download_verified_retroarch_artifact(Some(&_app), cores_artifact).await?;
+    let core_result = extract_certified_retroarch_cores(&cores_archive, install_root, cores_artifact.format);
+    std::fs::remove_file(&cores_archive).ok();
+    core_result?;
+    crate::emulators::retroarch::ensure_profile().map_err(|e| e.to_string())?;
+    crate::emulators::retroarch::write_manifest_marker(&executable).map_err(|e| e.to_string())?;
+    let mut config = AppConfig::load().map_err(|e| e.to_string())?;
+    config.emulators.retroarch = Some(executable.clone());
+    config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+    config.emulators.retroarch_manifest_version = Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
+    config.emulators.retroarch_use_beta_profile = false;
+    config.save().map_err(|e| e.to_string())?;
+    let path = executable.to_string_lossy().to_string();
+    let _ = _app.emit(
+        "emulator-download-complete",
+        serde_json::json!({
+            "emulator_id": "retroarch",
+            "path": path,
+            "manifest_version": crate::emulators::retroarch::MANIFEST_VERSION,
+        }),
+    );
+    Ok(path)
+}
+
 #[tauri::command]
 pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Result<String, String> {
     tracing::info!("[Emulators] Downloading emulator: {}", emulator_id);
+
+    if emulator_id == "retroarch" {
+        return download_managed_retroarch(app).await;
+    }
 
     fn emit_progress(app: &tauri::AppHandle, emulator_id: &str, phase: &str, downloaded: u64, total: Option<u64>, percent: Option<u8>) {
         let _ = app.emit(
@@ -2514,7 +2679,12 @@ pub async fn uninstall_emulator(emulator_id: String) -> Result<(), String> {
     // Clear the config path
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     match emulator_id.as_str() {
-        "retroarch" => config.emulators.retroarch = None,
+        "retroarch" => {
+            config.emulators.retroarch = None;
+            config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
+            config.emulators.retroarch_manifest_version = None;
+            config.emulators.retroarch_use_beta_profile = false;
+        }
         "dolphin" => config.emulators.dolphin = None,
         "pcsx2" => config.emulators.pcsx2 = None,
         "rpcs3" => config.emulators.rpcs3 = None,
@@ -2547,7 +2717,25 @@ pub async fn download_retroarch_core(core_name: String) -> Result<String, String
     
     let retroarch_path = config.emulators.retroarch
         .ok_or("RetroArch not configured")?;
-    
+
+    if config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed {
+        let resolved_core_name = crate::emulators::cores::resolve_core_filename(&core_name)
+            .map_err(|e| e.to_string())?;
+        let artifact = crate::emulators::retroarch::core_artifact_for_filename(&resolved_core_name)
+            .ok_or_else(|| format!("Unsupported certified RetroArch core: {resolved_core_name}"))?;
+        let archive = download_verified_retroarch_artifact(None, artifact).await?;
+        let root = retroarch_path.parent().ok_or("RetroArch has no install directory")?;
+        let result = extract_certified_retroarch_cores(&archive, root, artifact.format);
+        std::fs::remove_file(&archive).ok();
+        result?;
+        return Ok(root
+            .join("cores")
+            .join(resolved_core_name)
+            .to_string_lossy()
+            .to_string());
+    }
+
+    tracing::warn!("[RetroArch] External core download is unverified: {}", core_name);
     let core_path = crate::emulators::cores::download_core(&core_name, &retroarch_path).await
         .map_err(|e| {
             tracing::error!("[RetroArch] Core download failed: {}", e);
@@ -2570,13 +2758,25 @@ pub async fn get_missing_cores() -> Result<Vec<MissingCore>, String> {
     
     let platforms = db.get_platforms_with_games().map_err(|e| e.to_string())?;
     let cores_map = retroarch_cores();
+    let managed_install = config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed;
+    let managed_install_ready = managed_install
+        && crate::emulators::retroarch::managed_install_is_ready(&config, retroarch_path);
     let mut missing = Vec::new();
     
     for (platform, count) in platforms {
         if count == 0 { continue; }
         
         if let Some(core_dll) = cores_map.get(&platform.id).copied() {
-            let is_installed = crate::emulators::cores::is_core_installed(retroarch_path, core_dll);
+            if managed_install
+                && !crate::emulators::retroarch::core_artifacts()
+                    .iter()
+                    .any(|core| core.platform_id == platform.id.as_str())
+            {
+                continue;
+            }
+            let is_installed = managed_install_ready
+                || (!managed_install
+                    && crate::emulators::cores::is_core_installed(retroarch_path, core_dll));
 
             if !is_installed {
                 missing.push(MissingCore {
@@ -2598,6 +2798,11 @@ pub fn get_platform_ids_with_installed_retroarch_core() -> Result<Vec<String>, S
         return Ok(Vec::new());
     };
     if !ra_exe.exists() {
+        return Ok(Vec::new());
+    }
+    if config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed
+        && !crate::emulators::retroarch::managed_install_is_ready(&config, ra_exe)
+    {
         return Ok(Vec::new());
     }
 
@@ -2623,6 +2828,16 @@ pub async fn apply_detected_paths() -> Result<i32, String> {
         let changed = match emu.id.as_str() {
             "retroarch" if config.emulators.retroarch.is_none() => {
                 config.emulators.retroarch = path;
+                if emu.install_type == crate::emulators::detection::InstallType::Managed
+                    && crate::emulators::retroarch::managed_manifest_marker_matches(&emu.path)
+                {
+                    config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+                    config.emulators.retroarch_manifest_version = Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
+                } else {
+                    config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
+                    config.emulators.retroarch_manifest_version = None;
+                }
+                config.emulators.retroarch_use_beta_profile = false;
                 true
             }
             "dolphin" if config.emulators.dolphin.is_none() => {

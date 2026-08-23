@@ -3,8 +3,8 @@ use crate::{
     config::{AppConfig, EmulatorPaths},
 };
 use aes::{
-    cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit},
-    Aes128,
+    cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit},
+    Aes128, Block,
 };
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -485,16 +485,20 @@ fn transform_nca_header_xts(data: &mut [u8], key: &[u8; 32], decrypt: bool) -> R
     for (sector_index, sector) in data.chunks_mut(SECTOR_SIZE).enumerate() {
         let mut tweak = [0_u8; 16];
         tweak[8..].copy_from_slice(&(sector_index as u64).to_be_bytes());
-        tweak_cipher.encrypt_block(GenericArray::from_mut_slice(&mut tweak));
+        let tweak_block =
+            Block::slice_as_mut_array(&mut tweak).context("Invalid AES tweak block length")?;
+        tweak_cipher.encrypt_block(tweak_block);
 
         for block in sector.chunks_mut(BLOCK_SIZE) {
             for index in 0..BLOCK_SIZE {
                 block[index] ^= tweak[index];
             }
+            let block =
+                Block::slice_as_mut_array(block).context("Invalid AES data block length")?;
             if decrypt {
-                data_cipher.decrypt_block(GenericArray::from_mut_slice(block));
+                data_cipher.decrypt_block(block);
             } else {
-                data_cipher.encrypt_block(GenericArray::from_mut_slice(block));
+                data_cipher.encrypt_block(block);
             }
             for index in 0..BLOCK_SIZE {
                 block[index] ^= tweak[index];

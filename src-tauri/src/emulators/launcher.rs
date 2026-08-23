@@ -88,6 +88,27 @@ impl EmulatorLauncher {
                     .join(configured_executable)
             };
             emulator.executable_path = Some(executable.clone());
+            if self.config.emulators.retroarch_install_kind
+                == crate::config::RetroArchInstallKind::Managed
+                && !crate::emulators::retroarch::managed_install_is_ready(&self.config, &executable)
+            {
+                bail!(
+                    "Managed RetroArch install is not ready; reinstall RetroArch to restore the Wingosy profile and certified cores"
+                );
+            }
+            let use_beta_profile =
+                crate::emulators::retroarch::managed_profile_enabled(&self.config, &executable)
+                    || (self.config.emulators.retroarch_install_kind
+                        == crate::config::RetroArchInstallKind::External
+                        && self.config.emulators.retroarch_use_beta_profile);
+            if use_beta_profile {
+                let profile = crate::emulators::retroarch::ensure_profile()
+                    .context("Failed to prepare Wingosy RetroArch profile")?;
+                emulator.launch_args.push(format!(
+                    "--appendconfig={}",
+                    profile.to_string_lossy()
+                ));
+            }
             let core_name = emulator
                 .core_name
                 .as_deref()
@@ -487,13 +508,49 @@ mod tests {
         let command = launcher.build_command(&game).unwrap();
 
         assert_eq!(command.executable, executable.to_string_lossy().into_owned());
-        assert_eq!(command.args[0], "--fullscreen");
-        assert_eq!(command.args[1], "-L");
-        assert_eq!(command.args[2], core.to_string_lossy().into_owned());
-        assert_eq!(command.args[3], rom.to_string_lossy().into_owned());
-        assert_eq!(command.args.len(), 4);
+        assert_eq!(
+            command.args,
+            vec![
+                "--fullscreen".to_string(),
+                "-L".to_string(),
+                core.to_string_lossy().into_owned(),
+                rom.to_string_lossy().into_owned(),
+            ]
+        );
         assert_eq!(command.core_name.as_deref(), core.to_str());
         assert!(command.full_command.contains("--fullscreen"));
+    }
+
+    #[test]
+    fn opted_in_external_retroarch_appends_wingosy_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable);
+        config.emulators.retroarch_use_beta_profile = true;
+        config.emulators.platform_defaults.insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new("NES Game".to_string(), rom.to_string_lossy().into_owned(), "nes".to_string());
+
+        let command = launcher.build_command(&game).unwrap();
+        let profile = crate::emulators::retroarch::delta_path().unwrap();
+        assert_eq!(
+            command.args,
+            vec![
+                "--fullscreen".to_string(),
+                format!("--appendconfig={}", profile.to_string_lossy()),
+                "-L".to_string(),
+                core.to_string_lossy().into_owned(),
+                rom.to_string_lossy().into_owned(),
+            ]
+        );
     }
 
     #[test]
@@ -711,11 +768,17 @@ mod tests {
         fs::create_dir_all(core.parent().unwrap()).unwrap();
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
         fs::write(&executable, b"retroarch").unwrap();
-        fs::write(&core, b"core").unwrap();
+        crate::emulators::retroarch::write_manifest_marker(&executable).unwrap();
+        for filename in crate::emulators::retroarch::certified_core_filenames() {
+            fs::write(core.parent().unwrap().join(filename), b"core").unwrap();
+        }
         fs::write(&rom, b"rom").unwrap();
 
         let mut config = AppConfig::default();
         config.emulators.retroarch = Some(executable.clone());
+        config.emulators.retroarch_install_kind = crate::config::RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version =
+            Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
         let db = Database::open_in_memory().unwrap();
         let game = Game::new(
             "NES Game".to_string(),
@@ -732,6 +795,7 @@ mod tests {
             command.args,
             vec![
                 "--fullscreen".to_string(),
+                format!("--appendconfig={}", crate::emulators::retroarch::delta_path().unwrap().to_string_lossy()),
                 "-L".to_string(),
                 core.to_string_lossy().into_owned(),
                 rom.to_string_lossy().into_owned(),
@@ -766,11 +830,17 @@ mod tests {
             fs::create_dir_all(core.parent().unwrap()).unwrap();
             fs::create_dir_all(executable.parent().unwrap()).unwrap();
             fs::write(&executable, b"retroarch").unwrap();
-            fs::write(&core, b"core").unwrap();
+            crate::emulators::retroarch::write_manifest_marker(&executable).unwrap();
+            for filename in crate::emulators::retroarch::certified_core_filenames() {
+                fs::write(core.parent().unwrap().join(filename), b"core").unwrap();
+            }
             fs::write(&rom, b"rom").unwrap();
 
             let mut config = AppConfig::default();
             config.emulators.retroarch = Some(executable.clone());
+            config.emulators.retroarch_install_kind = crate::config::RetroArchInstallKind::Managed;
+            config.emulators.retroarch_manifest_version =
+                Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
             let db = Database::open_in_memory().unwrap();
             let game = Game::new(
                 format!("{platform} game"),
@@ -789,7 +859,13 @@ mod tests {
             assert!(Path::new(&core).is_absolute());
             assert_eq!(
                 command.args,
-                vec!["--fullscreen".to_string(), "-L".to_string(), core, rom]
+                vec![
+                    "--fullscreen".to_string(),
+                    format!("--appendconfig={}", crate::emulators::retroarch::delta_path().unwrap().to_string_lossy()),
+                    "-L".to_string(),
+                    core,
+                    rom,
+                ]
             );
         }
     }

@@ -38,7 +38,7 @@ import AlbumIcon from "@mui/icons-material/Album";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TagIcon from "@mui/icons-material/Tag";
 import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
-import StarOutlineIcon from "@mui/icons-material/StarOutline";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import { alpha } from "@mui/material/styles";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useAppTheme } from "../ThemeContext";
@@ -329,8 +329,8 @@ export default function ImmersiveGameDetails({
               radial-gradient(900px 450px at 85% 10%, ${alpha(colors.primaryLight, 0.14)} 0%, transparent 58%)`,
           }}
         >
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: "wrap" }} justifyContent="space-between">
-            <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap" }}>
+          <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+            <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap", alignItems: "center" }}>
               {platformLabel ? (
                 <Chip
                   label={platformLabel}
@@ -361,7 +361,7 @@ export default function ImmersiveGameDetails({
                   <ListItemIcon>
                     <SaveIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Manage cached saves" secondary="RomM cloud saves" secondaryTypographyProps={{ variant: "caption" }} />
+                  <ListItemText primary="Manage cached saves" secondary="RomM cloud saves" slotProps={{ secondary: { variant: "caption" } }} />
                 </MenuItem>
               )}
               <MenuItem
@@ -373,7 +373,7 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <StarOutlineIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Ratings & status" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Ratings & status" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -388,7 +388,7 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <SportsEsportsIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Change emulator" secondary="From Settings" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Change emulator" secondary="From Settings" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -403,7 +403,7 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <MemoryIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Change core" secondary="RetroArch" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Change core" secondary="RetroArch" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -414,7 +414,7 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <SystemUpdateIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Updates / DLC" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Updates / DLC" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -425,7 +425,7 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <AlbumIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Select disc" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Select disc" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -436,19 +436,19 @@ export default function ImmersiveGameDetails({
                 <ListItemIcon>
                   <SwapHorizIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Select variant" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Select variant" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem disabled>
                 <ListItemIcon>
                   <TagIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Title ID" secondary="Not available" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Title ID" secondary="Not available" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem onClick={openAddToCollection}>
                 <ListItemIcon>
                   <FolderSpecialIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Add to collection" secondary="Manual collections" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Add to collection" secondary="Manual collections" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               {game.romm_id && rommToken && rommUrl && (
                 <MenuItem onClick={handleRefreshMetadata} disabled={refreshing}>
@@ -458,7 +458,7 @@ export default function ImmersiveGameDetails({
                   <ListItemText
                     primary={refreshing ? "Refreshing..." : "Refresh game data"}
                     secondary="From RomM"
-                    secondaryTypographyProps={{ variant: "caption" }}
+                    slotProps={{ secondary: { variant: "caption" } }}
                   />
                 </MenuItem>
               )}
@@ -598,7 +598,7 @@ export default function ImmersiveGameDetails({
           {game.romm_id && rommToken && rommUrl ? (
             <Box ref={savesSectionRef} sx={{ mt: 4 }}>
               <Divider sx={{ mb: 2, opacity: 0.12 }} />
-              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 700 }}>
                 Saves (RomM)
               </Typography>
               <Typography variant="body2" color="text.secondary">

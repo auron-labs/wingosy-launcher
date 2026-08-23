@@ -101,7 +101,8 @@ impl AppConfig {
         if config_path.exists() {
             let contents = std::fs::read_to_string(&config_path)
                 .context("Failed to read config file")?;
-            let config: Self = toml::from_str(&contents).context("Failed to parse config file")?;
+            let mut config: Self = toml::from_str(&contents).context("Failed to parse config file")?;
+            config.normalize_retroarch_identity();
             tracing::info!("[Config] Loaded configuration successfully");
             tracing::debug!("[Config] RomM server: {:?}", config.romm.server_url);
             tracing::debug!("[Config] ROMs directory: {:?}", config.library.roms_directory);
@@ -182,6 +183,21 @@ impl AppConfig {
                 .map(|d| d.join("bios"))
                 .unwrap_or_else(|_| PathBuf::from("bios"))
         })
+    }
+
+    fn normalize_retroarch_identity(&mut self) {
+        let managed_root = Self::emulators_dir().ok();
+        let is_managed_path = self
+            .emulators
+            .retroarch
+            .as_ref()
+            .zip(managed_root.as_ref())
+            .is_some_and(|(path, root)| path.starts_with(root));
+        if !is_managed_path {
+            self.emulators.retroarch_install_kind = RetroArchInstallKind::External;
+            self.emulators.retroarch_manifest_version = None;
+            self.emulators.retroarch_use_beta_profile = false;
+        }
     }
 }
 
@@ -281,6 +297,12 @@ pub enum CoverAspectRatio {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmulatorPaths {
     pub retroarch: Option<PathBuf>,
+    #[serde(default)]
+    pub retroarch_install_kind: RetroArchInstallKind,
+    #[serde(default)]
+    pub retroarch_manifest_version: Option<String>,
+    #[serde(default)]
+    pub retroarch_use_beta_profile: bool,
     pub dolphin: Option<PathBuf>,
     pub pcsx2: Option<PathBuf>,
     pub rpcs3: Option<PathBuf>,
@@ -303,6 +325,14 @@ pub struct EmulatorPaths {
     pub platform_defaults: std::collections::HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RetroArchInstallKind {
+    #[default]
+    External,
+    Managed,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,6 +349,9 @@ mod tests {
         assert!(config.updater.check_on_startup);
         assert!(!config.updater.auto_update_enabled);
         assert_eq!(config.updater.channel, UpdateChannel::Stable);
+        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert!(config.emulators.retroarch_manifest_version.is_none());
+        assert!(!config.emulators.retroarch_use_beta_profile);
     }
 
     #[test]
@@ -385,6 +418,21 @@ mod tests {
         assert!(paths.dolphin.is_none());
         assert!(paths.pcsx2.is_none());
         assert!(paths.eden.is_none());
+    }
+
+    #[test]
+    fn external_retroarch_path_cannot_keep_managed_identity() {
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(PathBuf::from("C:/Games/RetroArch/retroarch.exe"));
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version = Some("old-manifest".to_string());
+        config.emulators.retroarch_use_beta_profile = true;
+
+        config.normalize_retroarch_identity();
+
+        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert!(config.emulators.retroarch_manifest_version.is_none());
+        assert!(!config.emulators.retroarch_use_beta_profile);
     }
 
     #[test]

@@ -982,6 +982,46 @@ export default function Settings({
     handleEmuMenuClose();
   }
 
+  async function handleOpenRetroarchInputSetup() {
+    try {
+      await invoke("open_retroarch_input_setup");
+      setEmuMessage({ type: "success", message: "Opened RetroArch input setup." });
+    } catch (err) {
+      setEmuMessage({ type: "error", message: err.message || String(err) });
+    }
+  }
+
+  async function handleResetRetroarchControllerAdditions() {
+    try {
+      const backup = await invoke("reset_retroarch_controller_additions");
+      setEmuMessage({
+        type: "success",
+        message: backup
+          ? "Reset Wingosy controller additions. Your RetroArch profiles and remaps were preserved."
+          : "No Wingosy controller additions were present.",
+      });
+    } catch (err) {
+      setEmuMessage({ type: "error", message: err.message || String(err) });
+    }
+  }
+
+  async function handleRetroarchBetaProfileChange(event) {
+    const enabled = event.target.checked;
+    try {
+      await invoke("set_retroarch_beta_profile", { enabled });
+      setConfig((previous) => ({
+        ...previous,
+        emulators: { ...previous.emulators, retroarch_use_beta_profile: enabled },
+      }));
+      setEmuMessage({
+        type: "success",
+        message: enabled ? "Wingosy beta profile enabled for RetroArch." : "Wingosy beta profile disabled.",
+      });
+    } catch (err) {
+      setEmuMessage({ type: "error", message: err.message || String(err) });
+    }
+  }
+
   async function handleUninstallEmulator() {
     if (!selectedEmu?.id) return;
     
@@ -1038,6 +1078,7 @@ export default function Settings({
       case "system": return "System";
       case "portable": return "Portable";
       case "managed": return "Wingosy";
+      case "external": return "Unverified";
       case "custom": return "Custom";
       default: return "Installed";
     }
@@ -1175,9 +1216,11 @@ export default function Settings({
                 </ListItemIcon>
                 <ListItemText
                   primary={label}
-                  primaryTypographyProps={{
-                    variant: "body2",
-                    fontWeight: settingsSection === id ? 600 : 400,
+                  slotProps={{
+                    primary: {
+                      variant: "body2",
+                      sx: { fontWeight: settingsSection === id ? 600 : 400 },
+                    },
                   }}
                 />
               </ListItemButton>
@@ -1206,7 +1249,7 @@ export default function Settings({
             <FormControlLabel
               control={
                 <Switch
-                  inputProps={/** @type {any} */ ({ "data-testid": "immersive-mode-switch" })}
+                  slotProps={{ input: /** @type {any} */ ({ "data-testid": "immersive-mode-switch" }) }}
                   checked={immersiveModeEnabled}
                   onChange={async (e) => {
                     const next = e.target.checked;
@@ -1230,7 +1273,7 @@ export default function Settings({
           <FormControlLabel
             control={
               <Switch
-                inputProps={/** @type {any} */ ({ "data-testid": "immersive-fullscreen-switch" })}
+                slotProps={{ input: /** @type {any} */ ({ "data-testid": "immersive-fullscreen-switch" }) }}
                 checked={fullscreenEnabled}
                 disabled={!immersiveModeEnabled}
                 onChange={async (e) => {
@@ -1610,7 +1653,7 @@ export default function Settings({
                 <ListItemText
                   primary={location.label}
                   secondary={location.path}
-                  secondaryTypographyProps={{ sx: { fontFamily: "monospace", overflowWrap: "anywhere", pr: 8 } }}
+                   slotProps={{ secondary: { sx: { fontFamily: "monospace", overflowWrap: "anywhere", pr: 8 } } }}
                 />
               </ListItem>
             ))}
@@ -1738,7 +1781,7 @@ export default function Settings({
                         mb: isExpanded ? 0 : 0.5,
                         bgcolor: "rgba(76, 175, 80, 0.08)",
                         "&:hover": { bgcolor: "rgba(76, 175, 80, 0.12)" },
-                        cursor: isRetroArch && emuCores.length > 0 ? "pointer" : "default",
+                        cursor: isRetroArch ? "pointer" : "default",
                         alignItems: "flex-start",
                         flexWrap: "wrap",
                         rowGap: 1,
@@ -1746,7 +1789,7 @@ export default function Settings({
                         pr: 1,
                         pl: 1,
                       }}
-                      onClick={() => isRetroArch && emuCores.length > 0 && setExpandedEmu(isExpanded ? null : emu.id)}
+                      onClick={() => isRetroArch && setExpandedEmu(isExpanded ? null : emu.id)}
                     >
                       <ListItemIcon sx={{ minWidth: 36, mt: 0.5 }}>
                         <CheckCircleIcon color="success" fontSize="small" />
@@ -1759,13 +1802,13 @@ export default function Settings({
                         }}
                         primary={
                           <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.75, columnGap: 1, rowGap: 0.5 }}>
-                            <Typography component="span" variant="body2" fontWeight={600}>
+                            <Box component="span" sx={{ typography: "body2", fontWeight: 600 }}>
                               {emu.name}
-                            </Typography>
+                            </Box>
                             {emu.version && (
-                              <Typography component="span" variant="caption" color="text.secondary">
+                              <Box component="span" sx={{ typography: "caption", color: "text.secondary" }}>
                                 v{emu.version}
-                              </Typography>
+                              </Box>
                             )}
                             <Chip 
                               label={getInstallTypeLabel(emu.install_type)} 
@@ -1786,15 +1829,17 @@ export default function Settings({
                           </Box>
                         }
                         secondary={emu.installed_path}
-                        secondaryTypographyProps={{
-                          fontSize: "0.7rem",
-                          sx: {
-                            display: "block",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            maxWidth: "100%",
-                            mt: 0.5,
+                        slotProps={{
+                          secondary: {
+                            sx: {
+                              fontSize: "0.7rem",
+                              display: "block",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              maxWidth: "100%",
+                              mt: 0.5,
+                            },
                           },
                         }}
                       />
@@ -1856,7 +1901,7 @@ export default function Settings({
                         <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleEmuMenuOpen(e, emu); }}>
                           <MoreVertIcon fontSize="small" />
                         </IconButton>
-                        {isRetroArch && emuCores.length > 0 && (
+                        {isRetroArch && (
                           <IconButton size="small" onClick={(e) => { e.stopPropagation(); setExpandedEmu(isExpanded ? null : emu.id); }}>
                             {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                           </IconButton>
@@ -1876,6 +1921,34 @@ export default function Settings({
                           mb: 0.5,
                           p: 2
                         }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                            {emu.install_type === "managed"
+                              ? `Certified RetroArch manifest ${emu.version || "recorded"}`
+                              : "Unverified external RetroArch install"}
+                          </Typography>
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1.5 }}>
+                            <Button size="small" variant="outlined" onClick={handleOpenRetroarchInputSetup}>
+                              Open RetroArch input setup
+                            </Button>
+                            <Button size="small" variant="outlined" color="warning" onClick={handleResetRetroarchControllerAdditions}>
+                              Reset Wingosy controller additions
+                            </Button>
+                          </Box>
+                          {emu.install_type === "external" && (
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  size="small"
+                                  checked={Boolean(config?.emulators?.retroarch_use_beta_profile)}
+                                  onChange={handleRetroarchBetaProfileChange}
+                                />
+                              }
+                              label="Use Wingosy beta profile for this external install"
+                            />
+                          )}
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.25, mb: 1 }}>
+                            Recovery: Input → RetroPad Binds → Port 1 → Set All Controls → Save Controller Profile.
+                          </Typography>
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                             Missing cores for your game library:
                           </Typography>
@@ -2000,7 +2073,7 @@ export default function Settings({
                         <ListItemText
                           primary={emu.name}
                           secondary={emu.supported_platforms.join(", ").toUpperCase()}
-                          secondaryTypographyProps={{ fontSize: "0.7rem" }}
+                          slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }}
                           sx={{ flex: 1, minWidth: 0 }}
                         />
                         <Button
@@ -2056,7 +2129,7 @@ export default function Settings({
                   <ListItemIcon sx={{ minWidth: 36 }}>
                     <OpenInNewIcon color="action" fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary={emu.name} secondary="Download manually from the emulator's website" secondaryTypographyProps={{ fontSize: "0.7rem" }} />
+                  <ListItemText primary={emu.name} secondary="Download manually from the emulator's website" slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }} />
                 </ListItem>
               ))}
             </List>
@@ -2066,7 +2139,7 @@ export default function Settings({
         {/* Show missing cores alert if RetroArch is NOT installed but cores are needed */}
         {missingCores.length > 0 && !installedEmus.some(e => e.id === "retroarch") && (
           <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2" fontWeight={500}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
               {missingCores.length} cores needed for your games
             </Typography>
             <Typography variant="caption" color="text.secondary">
@@ -2109,7 +2182,7 @@ export default function Settings({
               return (
                 <Box key={platform.id} sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                   <Box sx={{ minWidth: 120 }}>
-                    <Typography variant="body2" fontWeight={500}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {platform.name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -2284,7 +2357,7 @@ export default function Settings({
           <Alert severity="warning" sx={{ mt: 2 }}>
             {updateCheckResult.error}
             {updateCheckResult.channel ? (
-              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+              <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
                 Channel: {updateCheckResult.channel}
               </Typography>
             ) : null}
@@ -2317,7 +2390,7 @@ export default function Settings({
             Update available on {updateCheckResult.channel || updateChannel}
             {updateCheckResult.latest_version ? ` (${updateCheckResult.latest_version})` : ""}.
             {!updateCheckResult.signed_update_manifest_url ? (
-              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
                 In-app install is unavailable for this release (missing or invalid signed updater manifest). Use{" "}
                 <strong>Open release</strong> to download the installer manually.
               </Typography>
@@ -2349,14 +2422,14 @@ export default function Settings({
           </Box>
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" paragraph>
+          <Typography variant="body2" sx={{ mb: 2 }}>
             Wingosy found <strong>{storageOverview?.migratable_rom_count || 0}</strong> tracked game
             {(storageOverview?.migratable_rom_count || 0) === 1 ? "" : "s"} ({formatStorageBytes(storageOverview?.migratable_rom_bytes)}) in the current ROM folder.
           </Typography>
-          <Typography variant="body2" color="text.secondary" paragraph>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             <strong>Migrate ROMs</strong> copies each game into the new folder, updates its library path, and removes the old copy only after the database update succeeds. Existing destination files are never overwritten.
           </Typography>
-          <Typography variant="body2" color="text.secondary" paragraph>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             <strong>Don&apos;t migrate</strong> leaves existing games where they are and sends future downloads to the new folder. Those existing games remain launchable from their saved paths.
           </Typography>
           <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 2 }}>
@@ -2405,7 +2478,7 @@ export default function Settings({
           {leavingPrereleaseChannel === "beta" ? "Leave the Beta channel?" : "Leave the Nightly channel?"}
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" paragraph>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             You’re switching away from{" "}
             <strong>{leavingPrereleaseChannel === "beta" ? "Beta" : "Nightly"}</strong>. Your update checks will follow
             the{" "}
@@ -2414,7 +2487,7 @@ export default function Settings({
             </strong>{" "}
             channel.
           </Typography>
-          <Typography variant="body2" color="text.secondary" paragraph>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {pendingChannel === "stable" && (
               <>
                 On <strong>Stable</strong>, in-app updates follow regular releases.{" "}
@@ -2460,7 +2533,7 @@ export default function Settings({
                   <ListItemText
                     primary={game.name}
                     secondary={game.platform_id?.toUpperCase()}
-                    secondaryTypographyProps={{ fontSize: "0.7rem" }}
+                    slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }}
                   />
                   <Button
                     size="small"

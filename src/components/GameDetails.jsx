@@ -46,7 +46,7 @@ import AlbumIcon from "@mui/icons-material/Album";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TagIcon from "@mui/icons-material/Tag";
 import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
-import StarOutlineIcon from "@mui/icons-material/StarOutline";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import GameScreenshotsSection from "./game/GameScreenshotsSection";
 import GameAchievementsSection from "./game/GameAchievementsSection";
 import CollectionPickerDialog from "./game/CollectionPickerDialog";
@@ -619,7 +619,7 @@ export default function GameDetails({
                   <ListItemText
                     primary="Manage cached saves"
                     secondary="RomM cloud saves"
-                    secondaryTypographyProps={{ variant: "caption" }}
+                    slotProps={{ secondary: { variant: "caption" } }}
                   />
                 </MenuItem>
               )}
@@ -635,7 +635,7 @@ export default function GameDetails({
                 <ListItemText
                   primary="Ratings & status"
                   secondary="Local backlog / playing (coming soon)"
-                  secondaryTypographyProps={{ variant: "caption" }}
+                   slotProps={{ secondary: { variant: "caption" } }}
                 />
               </MenuItem>
               <MenuItem
@@ -651,7 +651,7 @@ export default function GameDetails({
                 <ListItemIcon>
                   <SportsEsportsIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Change emulator" secondary="From Settings" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Change emulator" secondary="From Settings" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -666,7 +666,7 @@ export default function GameDetails({
                 <ListItemIcon>
                   <MemoryIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Change core" secondary="RetroArch" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Change core" secondary="RetroArch" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -681,7 +681,7 @@ export default function GameDetails({
                 <ListItemIcon>
                   <SystemUpdateIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Updates / DLC" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Updates / DLC" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -696,7 +696,7 @@ export default function GameDetails({
                 <ListItemIcon>
                   <AlbumIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Select disc" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Select disc" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem
                 onClick={() => {
@@ -711,19 +711,19 @@ export default function GameDetails({
                 <ListItemIcon>
                   <SwapHorizIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Select variant" secondary="Coming soon" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Select variant" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem disabled>
                 <ListItemIcon>
                   <TagIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Title ID" secondary="Not available" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Title ID" secondary="Not available" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               <MenuItem onClick={openAddToCollection}>
                 <ListItemIcon>
                   <FolderSpecialIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Add to collection" secondary="Manual collections" secondaryTypographyProps={{ variant: "caption" }} />
+                <ListItemText primary="Add to collection" secondary="Manual collections" slotProps={{ secondary: { variant: "caption" } }} />
               </MenuItem>
               {game.romm_id && rommToken && rommUrl && (
                 <MenuItem onClick={handleRefreshMetadata} disabled={refreshing}>
@@ -733,7 +733,7 @@ export default function GameDetails({
                   <ListItemText
                     primary={refreshing ? "Refreshing..." : "Refresh game data"}
                     secondary="From RomM"
-                    secondaryTypographyProps={{ variant: "caption" }}
+                    slotProps={{ secondary: { variant: "caption" } }}
                   />
                 </MenuItem>
               )}
@@ -930,7 +930,7 @@ export default function GameDetails({
               <Typography variant="caption" color="text.secondary">
                 Play time
               </Typography>
-              <Typography variant="body2" fontWeight={600}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {playTimeStr}
               </Typography>
             </Box>
@@ -942,7 +942,7 @@ export default function GameDetails({
               <Typography variant="caption" color="text.secondary">
                 Times played
               </Typography>
-              <Typography variant="body2" fontWeight={600}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {game.play_count}
               </Typography>
             </Box>
@@ -955,7 +955,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   Last played
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {lastPlayedLabel}
                 </Typography>
               </Box>
@@ -969,7 +969,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   Release year
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {game.release_year}
                 </Typography>
               </Box>
@@ -983,7 +983,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   IGDB aggregated rating
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {Number(game.user_rating).toFixed(1)} / 100
                 </Typography>
               </Box>
@@ -997,7 +997,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   Game modes
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {game.player_count}
                 </Typography>
               </Box>
@@ -1015,7 +1015,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   Developer
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {game.developer}
                 </Typography>
               </Box>
@@ -1025,7 +1025,7 @@ export default function GameDetails({
                 <Typography variant="caption" color="text.secondary">
                   Publisher
                 </Typography>
-                <Typography variant="body2" fontWeight={600}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {game.publisher}
                 </Typography>
               </Box>
@@ -1049,7 +1049,7 @@ export default function GameDetails({
         )}
 
         {!game.summary && (
-          <Typography variant="body2" color="text.secondary" fontStyle="italic">
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic" }}>
             No description available.
           </Typography>
         )}
@@ -1074,7 +1074,7 @@ export default function GameDetails({
             )}
 
             {isSwitch && switchPathInfo && (
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: "block" }}>
                 Title ID: {switchPathInfo.title_id} · Eden path: {switchPathInfo.local_save_path}
               </Typography>
             )}
@@ -1162,7 +1162,7 @@ export default function GameDetails({
                           .filter(Boolean)
                           .join(" · ") || null
                       }
-                      secondaryTypographyProps={{ fontSize: "0.75rem" }}
+                       slotProps={{ secondary: { sx: { fontSize: "0.75rem" } } }}
                     />
                   </ListItem>
                 ))}
