@@ -75,7 +75,7 @@ jobs:
 
             **Beta** pre-release. Testing builds before stable.
 
-            - **Stable**: [Latest](https://github.com/yash-1o1/wingosy-launcher/releases/latest)
+            - **Stable**: [Latest](https://github.com/auron-labs/wingosy-launcher/releases/latest)
             - **Nightly**: scheduled *Nightly* workflow
           prerelease: true
           releaseDraft: false

@@ -96,7 +96,7 @@ jobs:
             Automated **nightly** pre-release. May be unstable.
 
             - **Tag push:** push a tag matching `nightly*` to publish without waiting for the schedule.
-            - **Stable** channel: [Latest release](https://github.com/yash-1o1/wingosy-launcher/releases/latest) (`v*` tags, not prerelease).
+            - **Stable** channel: [Latest release](https://github.com/auron-labs/wingosy-launcher/releases/latest) (`v*` tags, not prerelease).
             - **Beta** channel: run the *Beta* workflow.
           prerelease: true
           releaseDraft: false

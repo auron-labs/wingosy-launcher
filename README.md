@@ -1,7 +1,7 @@
 # Wingosy Launcher
 
-[![Build](https://img.shields.io/github/actions/workflow/status/yash-1o1/wingosy-launcher/nightly.yml?branch=main&label=build&logo=github)](https://github.com/yash-1o1/wingosy-launcher/actions/workflows/nightly.yml?query=branch%3Amain)
-[![Release](https://img.shields.io/github/v/release/yash-1o1/wingosy-launcher?label=release)](https://github.com/yash-1o1/wingosy-launcher/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/auron-labs/wingosy-launcher/nightly.yml?branch=main&label=build&logo=github)](https://github.com/auron-labs/wingosy-launcher/actions/workflows/nightly.yml?query=branch%3Amain)
+[![Release](https://img.shields.io/github/v/release/auron-labs/wingosy-launcher?label=release)](https://github.com/auron-labs/wingosy-launcher/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)](README.md#requirements)
 
 A Windows game launcher with RomM integration. Inspired by [Argosy Launcher](https://github.com/rommapp/argosy-launcher), with the goal of closely following Argosy's feature implementations.
@@ -16,7 +16,7 @@ A Windows game launcher with RomM integration. Inspired by [Argosy Launcher](htt
 
 ## Quick Start
 
-1. Download from [Releases](https://github.com/yash-1o1/wingosy-launcher/releases).
+1. Download from [Releases](https://github.com/auron-labs/wingosy-launcher/releases).
 2. Run the setup wizard.
 3. Connect to RomM or scan local ROMs.
 4. Start playing!
@@ -40,7 +40,7 @@ cargo -v
 Clone, install, and launch the native desktop app:
 
 ```powershell
-git clone https://github.com/yash-1o1/wingosy-launcher.git
+git clone https://github.com/auron-labs/wingosy-launcher.git
 cd wingosy-launcher
 bun install
 bun run dev

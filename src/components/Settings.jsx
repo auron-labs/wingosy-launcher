@@ -2342,7 +2342,7 @@ export default function Settings({
           <Button
             variant="outlined"
             startIcon={<OpenInNewIcon />}
-            onClick={() => shellOpen("https://github.com/yash-1o1/wingosy-launcher/releases")}
+            onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/releases")}
           >
             All releases
           </Button>

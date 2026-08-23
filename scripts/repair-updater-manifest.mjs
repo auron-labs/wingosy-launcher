@@ -2,7 +2,7 @@
  * Rebuild and re-upload latest.json for an existing GitHub release (fixes bad installer URLs).
  *
  * Usage (requires `gh` auth):
- *   GITHUB_REPOSITORY=yash-1o1/wingosy-launcher RELEASE_TAG=nightly-26156660512 bun scripts/repair-updater-manifest.mjs
+ *   GITHUB_REPOSITORY=auron-labs/wingosy-launcher RELEASE_TAG=nightly-26156660512 bun scripts/repair-updater-manifest.mjs
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const repo = process.env.GITHUB_REPOSITORY || "yash-1o1/wingosy-launcher";
+const repo = process.env.GITHUB_REPOSITORY || "auron-labs/wingosy-launcher";
 const tag = process.env.RELEASE_TAG;
 const token = process.env.GITHUB_TOKEN;
 

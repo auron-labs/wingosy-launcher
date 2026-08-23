@@ -2957,7 +2957,7 @@ pub async fn get_emulators_for_platform(platform_id: String) -> Result<Vec<Emula
 }
 
 /// GitHub repo used for "latest release" update checks (see README Releases link).
-const UPDATE_CHECK_REPO: &str = "yash-1o1/wingosy-launcher";
+const UPDATE_CHECK_REPO: &str = "auron-labs/wingosy-launcher";
 
 /// `latest.json` attached to each GitHub release (CI uploads it next to the NSIS installer).
 fn signed_updater_manifest_for_tag(tag: &str) -> String {
@@ -3118,7 +3118,7 @@ fn gh_client() -> Result<reqwest::Client, String> {
         .user_agent(concat!(
             "WingosyLauncher/",
             env!("CARGO_PKG_VERSION"),
-            " (https://github.com/yash-1o1/wingosy-launcher)"
+            " (https://github.com/auron-labs/wingosy-launcher)"
         ))
         .build()
         .map_err(|e| format!("HTTP client: {}", e))
@@ -3360,6 +3360,14 @@ pub async fn install_signed_app_update(app: tauri::AppHandle, channel: String) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_updater_manifest_uses_canonical_repository() {
+        assert_eq!(
+            signed_updater_manifest_for_tag("beta-42"),
+            "https://github.com/auron-labs/wingosy-launcher/releases/download/beta-42/latest.json"
+        );
+    }
 
     #[test]
     fn test_remote_version_is_newer_semver() {

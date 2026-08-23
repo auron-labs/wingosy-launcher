@@ -44,7 +44,7 @@ rustup default stable
 After installing, **close and reopen** terminals (or sign out) so `Path` updates apply.
 
 ```bash
-git clone https://github.com/yash-1o1/wingosy-launcher.git
+git clone https://github.com/auron-labs/wingosy-launcher.git
 cd wingosy-launcher
 bun install
 bun run tauri dev
@@ -80,6 +80,22 @@ The in-app **Updates** settings use GitHub’s API to compare your build to the 
 Pre-release workflows set **`prerelease: true`** so they do not replace **stable** on `/releases/latest`.
 
 ### Signed in-app updates (Tauri v2 updater)
+
+The canonical public repository is `auron-labs/wingosy-launcher`, and release
+assets and updater manifests are published there. `auron-labs` maintainers own
+release publication and updater-key rotation. The current updater public-key
+SHA-256 fingerprint is
+`641a0dbf66561a323bf162139cfd0a9e1736dc07eb9d0ea12725b0309432f693`, computed
+from the UTF-8 bytes of the exact base64 value in `tauri.conf.json`, without a
+trailing newline. This is not the hash of the tracked `.pub` file including its
+line ending.
+Never record or substitute private key material or its password.
+
+Builds containing the previous updater public key cannot verify releases signed
+with the rotated key. Because control of the previous private key is
+unconfirmed, those installs require a manual reinstall from the canonical
+release page unless an authorized old-key-signed transition release can be
+produced.
 
 Release, Beta, and Nightly workflows build **signed** NSIS artifacts and upload **`latest.json`** next to the installer so the app can call **`install_signed_app_update`** (in-place update, then restart).
 

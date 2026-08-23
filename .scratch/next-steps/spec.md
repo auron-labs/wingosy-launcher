@@ -22,7 +22,7 @@ The first private beta is deliberately narrow:
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| [01](issues/01-take-ownership-of-releases.md) | Take ownership of releases and updates | P0 | M | — | TODO |
+| [01](issues/01-take-ownership-of-releases.md) | Take ownership of releases and updates | P0 | M | — | IN PROGRESS |
 | [02](issues/02-preserve-setup-configuration.md) | Preserve RomM configuration through setup | P0 | S | — | TODO |
 | [03](issues/03-secure-romm-access-tokens.md) | Keep RomM access tokens out of TOML | P0 | S | 02 | TODO |
 | [04](issues/04-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 02 | TODO |
