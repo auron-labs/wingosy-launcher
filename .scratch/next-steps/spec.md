@@ -23,12 +23,12 @@ The first private beta is deliberately narrow:
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
 | [01](issues/01-take-ownership-of-releases.md) | Take ownership of releases and updates | P0 | M | — | IN PROGRESS |
-| [02](issues/02-preserve-setup-configuration.md) | Preserve RomM configuration through setup | P0 | S | — | DONE |
-| [03](issues/03-secure-romm-access-tokens.md) | Keep RomM access tokens out of TOML | P0 | S | 02 | DONE |
-| [04](issues/04-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 02 | DONE |
+| [02](issues/02-preserve-setup-configuration.md) | Preserve RomM configuration through setup | P0 | S | — | IN PROGRESS |
+| [03](issues/03-secure-romm-access-tokens.md) | Keep RomM access tokens out of TOML | P0 | S | 02 | IN PROGRESS |
+| [04](issues/04-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 02 | IN PROGRESS |
 | [05](issues/05-publish-an-honest-beta-contract.md) | Publish an honest beta support contract | P1 | S | 01 | DONE |
-| [07](issues/07-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 01 | DONE |
-| [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | DONE |
+| [07](issues/07-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 01 | IN PROGRESS |
+| [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | IN PROGRESS |
 | [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | IN PROGRESS |
 | [06](issues/06-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 01-05, 08, 09 | TODO |
 

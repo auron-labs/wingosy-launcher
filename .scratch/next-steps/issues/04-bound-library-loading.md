@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: resolved
+Status: ready-for-agent
 Blocked by: 02
 
 > Preserve current user-owned changes. Run `git status --short` before editing;
@@ -95,3 +95,8 @@ passed (8 files, 42 tests); final build passed; frontend lint has 7 pre-existing
 warnings and no `App.jsx` warning. Focused and full Cargo attempts were blocked before
 crate compilation by missing Linux GUI libraries (`libsoup-3.0`/`javascriptcoregtk-4.1`).
 Windows Cargo and the representative large-catalogue manual exercise remain open.
+
+### 2026-08-24 — Reopened after completed-task audit
+
+A stale immersive pagination race remains to be resolved, and the Windows
+large-catalogue check remains pending.

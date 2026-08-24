@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: resolved
+Status: ready-for-agent
 Blocked by: 01, 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -155,3 +155,8 @@ Verification:
   `libsoup-3.0` system packages are missing; Windows cargo check is blocked
   because `x86_64-w64-mingw32-gcc` is absent.
 - `/code-review` was run and confirmed the findings were fixed.
+
+### 2026-08-24 — Reopened after completed-task audit
+
+Per-core manifest shape and launch-time hash validation/data-preserving install
+concerns remain open, and Rust/Windows verification is pending.

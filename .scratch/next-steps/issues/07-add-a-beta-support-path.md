@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: resolved
+Status: ready-for-human
 Blocked by: 01
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -87,3 +87,8 @@ The private cohort should generate product evidence, not a new observability sta
   them; no seven-day cleanup machinery or telemetry was added.
 - The beta guide names Auron Labs maintainers, uses best-effort review language
   without an SLA, and records the 3-5 then 10-20 tester cohort gate.
+
+### 2026-08-24 — Reopened after completed-task audit
+
+The named monitored owner and response window still need confirmation, and the
+first cohort is pending.

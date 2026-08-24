@@ -2,7 +2,7 @@
 
 Type: task
 Mode: human
-Status: resolved
+Status: ready-for-human
 Blocked by: none
 
 > Follow this plan step by step. Run each verification before continuing. If a
@@ -102,3 +102,12 @@ license/authorship removal, stable public launch.
 Treat the update origin and updater public key as release infrastructure. Any
 future repository transfer must update runtime discovery, workflow publication,
 and installer verification together.
+
+## Comments
+
+### 2026-08-24 — Reopened after completed-task audit
+
+The canonical repository is empty and has no releases. The stable-release
+`workflow_dispatch` tag guard is defective: it checks the dispatch ref instead of
+the selected tag, while signing ownership/evidence and Windows evidence remain
+pending.

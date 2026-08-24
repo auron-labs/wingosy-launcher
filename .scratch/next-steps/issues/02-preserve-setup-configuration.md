@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: resolved
+Status: ready-for-human
 Blocked by: none
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -80,3 +80,8 @@ Implementation and frontend verification passed: `mise exec -- bun run typecheck
 blocked before compilation because Linux lacks `libsoup-3.0`; Windows-target cargo
 check was blocked because `x86_64-w64-mingw32-gcc` is absent. Windows Rust and
 manual-flow checks remain open.
+
+### 2026-08-24 — Reopened after completed-task audit
+
+The static merge is correct, but Windows Pair→Sync→Finish→restart and BIOS
+verification remain pending.

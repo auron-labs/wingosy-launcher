@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: resolved
+Status: ready-for-agent
 Blocked by: 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -85,3 +85,8 @@ crate compilation because Linux lacks `javascriptcoregtk-4.1`; the Windows
 cross-check was blocked by missing `x86_64-w64-mingw32-gcc`. Windows Credential
 Manager/manual Pair/restart/refresh/BIOS/sync/disconnect remain to be
 exercised. Existing Windows criteria remain unchecked.
+
+### 2026-08-24 — Reopened after completed-task audit
+
+The audit confirmed that delete-before-store and partial-failure ordering defects
+remain unresolved. Windows credential testing is pending.
