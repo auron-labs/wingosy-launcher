@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Box from "@mui/material/Box";
 import Snackbar from "@mui/material/Snackbar";
 import Button from "@mui/material/Button";
@@ -100,36 +100,24 @@ function App() {
   const launchInFlightRef = useRef(new Set());
   const libraryScrollRef = useRef(null);
 
-  useEffect(() => {
-    checkFirstRun();
-  }, []);
-
-  async function checkFirstRun() {
+  const checkFirstRun = useCallback(async () => {
     try {
       const firstRun = await invoke("is_first_run");
       setShowSetup(firstRun);
     } catch {
       setShowSetup(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void checkFirstRun();
+  }, [checkFirstRun]);
 
   function handleSetupComplete() {
     setShowSetup(false);
   }
 
-  useEffect(() => {
-    if (showSetup === false) {
-      loadData();
-    }
-  }, [showSetup]);
-
-  useEffect(() => {
-    if (showSetup === false) {
-      refreshGames(selectedPlatform, searchQuery, page);
-    }
-  }, [selectedPlatform, searchQuery, page, showSetup]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const platformsData = await invoke("get_platforms_with_games");
       setPlatforms(platformsData);
@@ -196,13 +184,19 @@ function App() {
     } catch (err) {
       setError(err.message || String(err));
     }
-  }
+  }, []);
 
-  async function refreshGames(
+  useEffect(() => {
+    if (showSetup === false) {
+      loadData();
+    }
+  }, [loadData, showSetup]);
+
+  const refreshGames = useCallback(async (
     platformId = selectedPlatform,
     query = searchQuery,
     requestedPage = page,
-  ) {
+  ) => {
     const requestId = ++gamesRequestId.current;
     setLoading(true);
     try {
@@ -232,7 +226,13 @@ function App() {
         setLoading(false);
       }
     }
-  }
+  }, [page, searchQuery, selectedPlatform]);
+
+  useEffect(() => {
+    if (showSetup === false) {
+      refreshGames(selectedPlatform, searchQuery, page);
+    }
+  }, [selectedPlatform, searchQuery, page, refreshGames, showSetup]);
 
   async function reloadLibrary() {
     await Promise.all([loadData(), refreshGames()]);

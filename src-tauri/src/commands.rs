@@ -365,13 +365,16 @@ pub async fn get_games_page(
         sort_by: GameSort::Name,
         sort_descending: false,
     };
-    let page_size = page_size.clamp(1, 200);
+    let page_size = page_size.clamp(1, 60);
     let offset = i64::from(page.saturating_sub(1)) * i64::from(page_size);
     let (games, total) = db
         .get_games_page(&filter, i64::from(page_size), offset)
         .map_err(|error| error.to_string())?;
 
-    Ok(GamesPage { games, total })
+    Ok(GamesPage {
+        games: validate_game_paths(games, &db),
+        total,
+    })
 }
 
 #[tauri::command]

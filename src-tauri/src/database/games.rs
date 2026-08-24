@@ -694,24 +694,40 @@ mod tests {
     }
 
     #[test]
-    fn test_get_games_page_limits_results_and_returns_total() {
+    fn test_get_games_page_bounds_results_and_filters_count() {
         let db = Database::open_in_memory().unwrap();
         db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
             .unwrap();
-        for name in ["Alpha", "Bravo", "Charlie", "Delta", "Echo"] {
-            db.insert_game(&create_test_game(name)).unwrap();
+        db.insert_platform(&crate::models::Platform::new("snes", "SNES", vec![".sfc"]))
+            .unwrap();
+        for index in 0..61 {
+            db.insert_game(&create_test_game(&format!("Alpha {index:02}")))
+                .unwrap();
         }
+        let mut hidden = create_test_game("Alpha hidden");
+        hidden.is_hidden = true;
+        db.insert_game(&hidden).unwrap();
+        let mut other_platform = create_test_game("Alpha other platform");
+        other_platform.platform_id = "snes".to_string();
+        db.insert_game(&other_platform).unwrap();
 
-        let (games, total) = db.get_games_page(&GameFilter::default(), 2, 2).unwrap();
+        let filter = GameFilter {
+            platform_id: Some("gba".to_string()),
+            search_query: Some("Alpha".to_string()),
+            ..GameFilter::default()
+        };
 
-        assert_eq!(total, 5);
-        assert_eq!(
-            games
-                .iter()
-                .map(|game| game.name.as_str())
-                .collect::<Vec<_>>(),
-            ["Charlie", "Delta"]
-        );
+        let (games, total) = db.get_games_page(&filter, 60, 0).unwrap();
+
+        assert_eq!(total, 61);
+        assert_eq!(games.len(), 60);
+        assert_eq!(games.first().unwrap().name, "Alpha 00");
+        assert_eq!(games.last().unwrap().name, "Alpha 59");
+
+        let (last_page, last_page_total) = db.get_games_page(&filter, 2, 60).unwrap();
+        assert_eq!(last_page_total, 61);
+        assert_eq!(last_page.len(), 1);
+        assert_eq!(last_page[0].name, "Alpha 60");
     }
 
     #[test]
