@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: needs-info
 Blocked by: 01, 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -95,3 +95,26 @@ general configuration editor.
 Update the manifest only with a new plan 006 Windows certification run. Add a
 delta setting only to fix a reproduced beta problem; the small overlay is the
 feature.
+
+## Comments
+
+### 2026-08-24 — Blocked by missing official digest provenance
+
+On 2026-08-24, the official versioned Windows x86_64 directory index at
+<https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/> was checked. It
+listed `RetroArch-Win64-setup.exe`, `RetroArch.7z`, and `RetroArch_cores.7z`:
+
+- Setup artifact: <https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch-Win64-setup.exe>
+- RetroArch artifact: <https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch.7z>
+- RetroArch cores artifact: <https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_cores.7z>
+
+Requests to the conventional sibling `.sha256` URLs returned HTTP 404:
+
+- <https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch.7z.sha256>
+- <https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_cores.7z.sha256>
+
+The directory linked no checksum manifest or signature, and a search of
+official RetroArch/libretro download sources found no digest source. This
+triggers the STOP condition above. Existing hard-coded hashes are not
+certified. Work can resume when a maintainer provides a trustworthy digest or
+certification source.

@@ -1,6 +1,6 @@
 # Local Issue State
 
-Generated: 2026-08-24T02:55:33Z
+Generated: 2026-08-24T03:41:13Z
 
 Tickets: 3 active, 6 resolved
 
@@ -9,7 +9,7 @@ Tickets: 3 active, 6 resolved
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
-| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | ready-for-agent | 01, 02 |
+| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | needs-info | 01, 02 |
 | [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-agent | 04 |
 
 ## Resolved Tickets
