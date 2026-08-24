@@ -1,13 +1,15 @@
 # Local Issue State
 
-Generated: 2026-08-24T09:52:22Z
+Generated: 2026-08-24T11:21:13Z
 
-Tickets: 8 active, 1 resolved
+Tickets: 10 active, 1 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
+| [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [01-prepare-bios-automatically-before-launch](automatic-firmware-installation/issues/01-prepare-bios-automatically-before-launch.md) | — | — | ready-for-agent | None — can start immediately |
+| [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [02-prepare-switch-firmware-automatically-for-eden](automatic-firmware-installation/issues/02-prepare-switch-firmware-automatically-for-eden.md) | — | — | ready-for-agent | 01 — Prepare BIOS automatically before launch |
 | [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [02-preserve-setup-configuration](next-steps/issues/02-preserve-setup-configuration.md) | task | agent | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [03-secure-romm-access-tokens](next-steps/issues/03-secure-romm-access-tokens.md) | task | agent | ready-for-human | 02 |
