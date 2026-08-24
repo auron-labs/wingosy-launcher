@@ -198,16 +198,28 @@ impl AppConfig {
 
     fn normalize_retroarch_identity(&mut self) {
         let managed_root = Self::emulators_dir().ok();
-        let is_managed_path = self
+        let was_managed = self.emulators.retroarch_install_kind == RetroArchInstallKind::Managed;
+        let had_retroarch_path = self.emulators.retroarch.is_some();
+        let is_managed_identity = self.emulators.retroarch_install_kind == RetroArchInstallKind::Managed
+            && self.emulators.retroarch_manifest_version.as_deref()
+                == Some(crate::emulators::retroarch::MANIFEST_VERSION)
+            && self
             .emulators
             .retroarch
             .as_ref()
-            .zip(managed_root.as_ref())
-            .is_some_and(|(path, root)| path.starts_with(root));
-        if !is_managed_path {
+            .is_some_and(|path| {
+                path.is_file()
+                    && managed_root
+                        .as_ref()
+                        .is_some_and(|root| path.starts_with(root))
+                    && crate::emulators::retroarch::managed_manifest_marker_matches(path)
+            });
+        if !is_managed_identity {
             self.emulators.retroarch_install_kind = RetroArchInstallKind::External;
             self.emulators.retroarch_manifest_version = None;
-            self.emulators.retroarch_use_beta_profile = false;
+            if was_managed || !had_retroarch_path {
+                self.emulators.retroarch_use_beta_profile = false;
+            }
         }
     }
 }
@@ -445,6 +457,40 @@ mod tests {
         assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
         assert!(config.emulators.retroarch_manifest_version.is_none());
         assert!(!config.emulators.retroarch_use_beta_profile);
+    }
+
+    #[test]
+    fn incomplete_managed_retroarch_install_cannot_keep_managed_identity() {
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(
+            AppConfig::emulators_dir()
+                .expect("Wingosy emulators directory should be available")
+                .join("incomplete-retroarch-install")
+                .join("retroarch.exe"),
+        );
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version =
+            Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
+        config.emulators.retroarch_use_beta_profile = true;
+
+        config.normalize_retroarch_identity();
+
+        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert!(config.emulators.retroarch_manifest_version.is_none());
+        assert!(!config.emulators.retroarch_use_beta_profile);
+    }
+
+    #[test]
+    fn external_retroarch_opt_in_survives_normalization() {
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(PathBuf::from("C:/Games/RetroArch/retroarch.exe"));
+        config.emulators.retroarch_use_beta_profile = true;
+
+        config.normalize_retroarch_identity();
+
+        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert!(config.emulators.retroarch_manifest_version.is_none());
+        assert!(config.emulators.retroarch_use_beta_profile);
     }
 
     #[test]

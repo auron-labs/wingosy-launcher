@@ -1026,6 +1026,15 @@ export default function Settings({
     }
   }
 
+  async function handleRepairRetroarchProfile() {
+    try {
+      const message = await invoke("repair_retroarch_profile");
+      setEmuMessage({ type: "success", message: message || "Wingosy RetroArch profile repaired." });
+    } catch (err) {
+      setEmuMessage({ type: "error", message: err.message || String(err) });
+    }
+  }
+
   async function handleRetroarchBetaProfileChange(event) {
     const enabled = event.target.checked;
     try {
@@ -1989,13 +1998,19 @@ export default function Settings({
                               ? `Certified RetroArch manifest ${emu.version || "recorded"}`
                               : "Unverified external RetroArch install"}
                           </Typography>
-                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1.5 }}>
-                            <Button size="small" variant="outlined" onClick={handleOpenRetroarchInputSetup}>
-                              Open RetroArch input setup
-                            </Button>
-                            <Button size="small" variant="outlined" color="warning" onClick={handleResetRetroarchControllerAdditions}>
-                              Reset Wingosy controller additions
-                            </Button>
+                           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1.5 }}>
+                             <Button size="small" variant="outlined" onClick={handleOpenRetroarchInputSetup}>
+                               Open RetroArch input setup
+                             </Button>
+                             {emu.install_type === "managed" ? (
+                               <Button size="small" variant="outlined" onClick={handleRepairRetroarchProfile}>
+                                 Repair Wingosy RetroArch profile
+                               </Button>
+                             ) : (
+                               <Button size="small" variant="outlined" color="warning" onClick={handleResetRetroarchControllerAdditions}>
+                                 Reset Wingosy controller additions
+                               </Button>
+                             )}
                           </Box>
                           {emu.install_type === "external" && (
                             <FormControlLabel

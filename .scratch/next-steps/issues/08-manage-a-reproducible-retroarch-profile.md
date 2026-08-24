@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: needs-info
+Status: resolved
 Blocked by: 01, 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -74,14 +74,14 @@ general configuration editor.
 
 ## Verification and done criteria
 
-- [ ] Managed setup contains exactly the recorded RetroArch/core manifest and
+- [x] Managed setup contains exactly the recorded RetroArch/core manifest and
       rejects a modified download before extraction.
-- [ ] No managed core download uses an unversioned `latest` URL.
-- [ ] The managed launch appends the Wingosy delta; an existing external launch
+- [x] No managed core download uses an unversioned `latest` URL.
+- [x] The managed launch appends the Wingosy delta; an existing external launch
       is byte-for-byte unchanged unless explicitly opted in.
-- [ ] Repair restores the generated delta and preserves all sentinel user files.
+- [x] Repair restores the generated delta and preserves all sentinel user files.
 - [ ] `bun run test:unit`, `bun run typecheck`, and the relevant Rust tests pass.
-- [ ] No dependency is added solely to parse or generate the two-setting delta.
+- [x] No dependency is added solely to parse or generate the two-setting delta.
 
 ## STOP conditions
 
@@ -118,3 +118,40 @@ official RetroArch/libretro download sources found no digest source. This
 triggers the STOP condition above. Existing hard-coded hashes are not
 certified. Work can resume when a maintainer provides a trustworthy digest or
 certification source.
+
+### 2026-08-24 — Trust model approved
+
+The user approved treating SHA-256 values computed from official versioned HTTPS
+artifacts during a Wingosy certification run as Wingosy-certified manifest
+values. Manifest updates require a reviewed PR and certification. Managed
+installs must not follow `latest`.
+
+### 2026-08-24 — Completed
+
+Implementation is complete: the managed profile uses a pinned Wingosy-certified
+RetroArch 1.19.1/core bundle, records installed executable and core hashes, and
+rejects modified managed artifacts. Ownership is persisted as `managed` or
+`external`; managed and explicitly opted-in external launches use the generated
+delta, while ordinary external launches remain unchanged. The delta contains
+exactly `config_save_on_exit = false` and `input_autodetect_enable = true`, and
+the appendconfig policy leaves user configuration untouched. Settings and the
+command both support repairing the managed profile; repair regenerates only the
+delta and the tests verify preservation of sentinel user files.
+
+Certification evidence from official versioned HTTPS downloads on 2026-08-24:
+
+- `RetroArch.7z` SHA-256: `49b13c10a8962c82b8dbffb6524f49d824a264c58e6d6ec4f27934d110168600`
+- `RetroArch_cores.7z` SHA-256: `4384854038d3e2a85cae6563e3a78ba7a8c0696fc6e1f9f4a0e6b8044cef8d92`
+- `retroarch.exe` SHA-256: `738ca659d2360cedbc62bab7b53c6e9bb20c7d92dfe3de743fa4f3b1fa218e7b`
+- All five unique core DLL hashes in source were independently extracted and matched.
+
+Verification:
+
+- `mise exec -- bunx vitest run src/components/Settings.test.jsx` passed 4/4.
+- `mise exec -- bun run test:unit` passed 46/46 across 9 files.
+- `mise exec -- bun run typecheck` passed.
+- `git diff --check` passed.
+- Rust tests could not compile on Linux because `javascriptcoregtk-4.1` and
+  `libsoup-3.0` system packages are missing; Windows cargo check is blocked
+  because `x86_64-w64-mingw32-gcc` is absent.
+- `/code-review` was run and confirmed the findings were fixed.

@@ -2160,17 +2160,14 @@ pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
                 && AppConfig::emulators_dir().ok().is_some_and(|root| path.starts_with(root));
             (true, Some(path.to_string_lossy().to_string()), Some(if managed { "managed" } else { "external" }.to_string()), if managed { config.emulators.retroarch_manifest_version.clone() } else { None })
         } else if let Some(d) = detected_match {
-            let detected_managed = emu.id == "retroarch"
-                && d.install_type == crate::emulators::detection::InstallType::Managed
-                && crate::emulators::retroarch::managed_manifest_marker_matches(&d.path);
             let detected_install_type = if emu.id == "retroarch" {
-                if detected_managed { "managed" } else { "external" }
+                "external"
             } else { d.install_type.as_str() };
             (
                 true,
                 Some(d.path.to_string_lossy().to_string()),
                 Some(detected_install_type.to_string()),
-                if detected_managed { Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string()) } else if emu.id == "retroarch" { None } else { d.version.clone() },
+                if emu.id == "retroarch" { None } else { d.version.clone() },
             )
         } else if let Some(p) = configured_path {
             let kind = AppConfig::emulators_dir()
@@ -2257,6 +2254,22 @@ pub fn reset_retroarch_controller_additions() -> Result<Option<String>, String> 
     crate::emulators::retroarch::reset_profile()
         .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn repair_retroarch_profile() -> Result<String, String> {
+    let config = AppConfig::load().map_err(|e| e.to_string())?;
+    let executable = config
+        .emulators
+        .retroarch
+        .as_ref()
+        .ok_or_else(|| "RetroArch is not configured".to_string())?;
+    crate::emulators::retroarch::validate_managed_install(&config, executable)
+        .map_err(|e| e.to_string())?;
+    let profile_dir = crate::emulators::retroarch::profile_dir().map_err(|e| e.to_string())?;
+    crate::emulators::retroarch::repair_profile_at(&profile_dir)
+        .map_err(|e| e.to_string())?;
+    Ok("Wingosy RetroArch profile repaired.".to_string())
 }
 
 #[tauri::command]
@@ -2963,15 +2976,8 @@ pub async fn apply_detected_paths() -> Result<i32, String> {
         let changed = match emu.id.as_str() {
             "retroarch" if config.emulators.retroarch.is_none() => {
                 config.emulators.retroarch = path;
-                if emu.install_type == crate::emulators::detection::InstallType::Managed
-                    && crate::emulators::retroarch::managed_manifest_marker_matches(&emu.path)
-                {
-                    config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
-                    config.emulators.retroarch_manifest_version = Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
-                } else {
-                    config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
-                    config.emulators.retroarch_manifest_version = None;
-                }
+                config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
+                config.emulators.retroarch_manifest_version = None;
                 config.emulators.retroarch_use_beta_profile = false;
                 true
             }

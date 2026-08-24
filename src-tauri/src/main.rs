@@ -132,6 +132,7 @@ fn main() {
             commands::open_retroarch_input_setup,
             commands::set_retroarch_beta_profile,
             commands::reset_retroarch_controller_additions,
+            commands::repair_retroarch_profile,
             commands::open_emulator_location,
             commands::get_game_details,
             commands::update_game_personal_fields,

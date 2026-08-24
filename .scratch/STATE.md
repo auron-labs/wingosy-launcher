@@ -1,15 +1,14 @@
 # Local Issue State
 
-Generated: 2026-08-24T03:41:13Z
+Generated: 2026-08-24T05:43:25Z
 
-Tickets: 3 active, 6 resolved
+Tickets: 2 active, 7 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
-| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | needs-info | 01, 02 |
 | [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-agent | 04 |
 
 ## Resolved Tickets
@@ -22,3 +21,4 @@ Tickets: 3 active, 6 resolved
 | [next-steps](next-steps/spec.md) | [04-bound-library-loading](next-steps/issues/04-bound-library-loading.md) | task | agent | resolved | 02 |
 | [next-steps](next-steps/spec.md) | [05-publish-an-honest-beta-contract](next-steps/issues/05-publish-an-honest-beta-contract.md) | task | agent | resolved | 01 |
 | [next-steps](next-steps/spec.md) | [07-add-a-beta-support-path](next-steps/issues/07-add-a-beta-support-path.md) | task | agent | resolved | 01 |
+| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | resolved | 01, 02 |

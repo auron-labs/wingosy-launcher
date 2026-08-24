@@ -40,7 +40,7 @@ afterEach(() => {
   open.mockReset();
 });
 
-function renderSettings() {
+function renderSettings({ emulators = [], config = {}, initialSection = "general" } = {}) {
   invoke.mockImplementation(async (command) => {
     switch (command) {
       case "get_config":
@@ -50,8 +50,10 @@ function renderSettings() {
           display: {},
           audio: {},
           updater: {},
+          ...config,
         };
       case "get_all_emulators":
+        return emulators;
       case "get_missing_cores":
       case "get_platform_ids_with_installed_retroarch_core":
       case "get_platforms_with_games":
@@ -81,6 +83,7 @@ function renderSettings() {
         onLibraryChange={vi.fn()}
         rommToken="test-token"
         rommUrl="https://romm.example"
+        initialSection={initialSection}
       />
     </MuiTestProvider>
   );
@@ -110,5 +113,45 @@ describe("Settings beta support", () => {
       "https://github.com/auron-labs/wingosy-launcher/issues/new?template=bug_report.md"
     );
     expect(await screen.findByText("0.0.111")).toBeInTheDocument();
+  });
+
+  it("repairs the Wingosy RetroArch profile for managed installs", async () => {
+    renderSettings({
+      emulators: [{
+        id: "retroarch",
+        name: "RetroArch",
+        version: "1.19.1",
+        install_type: "managed",
+        installed_path: "C:\\RetroArch\\retroarch.exe",
+        is_installed: true,
+        supported_platforms: ["nes"],
+      }],
+      initialSection: "emulators",
+    });
+
+    fireEvent.click(await screen.findByText("RetroArch", { exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Repair Wingosy RetroArch profile" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("repair_retroarch_profile"));
+  });
+
+  it("does not offer managed profile repair for external installs", async () => {
+    renderSettings({
+      emulators: [{
+        id: "retroarch",
+        name: "RetroArch",
+        install_type: "external",
+        installed_path: "C:\\RetroArch\\retroarch.exe",
+        is_installed: true,
+        supported_platforms: ["nes"],
+      }],
+      config: { emulators: {} },
+      initialSection: "emulators",
+    });
+
+    fireEvent.click(await screen.findByText("RetroArch", { exact: true }));
+
+    expect(screen.queryByRole("button", { name: "Repair Wingosy RetroArch profile" })).not.toBeInTheDocument();
+    expect(screen.getByText("Use Wingosy beta profile for this external install")).toBeInTheDocument();
   });
 });

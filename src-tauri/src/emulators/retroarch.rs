@@ -8,6 +8,7 @@ use crate::config::{AppConfig, RetroArchInstallKind};
 
 pub const RETROARCH_VERSION: &str = "1.19.1";
 pub const MANIFEST_VERSION: &str = "beta-2026-08-23";
+pub const RETROARCH_EXECUTABLE_SHA256: &str = "738ca659d2360cedbc62bab7b53c6e9bb20c7d92dfe3de743fa4f3b1fa218e7b";
 
 #[derive(Debug, Clone, Copy)]
 pub struct Artifact {
@@ -95,32 +96,28 @@ pub fn delta_path() -> Result<PathBuf> {
     Ok(profile_dir()?.join("wingosy-retroarch-v1.cfg"))
 }
 
-pub fn autoconfig_dir() -> Result<PathBuf> {
-    Ok(profile_dir()?.join("controller-profiles"))
-}
-
-pub fn remaps_dir() -> Result<PathBuf> {
-    Ok(profile_dir()?.join("remaps"))
-}
-
 pub fn ensure_profile() -> Result<PathBuf> {
     let root = profile_dir()?;
     ensure_profile_at(&root)
 }
 
 pub fn ensure_profile_at(root: &Path) -> Result<PathBuf> {
-    std::fs::create_dir_all(root.join("controller-profiles"))
-        .context("Failed to create RetroArch controller profile directory")?;
-    std::fs::create_dir_all(root.join("remaps"))
-        .context("Failed to create RetroArch remap directory")?;
+    std::fs::create_dir_all(root)
+        .context("Failed to create Wingosy RetroArch profile directory")?;
 
     let config_path = root.join("wingosy-retroarch-v1.cfg");
     if !config_path.exists() {
-        std::fs::write(&config_path, profile_contents(root))
+        std::fs::write(&config_path, profile_contents())
             .context("Failed to write Wingosy RetroArch profile")?;
     }
 
     Ok(config_path)
+}
+
+pub fn repair_profile_at(root: &Path) -> Result<Option<PathBuf>> {
+    let backup = reset_profile_at(root)?;
+    ensure_profile_at(root)?;
+    Ok(backup)
 }
 
 pub fn reset_profile() -> Result<Option<PathBuf>> {
@@ -193,6 +190,35 @@ pub fn managed_install_is_ready(config: &AppConfig, retroarch_executable: &Path)
         && managed_core_set_is_present(retroarch_executable)
 }
 
+pub fn validate_managed_install(config: &AppConfig, retroarch_executable: &Path) -> Result<()> {
+    if !manifest_identity_matches(config) {
+        anyhow::bail!("RetroArch is not a Wingosy-managed certified install");
+    }
+    if !retroarch_executable.is_file() {
+        anyhow::bail!("Managed RetroArch executable was not found");
+    }
+    if !managed_manifest_marker_matches(retroarch_executable) {
+        anyhow::bail!("Managed RetroArch manifest marker is missing or invalid");
+    }
+
+    let cores_dir = retroarch_executable
+        .parent()
+        .context("RetroArch executable must have a parent directory")?
+        .join("cores");
+    for filename in certified_core_filenames() {
+        let artifact = core_artifacts()
+            .iter()
+            .find(|artifact| artifact.filename == *filename)
+            .context("Certified RetroArch core is missing from the manifest")?;
+        verify_sha256(&cores_dir.join(filename), artifact.sha256)
+            .with_context(|| format!("Certified RetroArch core {} failed validation", filename))?;
+    }
+    verify_sha256(retroarch_executable, RETROARCH_EXECUTABLE_SHA256)
+        .context("Certified RetroArch executable retroarch.exe failed validation")?;
+
+    Ok(())
+}
+
 pub fn managed_core_set_is_present(retroarch_executable: &Path) -> bool {
     let Some(cores_dir) = retroarch_executable.parent().map(|path| path.join("cores")) else {
         return false;
@@ -246,17 +272,8 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn profile_contents(root: &Path) -> String {
-    let value = |path: PathBuf| {
-        path.to_string_lossy()
-            .replace('\\', "/")
-            .replace('"', "\\\"")
-    };
-    format!(
-        "# Wingosy RetroArch beta profile {MANIFEST_VERSION}\nconfig_save_on_exit = false\ninput_autodetect_enable = true\njoypad_autoconfig_dir = \"{}\"\ninput_remapping_directory = \"{}\"\n",
-        value(root.join("controller-profiles")),
-        value(root.join("remaps")),
-    )
+fn profile_contents() -> String {
+    "config_save_on_exit = false\ninput_autodetect_enable = true\n".to_string()
 }
 
 #[cfg(test)]
@@ -272,6 +289,24 @@ mod tests {
                 .map(|core| core.platform_id)
                 .collect::<Vec<_>>(),
             vec!["nes", "snes", "gb", "gbc", "gba", "genesis"]
+        );
+        assert_eq!(
+            core_artifacts()
+                .iter()
+                .map(|core| core.filename)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            5,
+            "six promised platforms intentionally resolve to five unique DLLs"
+        );
+        assert_eq!(
+            core_artifacts()
+                .iter()
+                .filter(|core| core.platform_id == "gb" || core.platform_id == "gbc")
+                .map(|core| core.filename)
+                .collect::<Vec<_>>(),
+            vec!["gambatte_libretro.dll", "gambatte_libretro.dll"],
+            "GB and GBC intentionally share gambatte_libretro.dll"
         );
     }
 
@@ -300,9 +335,13 @@ mod tests {
         assert!(core_artifacts()
             .iter()
             .all(|core| core.filename.ends_with("_libretro.dll")));
-        assert!(core_artifacts()
-            .iter()
-            .all(|core| core.sha256.len() == 64));
+        assert!(core_artifacts().iter().all(|core| core.sha256.len() == 64));
+    }
+
+    #[test]
+    fn managed_manifest_has_no_moving_download_urls() {
+        assert!(!retroarch_artifact().url.contains("latest"));
+        assert!(!retroarch_cores_artifact().url.contains("latest"));
     }
 
     #[test]
@@ -317,28 +356,43 @@ mod tests {
     }
 
     #[test]
-    fn profile_reset_preserves_user_remaps() {
+    fn profile_repair_preserves_user_files_and_regenerates_only_delta() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = ensure_profile_at(dir.path()).unwrap();
-        let sentinel = dir.path().join("remaps").join("user.rmp");
-        std::fs::write(&sentinel, b"keep me").unwrap();
+        let sentinels = [
+            dir.path().join("retroarch.cfg"),
+            dir.path().join("controller-profiles").join("user.cfg"),
+            dir.path().join("remaps").join("user.rmp"),
+            dir.path().join("saves").join("game.srm"),
+            dir.path().join("states").join("game.state"),
+            dir.path().join("system").join("firmware.bin"),
+        ];
+        for sentinel in &sentinels {
+            std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+            std::fs::write(sentinel, b"keep me").unwrap();
+        }
+        std::fs::write(&config_path, b"stale profile").unwrap();
 
-        let backup = reset_profile_at(dir.path()).unwrap().unwrap();
+        let backup = repair_profile_at(dir.path()).unwrap().unwrap();
 
-        assert!(!config_path.exists());
-        assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep me");
+        assert_eq!(
+            std::fs::read(&config_path).unwrap(),
+            profile_contents().as_bytes()
+        );
+        for sentinel in &sentinels {
+            assert_eq!(std::fs::read(sentinel).unwrap(), b"keep me");
+        }
         assert!(backup.exists());
     }
 
     #[test]
-    fn profile_contains_only_directory_and_autodetect_settings() {
-        let contents = profile_contents(Path::new("C:/Wingosy/profile"));
+    fn profile_contains_exactly_the_two_managed_settings() {
+        let contents = profile_contents();
 
-        assert!(contents.contains("input_autodetect_enable = true"));
-        assert!(contents.contains("joypad_autoconfig_dir"));
-        assert!(contents.contains("input_remapping_directory"));
-        assert!(!contents.contains("input_player"));
-        assert!(!contents.contains("input_device"));
+        assert_eq!(
+            contents,
+            "config_save_on_exit = false\ninput_autodetect_enable = true\n"
+        );
     }
 
     #[test]
@@ -370,5 +424,24 @@ mod tests {
         config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
 
         assert!(managed_install_is_ready(&config, &executable));
+    }
+
+    #[test]
+    fn managed_validation_rejects_modified_core_before_repair() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let cores = dir.path().join("cores");
+        std::fs::create_dir_all(&cores).unwrap();
+        std::fs::write(&executable, b"retroarch").unwrap();
+        write_manifest_marker(&executable).unwrap();
+        std::fs::write(cores.join("fceumm_libretro.dll"), b"modified core").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
+
+        let error = validate_managed_install(&config, &executable).unwrap_err();
+
+        assert!(error.to_string().contains("failed validation"));
     }
 }
