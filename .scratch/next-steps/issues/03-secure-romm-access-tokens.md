@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -90,3 +90,17 @@ exercised. Existing Windows criteria remain unchecked.
 
 The audit confirmed that delete-before-store and partial-failure ordering defects
 remain unresolved. Windows credential testing is pending.
+
+### 2026-08-24 — Implementation follow-up complete
+
+Follow-up ordering now stores replacement credentials before the config commit and
+obsolete cleanup. Disconnect clears and saves config before either cleanup attempt,
+so a save failure deletes nothing. A rotated refresh is persisted before access for
+recovery. Six focused tests use synthetic markers only. Verification passed:
+`mise exec -- bun run typecheck`; `mise exec -- bun run test:unit` (10 files, 55
+tests); frontend lint (0 errors, 7 pre-existing warnings); and `git diff --check`.
+Rust targeted/full test and Clippy were attempted but remain blocked by existing
+Linux non-Windows cfg, reqwest, and other pre-existing crate compile failures. The
+Windows cross-check is blocked by missing `x86_64-w64-mingw32-gcc`. Windows Pair,
+restart, refresh, BIOS, sync, and disconnect flows, plus Credential Manager
+inspection, remain required.

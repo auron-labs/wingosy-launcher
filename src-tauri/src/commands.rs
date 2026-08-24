@@ -1225,23 +1225,23 @@ pub async fn poll_romm_device_auth(
             .map_err(|e| format!("RomM paired the device, but token verification failed: {e}"))?;
 
         let mut config = AppConfig::load().unwrap_or_default();
-        if let (Some(previous_server), Some(previous_username)) =
-            (config.romm.server_url.as_deref(), config.romm.username.as_deref())
-        {
-            crate::romm_credentials::delete_refresh_token(previous_server, previous_username)
-                .map_err(|e| e.to_string())?;
-        }
-        config.romm.server_url = Some(server_url.clone());
-        config.romm.auth_method = Some("pairing".to_string());
-        config.romm.username = None;
-        config.romm.password = None;
-        crate::romm_credentials::store_device_token(&server_url, token)
-            .map_err(|e| e.to_string())?;
-        config.romm.auth_token = None;
-        if let Some(device_id) = result.device_id.as_ref() {
-            config.romm.device_id = Some(device_id.clone());
-        }
-        config.save().map_err(|e| e.to_string())?;
+        persist_device_session(
+            &mut config,
+            &server_url,
+            token,
+            |romm| {
+                romm.server_url = Some(server_url.clone());
+                romm.auth_method = Some("pairing".to_string());
+                romm.username = None;
+                if let Some(device_id) = result.device_id.as_ref() {
+                    romm.device_id = Some(device_id.clone());
+                }
+            },
+            crate::romm_credentials::store_device_token,
+            |config| config.save(),
+            crate::romm_credentials::delete_device_token,
+            crate::romm_credentials::delete_refresh_token,
+        )?;
     }
 
     Ok(result)
@@ -1356,23 +1356,96 @@ where
     }
 }
 
+fn romm_server_key(server_url: &str) -> &str {
+    server_url.trim().trim_end_matches('/')
+}
+
+fn persist_device_session<Configure, Store, Save, DeleteDevice, DeleteRefresh>(
+    config: &mut AppConfig,
+    server_url: &str,
+    token: &str,
+    configure: Configure,
+    store: Store,
+    save: Save,
+    delete_device: DeleteDevice,
+    delete_refresh: DeleteRefresh,
+) -> Result<(), String>
+where
+    Configure: FnOnce(&mut RomMConfig),
+    Store: FnOnce(&str, &str) -> anyhow::Result<()>,
+    Save: FnOnce(&AppConfig) -> anyhow::Result<()>,
+    DeleteDevice: FnOnce(&str) -> anyhow::Result<()>,
+    DeleteRefresh: FnOnce(&str, &str) -> anyhow::Result<()>,
+{
+    let previous_server = config.romm.server_url.clone();
+    let previous_username = config.romm.username.clone();
+
+    store(server_url, token).map_err(reconnect_required)?;
+    configure(&mut config.romm);
+    config.romm.auth_token = None;
+    config.romm.password = None;
+    save(config).map_err(|error| error.to_string())?;
+
+    let mut first_error = None;
+    if previous_server
+        .as_deref()
+        .is_some_and(|previous| romm_server_key(previous) != romm_server_key(server_url))
+    {
+        if let Err(error) = delete_device(previous_server.as_deref().unwrap()) {
+            first_error = Some(error.to_string());
+        }
+    }
+    if let (Some(previous_server), Some(previous_username)) =
+        (previous_server.as_deref(), previous_username.as_deref())
+    {
+        if let Err(error) = delete_refresh(previous_server, previous_username) {
+            if first_error.is_none() {
+                first_error = Some(error.to_string());
+            }
+        }
+    }
+
+    first_error.map_or(Ok(()), Err)
+}
+
 /// Remove all locally stored RomM credentials and session metadata. This does
 /// not delete the device record from the RomM server; it only signs Wingosy out.
 #[tauri::command]
 pub fn disconnect_romm() -> Result<(), String> {
     let mut config = AppConfig::load().map_err(|error| error.to_string())?;
+    disconnect_romm_session(
+        &mut config,
+        |config| config.save(),
+        crate::romm_credentials::delete_device_token,
+        crate::romm_credentials::delete_refresh_token,
+    )
+}
 
-    if let Some(server_url) = config.romm.server_url.as_deref() {
-        delete_romm_credentials(
-            server_url,
-            config.romm.username.as_deref(),
-            crate::romm_credentials::delete_device_token,
-            crate::romm_credentials::delete_refresh_token,
-        )?;
-    }
+fn disconnect_romm_session<Save, DeleteDevice, DeleteRefresh>(
+    config: &mut AppConfig,
+    save: Save,
+    delete_device: DeleteDevice,
+    delete_refresh: DeleteRefresh,
+) -> Result<(), String>
+where
+    Save: FnOnce(&AppConfig) -> anyhow::Result<()>,
+    DeleteDevice: FnOnce(&str) -> anyhow::Result<()>,
+    DeleteRefresh: FnOnce(&str, &str) -> anyhow::Result<()>,
+{
+    let previous_server = config.romm.server_url.clone();
+    let previous_username = config.romm.username.clone();
 
     clear_romm_auth_fields(&mut config.romm);
-    config.save().map_err(|error| error.to_string())
+    save(config).map_err(|error| error.to_string())?;
+    if let Some(server_url) = previous_server.as_deref() {
+        delete_romm_credentials(
+            server_url,
+            previous_username.as_deref(),
+            delete_device,
+            delete_refresh,
+        )?;
+    }
+    Ok(())
 }
 
 fn reconnect_required(error: impl std::fmt::Display) -> String {
@@ -1410,6 +1483,30 @@ fn clear_romm_auth_fields(config: &mut RomMConfig) {
     config.auth_method = None;
     config.password = None;
     config.auth_token = None;
+}
+
+fn persist_refreshed_session<StoreRefresh, StoreDevice, Save>(
+    config: &mut AppConfig,
+    server_url: &str,
+    username: &str,
+    access_token: &str,
+    refresh_token: Option<&str>,
+    store_refresh: StoreRefresh,
+    store_device: StoreDevice,
+    save: Save,
+) -> Result<(), String>
+where
+    StoreRefresh: FnOnce(&str, &str, &str) -> anyhow::Result<()>,
+    StoreDevice: FnOnce(&str, &str) -> anyhow::Result<()>,
+    Save: FnOnce(&AppConfig) -> anyhow::Result<()>,
+{
+    if let Some(refresh_token) = refresh_token {
+        store_refresh(server_url, username, refresh_token).map_err(reconnect_required)?;
+    }
+    store_device(server_url, access_token).map_err(reconnect_required)?;
+    config.romm.password = None;
+    config.romm.auth_token = None;
+    save(config).map_err(|error| error.to_string())
 }
 
 /// Restore the saved RomM session on startup. Password-based connections are
@@ -1470,19 +1567,16 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
     match client.refresh_authentication(&refresh_token).await {
         Ok(token_response) => {
             let access_token = token_response.access_token.clone();
-            crate::romm_credentials::store_device_token(&server_url, &access_token)
-                .map_err(reconnect_required)?;
-            if let Some(next_refresh_token) = token_response.refresh_token.as_deref() {
-                crate::romm_credentials::store_refresh_token(
-                    &server_url,
-                    &username,
-                    next_refresh_token,
-                )
-                .map_err(|e| e.to_string())?;
-            }
-            config.romm.password = None;
-            config.romm.auth_token = None;
-            config.save().map_err(|e| e.to_string())?;
+            persist_refreshed_session(
+                &mut config,
+                &server_url,
+                &username,
+                &access_token,
+                token_response.refresh_token.as_deref(),
+                crate::romm_credentials::store_refresh_token,
+                crate::romm_credentials::store_device_token,
+                |config| config.save(),
+            )?;
             Ok(Some(RomMAuthSession {
                 server_url,
                 access_token,
@@ -1573,25 +1667,21 @@ pub async fn connect_romm_with_token(
     tracing::info!("[RomM] Token verified, saving credentials");
     
     let mut config = AppConfig::load().unwrap_or_default();
-    if let (Some(previous_server), Some(previous_username)) =
-        (config.romm.server_url.as_deref(), config.romm.username.as_deref())
-    {
-        crate::romm_credentials::delete_refresh_token(previous_server, previous_username)
-            .map_err(|e| e.to_string())?;
-    }
-    if let Some(previous_server) = config.romm.server_url.as_deref() {
-        crate::romm_credentials::delete_device_token(previous_server)
-            .map_err(|e| e.to_string())?;
-    }
-    crate::romm_credentials::store_device_token(&server_url, &token)
-        .map_err(|e| e.to_string())?;
-    config.romm.server_url = Some(server_url.clone());
-    config.romm.auth_method = Some("token".to_string());
-    config.romm.username = None;
-    config.romm.password = None;
-    config.romm.auth_token = None;
-    config.romm.device_id = Some(device_id);
-    config.save().map_err(|e| e.to_string())?;
+    persist_device_session(
+        &mut config,
+        &server_url,
+        &token,
+        |romm| {
+            romm.server_url = Some(server_url.clone());
+            romm.auth_method = Some("token".to_string());
+            romm.username = None;
+            romm.device_id = Some(device_id);
+        },
+        crate::romm_credentials::store_device_token,
+        |config| config.save(),
+        crate::romm_credentials::delete_device_token,
+        crate::romm_credentials::delete_refresh_token,
+    )?;
     
     tracing::info!("[RomM] Connected to {} with token", server_url);
     Ok(token)
@@ -3654,6 +3744,221 @@ mod tests {
 
         assert_eq!(error, "synthetic-device-delete-failure");
         assert_eq!(events.into_inner(), vec!["device", "refresh"]);
+    }
+
+    #[test]
+    fn device_session_stores_saves_then_keeps_same_key_device() {
+        let mut config = AppConfig::default();
+        config.romm.server_url = Some(" https://romm.example/// ".to_string());
+        config.romm.username = Some("synthetic-user".to_string());
+        let events = std::cell::RefCell::new(Vec::new());
+
+        persist_device_session(
+            &mut config,
+            "https://romm.example/",
+            "synthetic-device-token",
+            |romm| romm.username = None,
+            |_, token| {
+                assert_eq!(token, "synthetic-device-token");
+                events.borrow_mut().push("store");
+                Ok(())
+            },
+            |saved| {
+                assert!(saved.romm.auth_token.is_none());
+                assert!(saved.romm.password.is_none());
+                events.borrow_mut().push("save");
+                Ok(())
+            },
+            |_| {
+                events.borrow_mut().push("device");
+                Ok(())
+            },
+            |_, _| {
+                events.borrow_mut().push("refresh");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(events.into_inner(), vec!["store", "save", "refresh"]);
+    }
+
+    #[test]
+    fn device_session_store_failure_skips_mutation_save_and_cleanup() {
+        let mut config = AppConfig::default();
+        config.romm.auth_token = Some("synthetic-legacy-token".to_string());
+        let error = persist_device_session(
+            &mut config,
+            "https://new.example",
+            "synthetic-device-token",
+            |_| panic!("store failure must skip mutation"),
+            |_, _| anyhow::bail!("synthetic-store-failure"),
+            |_| panic!("store failure must skip save"),
+            |_| panic!("store failure must skip device cleanup"),
+            |_, _| panic!("store failure must skip refresh cleanup"),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Reconnect required"));
+        assert_eq!(config.romm.auth_token.as_deref(), Some("synthetic-legacy-token"));
+        let mut config = AppConfig::default();
+        config.romm.server_url = Some("https://old.example".to_string());
+        config.romm.username = Some("synthetic-user".to_string());
+        let error = persist_device_session(
+            &mut config,
+            "https://new.example",
+            "synthetic-device-token",
+            |_| {},
+            |_, _| Ok(()),
+            |_| anyhow::bail!("synthetic-save-failure"),
+            |_| panic!("save failure must skip device cleanup"),
+            |_, _| panic!("save failure must skip refresh cleanup"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "synthetic-save-failure");
+    }
+
+    #[test]
+    fn device_session_cleanup_attempts_all_and_returns_first_error() {
+        let mut config = AppConfig::default();
+        config.romm.server_url = Some("https://old.example".to_string());
+        config.romm.username = Some("synthetic-user".to_string());
+        let events = std::cell::RefCell::new(Vec::new());
+        let error = persist_device_session(
+            &mut config,
+            "https://new.example",
+            "synthetic-device-token",
+            |_| {},
+            |_, _| Ok(()),
+            |_| Ok(()),
+            |_| {
+                events.borrow_mut().push("device");
+                anyhow::bail!("synthetic-device-failure")
+            },
+            |_, _| {
+                events.borrow_mut().push("refresh");
+                anyhow::bail!("synthetic-refresh-failure")
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "synthetic-device-failure");
+        assert_eq!(events.into_inner(), vec!["device", "refresh"]);
+    }
+
+    #[test]
+    fn disconnect_saves_before_deleting_and_save_failure_deletes_nothing() {
+        let mut config = AppConfig::default();
+        config.romm.server_url = Some("https://romm.example".to_string());
+        config.romm.username = Some("synthetic-user".to_string());
+        config.romm.password = Some("synthetic-password".to_string());
+        config.romm.auth_token = Some("synthetic-token".to_string());
+        let events = std::cell::RefCell::new(Vec::new());
+        disconnect_romm_session(
+            &mut config,
+            |saved| {
+                assert!(saved.romm.password.is_none());
+                assert!(saved.romm.auth_token.is_none());
+                events.borrow_mut().push("save");
+                Ok(())
+            },
+            |_| {
+                events.borrow_mut().push("device");
+                Ok(())
+            },
+            |_, _| {
+                events.borrow_mut().push("refresh");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(events.into_inner(), vec!["save", "device", "refresh"]);
+
+        let mut config = AppConfig::default();
+        config.romm.server_url = Some("https://romm.example".to_string());
+        let error = disconnect_romm_session(
+            &mut config,
+            |_| anyhow::bail!("synthetic-save-failure"),
+            |_| panic!("save failure must skip device deletion"),
+            |_, _| panic!("save failure must skip refresh deletion"),
+        )
+        .unwrap_err();
+        assert_eq!(error, "synthetic-save-failure");
+    }
+
+    #[test]
+    fn refresh_session_orders_rotation_and_no_rotation_before_save() {
+        for rotation in [Some("synthetic-next-refresh"), None] {
+            let mut config = AppConfig::default();
+            let events = std::cell::RefCell::new(Vec::new());
+            persist_refreshed_session(
+                &mut config,
+                "https://romm.example",
+                "synthetic-user",
+                "synthetic-access",
+                rotation,
+                |_, _, _| {
+                    events.borrow_mut().push("refresh");
+                    Ok(())
+                },
+                |_, _| {
+                    events.borrow_mut().push("device");
+                    Ok(())
+                },
+                |_| {
+                    events.borrow_mut().push("save");
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                events.into_inner(),
+                if rotation.is_some() {
+                    vec!["refresh", "device", "save"]
+                } else {
+                    vec!["device", "save"]
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_session_store_failures_skip_later_steps() {
+        let mut config = AppConfig::default();
+        let error = persist_refreshed_session(
+            &mut config,
+            "https://romm.example",
+            "synthetic-user",
+            "synthetic-access",
+            Some("synthetic-next-refresh"),
+            |_, _, _| anyhow::bail!("synthetic-refresh-failure"),
+            |_, _| panic!("refresh failure must skip device store"),
+            |_| panic!("refresh failure must skip save"),
+        )
+        .unwrap_err();
+        assert!(error.contains("Reconnect required"));
+
+        let events = std::cell::RefCell::new(Vec::new());
+        let error = persist_refreshed_session(
+            &mut config,
+            "https://romm.example",
+            "synthetic-user",
+            "synthetic-access",
+            Some("synthetic-next-refresh"),
+            |_, _, _| {
+                events.borrow_mut().push("refresh");
+                Ok(())
+            },
+            |_, _| {
+                events.borrow_mut().push("device");
+                anyhow::bail!("synthetic-device-failure")
+            },
+            |_| panic!("device failure must skip save"),
+        )
+        .unwrap_err();
+        assert!(error.contains("Reconnect required"));
+        assert_eq!(events.into_inner(), vec!["refresh", "device"]);
     }
 
     #[test]

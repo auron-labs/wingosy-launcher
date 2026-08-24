@@ -32,6 +32,9 @@ The first private beta is deliberately narrow:
 | [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | IN PROGRESS |
 | [06](issues/06-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 01-05, 08, 09 | TODO |
 
+Plan 03 code follow-up is complete but remains **IN PROGRESS** pending native
+Windows credential and manual acceptance.
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with reason) | REJECTED
 
 ## Beta-ready definition
