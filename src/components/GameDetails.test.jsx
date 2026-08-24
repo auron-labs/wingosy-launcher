@@ -163,7 +163,7 @@ describe("GameDetails remote Play", () => {
     });
   });
 
-  it("renders staged launch download progress from the public event", async () => {
+  it("renders staged launch preparation progress from the public event", async () => {
     window.__TAURI_INTERNALS__ = {};
     listen.mockImplementation(async (event, handler) => {
       eventListeners.set(event, handler);
@@ -172,6 +172,18 @@ describe("GameDetails remote Play", () => {
     renderDetails();
 
     await waitFor(() => expect(eventListeners.has("game-launch-progress")).toBe(true));
+
+    await act(async () => {
+      eventListeners.get("game-launch-progress")({
+        payload: {
+          game_id: remoteOnlyGame.id,
+          stage: "bios_preparation",
+        },
+      });
+    });
+
+    expect(screen.getByText("Preparing BIOS...")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
 
     await act(async () => {
       eventListeners.get("game-launch-progress")({

@@ -428,6 +428,7 @@ enum LaunchStage {
     Downloading,
     Validating,
     Finalizing,
+    BiosPreparation,
     SaveSync,
     Launching,
     Running,
@@ -439,10 +440,14 @@ impl LaunchStage {
     fn can_transition_to(self, next: Self) -> bool {
         matches!(
             (self, next),
-            (Self::Resolving, Self::Downloading | Self::SaveSync | Self::Failure)
+            (
+                Self::Resolving,
+                Self::Downloading | Self::BiosPreparation | Self::SaveSync | Self::Failure,
+            )
                 | (Self::Downloading, Self::Downloading | Self::Validating | Self::Failure)
                 | (Self::Validating, Self::Finalizing | Self::Failure)
-                | (Self::Finalizing, Self::SaveSync | Self::Failure)
+                | (Self::Finalizing, Self::BiosPreparation | Self::SaveSync | Self::Failure)
+                | (Self::BiosPreparation, Self::SaveSync | Self::Failure)
                 | (Self::SaveSync, Self::Launching | Self::Completion | Self::Failure)
                 | (Self::Launching, Self::Running | Self::Completion | Self::Failure)
                 | (Self::Running, Self::SaveSync | Self::Completion | Self::Failure)
@@ -934,6 +939,36 @@ async fn run_launch_pipeline(
         }
     };
     let mut save_sync_warnings = Vec::new();
+
+    previous_stage = emit_launch_progress(
+        app.as_ref(),
+        game.id,
+        &game.name,
+        previous_stage,
+        LaunchStage::BiosPreparation,
+        None,
+    );
+    if let Some(command) = launch_command.as_ref() {
+        if let Err(error) = crate::bios::prepare_bios_for_launch(
+            &config,
+            &command.emulator_id,
+            &game.platform_id,
+            Path::new(&command.executable),
+        )
+        .await
+        {
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                format!(
+                    "BIOS preparation failed: {error}. Check RomM and BIOS Settings, then retry."
+                ),
+            );
+            return Ok(failed_launch_result(error));
+        }
+    }
 
     previous_stage = emit_launch_progress(
         app.as_ref(),
@@ -4215,6 +4250,7 @@ mod tests {
             LaunchStage::Downloading,
             LaunchStage::Validating,
             LaunchStage::Finalizing,
+            LaunchStage::BiosPreparation,
             LaunchStage::SaveSync,
             LaunchStage::Launching,
             LaunchStage::Running,
@@ -4241,6 +4277,10 @@ mod tests {
         assert!(LaunchStage::Downloading.can_transition_to(LaunchStage::Validating));
         assert!(LaunchStage::Validating.can_transition_to(LaunchStage::Finalizing));
         assert!(LaunchStage::Finalizing.can_transition_to(LaunchStage::SaveSync));
+        assert!(LaunchStage::Finalizing.can_transition_to(LaunchStage::BiosPreparation));
+        assert!(LaunchStage::BiosPreparation.can_transition_to(LaunchStage::SaveSync));
+        assert!(LaunchStage::BiosPreparation.can_transition_to(LaunchStage::Failure));
+        assert!(LaunchStage::Resolving.can_transition_to(LaunchStage::BiosPreparation));
         assert!(!LaunchStage::Launching.can_transition_to(LaunchStage::SaveSync));
         assert!(!LaunchStage::Completion.can_transition_to(LaunchStage::Failure));
         assert!(!LaunchStage::Failure.can_transition_to(LaunchStage::Completion));
@@ -4258,6 +4298,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&LaunchStage::SaveSync).unwrap(),
             "\"save_sync\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LaunchStage::BiosPreparation).unwrap(),
+            "\"bios_preparation\""
         );
         let download = launch_progress_event_with_metrics(
             42,

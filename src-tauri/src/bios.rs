@@ -1,6 +1,7 @@
 use crate::{
     api::{RomMClient, RomMFirmware},
     config::{AppConfig, EmulatorPaths},
+    models::map_romm_slug,
 };
 use aes::{
     cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit},
@@ -312,56 +313,148 @@ fn executable_parent(path: &Option<PathBuf>) -> Option<PathBuf> {
 }
 
 fn configured_targets(paths: &EmulatorPaths) -> Vec<BiosTarget> {
-    let mut targets = Vec::new();
-    if let Some(parent) = executable_parent(&paths.retroarch) {
-        targets.push(BiosTarget {
+    [
+        ("retroarch", &paths.retroarch),
+        ("duckstation", &paths.duckstation),
+        ("pcsx2", &paths.pcsx2),
+        ("melonds", &paths.melonds),
+        ("flycast", &paths.flycast),
+        ("mgba", &paths.mgba),
+    ]
+    .into_iter()
+    .filter_map(|(emulator_id, executable)| {
+        let parent = executable_parent(executable)?;
+        target_from_parent(emulator_id, &parent)
+    })
+    .collect()
+}
+
+fn target_from_parent(emulator_id: &str, parent: &Path) -> Option<BiosTarget> {
+    match emulator_id {
+        "retroarch" => Some(BiosTarget {
             emulator_id: "retroarch",
             path: parent.join("system"),
             platform_slugs: &[],
             rename_for_retroarch: true,
-        });
-    }
-    if let Some(parent) = executable_parent(&paths.duckstation) {
-        targets.push(BiosTarget {
+        }),
+        "duckstation" => Some(BiosTarget {
             emulator_id: "duckstation",
             path: parent.join("bios"),
             platform_slugs: &["psx"],
             rename_for_retroarch: false,
-        });
-    }
-    if let Some(parent) = executable_parent(&paths.pcsx2) {
-        targets.push(BiosTarget {
+        }),
+        "pcsx2" => Some(BiosTarget {
             emulator_id: "pcsx2",
             path: parent.join("bios"),
             platform_slugs: &["ps2"],
             rename_for_retroarch: false,
-        });
-    }
-    if let Some(parent) = executable_parent(&paths.melonds) {
-        targets.push(BiosTarget {
+        }),
+        "melonds" => Some(BiosTarget {
             emulator_id: "melonds",
-            path: parent,
+            path: parent.to_path_buf(),
             platform_slugs: &["nds"],
             rename_for_retroarch: false,
-        });
-    }
-    if let Some(parent) = executable_parent(&paths.flycast) {
-        targets.push(BiosTarget {
+        }),
+        "flycast" => Some(BiosTarget {
             emulator_id: "flycast",
             path: parent.join("data"),
             platform_slugs: &["dreamcast", "dc"],
             rename_for_retroarch: false,
-        });
-    }
-    if let Some(parent) = executable_parent(&paths.mgba) {
-        targets.push(BiosTarget {
+        }),
+        "mgba" => Some(BiosTarget {
             emulator_id: "mgba",
-            path: parent,
+            path: parent.to_path_buf(),
             platform_slugs: &["gba"],
             rename_for_retroarch: false,
-        });
+        }),
+        _ => None,
     }
-    targets
+}
+
+fn launch_target(emulator_id: &str, executable: &Path) -> Option<BiosTarget> {
+    if !executable.is_file() {
+        return None;
+    }
+    let parent = executable.parent()?.to_path_buf();
+    target_from_parent(emulator_id, &parent)
+}
+
+fn relevant_records<'a>(
+    records: &'a [FirmwareRecord],
+    target: &BiosTarget,
+    game_platform_id: &str,
+) -> Vec<&'a FirmwareRecord> {
+    let game_platform_id = map_romm_slug(game_platform_id);
+    records
+        .iter()
+        .filter(|record| {
+            if target.emulator_id == "retroarch" {
+                map_romm_slug(&record.platform_slug) == game_platform_id
+            } else {
+                let platform_slug = map_romm_slug(&record.platform_slug);
+                target.platform_slugs.contains(&platform_slug.as_str())
+            }
+        })
+        .collect()
+}
+
+pub(crate) async fn prepare_bios_for_launch(
+    config: &AppConfig,
+    emulator_id: &str,
+    game_platform_id: &str,
+    executable: &Path,
+) -> Result<BiosDownloadSummary> {
+    let Some(target) = launch_target(emulator_id, executable) else {
+        return Ok(BiosDownloadSummary {
+            downloaded: 0,
+            skipped: 0,
+            paths: Vec::new(),
+        });
+    };
+
+    let root = config.bios_dir();
+    let (client, records) = fetch_firmware(config).await?;
+    let relevant = relevant_records(&records, &target, game_platform_id);
+    let mut summary = BiosDownloadSummary {
+        downloaded: 0,
+        skipped: 0,
+        paths: Vec::new(),
+    };
+
+    for record in &relevant {
+        let path = target_path(&root, record)?;
+        let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
+        let downloaded_path = download_record(&client, &root, record).await?;
+        if existed {
+            summary.skipped += 1;
+        } else {
+            summary.downloaded += 1;
+        }
+        summary
+            .paths
+            .push(downloaded_path.to_string_lossy().into_owned());
+    }
+
+    if relevant.is_empty() {
+        return Ok(summary);
+    }
+
+    std::fs::create_dir_all(&target.path)?;
+    for record in relevant {
+        let source = target_path(&root, record)?;
+        let target_name = if target.rename_for_retroarch {
+            retroarch_filename(&source)
+        } else {
+            source
+                .file_name()
+                .and_then(|value| value.to_str())
+                .context("Invalid firmware destination")?
+                .to_string()
+        };
+        std::fs::copy(source, target.path.join(target_name))?;
+    }
+
+    Ok(summary)
 }
 
 fn retroarch_filename(path: &Path) -> String {
@@ -762,6 +855,128 @@ mod tests {
             target_path(Path::new("C:/bios"), &record).unwrap(),
             PathBuf::from("C:/bios/psx/scph1001.bin")
         );
+    }
+
+    fn firmware_record(platform_slug: &str, id: i64) -> FirmwareRecord {
+        FirmwareRecord {
+            platform_slug: platform_slug.to_string(),
+            platform_name: platform_slug.to_string(),
+            firmware: RomMFirmware {
+                id,
+                file_name: format!("firmware-{id}.bin"),
+                file_path: String::new(),
+                full_path: String::new(),
+                file_size_bytes: 0,
+                md5_hash: None,
+                sha1_hash: None,
+                missing_from_fs: false,
+            },
+        }
+    }
+
+    #[test]
+    fn relevant_records_filters_retroarch_to_selected_platform_and_maps_romm_aliases() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("retroarch.exe");
+        std::fs::write(&executable, b"retroarch").unwrap();
+        let target = launch_target("retroarch", &executable).unwrap();
+        let records = vec![
+            firmware_record("snes", 1),
+            firmware_record("nintendo-game-boy-advance", 2),
+            firmware_record("gba", 3),
+            firmware_record("psx", 4),
+            firmware_record("dreamcast", 5),
+            firmware_record("dc", 6),
+            firmware_record("sony-playstation", 7),
+        ];
+
+        let relevant = relevant_records(&records, &target, "gba");
+
+        assert_eq!(
+            relevant
+                .iter()
+                .map(|record| record.firmware.id)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+
+        assert_eq!(
+            relevant_records(&records, &target, "game-boy-advance")
+                .iter()
+                .map(|record| record.firmware.id)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+
+        let flycast = launch_target("flycast", &executable).unwrap();
+        assert_eq!(
+            relevant_records(&records, &flycast, "gba")
+                .iter()
+                .map(|record| record.firmware.id)
+                .collect::<Vec<_>>(),
+            vec![5, 6]
+        );
+
+        let duckstation = launch_target("duckstation", &executable).unwrap();
+        assert_eq!(
+            relevant_records(&records, &duckstation, "gba")
+                .iter()
+                .map(|record| record.firmware.id)
+                .collect::<Vec<_>>(),
+            vec![4, 7]
+        );
+    }
+
+    #[test]
+    fn launch_target_requires_supported_real_executable_and_maps_one_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("emulator.exe");
+        std::fs::write(&executable, b"emulator").unwrap();
+
+        let cases = [
+            ("retroarch", "system", &[][..], true),
+            ("duckstation", "bios", &["psx"][..], false),
+            ("pcsx2", "bios", &["ps2"][..], false),
+            ("melonds", "", &["nds"][..], false),
+            ("flycast", "data", &["dreamcast", "dc"][..], false),
+            ("mgba", "", &["gba"][..], false),
+        ];
+        for (emulator_id, child, platform_slugs, rename_for_retroarch) in cases {
+            let target = launch_target(emulator_id, &executable).unwrap();
+            assert_eq!(target.emulator_id, emulator_id);
+            assert_eq!(target.path, temp.path().join(child));
+            assert_eq!(target.platform_slugs, platform_slugs);
+            assert_eq!(target.rename_for_retroarch, rename_for_retroarch);
+        }
+
+        let stale = temp.path().join("missing.exe");
+        assert!(launch_target("mgba", &stale).is_none());
+        assert!(launch_target("eden", &executable).is_none());
+        assert!(!temp.path().join("data").exists());
+    }
+
+    #[tokio::test]
+    async fn launch_preparation_noops_without_writing_for_unsupported_or_stale_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios_root = temp.path().join("bios");
+        let executable = temp.path().join("emulator.exe");
+        std::fs::write(&executable, b"emulator").unwrap();
+        let mut config = AppConfig::default();
+        config.library.bios_directory = Some(bios_root.clone());
+
+        for (emulator_id, path) in [
+            ("eden", executable),
+            ("mgba", temp.path().join("missing.exe")),
+        ] {
+            let result = prepare_bios_for_launch(&config, emulator_id, "gba", &path)
+                .await
+                .unwrap();
+            assert_eq!(result.downloaded, 0);
+            assert_eq!(result.skipped, 0);
+            assert!(result.paths.is_empty());
+        }
+
+        assert!(!bios_root.exists());
     }
 
     #[test]

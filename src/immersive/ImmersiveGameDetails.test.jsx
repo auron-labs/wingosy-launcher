@@ -167,6 +167,19 @@ describe("ImmersiveGameDetails launch controls", () => {
         payload: {
           game_id: remoteOnlyGame.id,
           game_name: remoteOnlyGame.name,
+          stage: "bios_preparation",
+        },
+      });
+    });
+
+    expect(screen.getByText("Preparing BIOS...")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+
+    await act(async () => {
+      eventListeners.get("game-launch-progress")({
+        payload: {
+          game_id: remoteOnlyGame.id,
+          game_name: remoteOnlyGame.name,
           stage: "downloading",
           downloaded: 512 * 1024,
           total: 1024 * 1024,

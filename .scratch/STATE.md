@@ -1,14 +1,13 @@
 # Local Issue State
 
-Generated: 2026-08-24T11:21:13Z
+Generated: 2026-08-24T23:07:50Z
 
-Tickets: 10 active, 1 resolved
+Tickets: 9 active, 2 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [01-prepare-bios-automatically-before-launch](automatic-firmware-installation/issues/01-prepare-bios-automatically-before-launch.md) | — | — | ready-for-agent | None — can start immediately |
 | [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [02-prepare-switch-firmware-automatically-for-eden](automatic-firmware-installation/issues/02-prepare-switch-firmware-automatically-for-eden.md) | — | — | ready-for-agent | 01 — Prepare BIOS automatically before launch |
 | [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [02-preserve-setup-configuration](next-steps/issues/02-preserve-setup-configuration.md) | task | agent | ready-for-human | none |
@@ -23,4 +22,5 @@ Tickets: 10 active, 1 resolved
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
+| [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [01-prepare-bios-automatically-before-launch](automatic-firmware-installation/issues/01-prepare-bios-automatically-before-launch.md) | — | — | resolved | None — can start immediately |
 | [next-steps](next-steps/spec.md) | [05-publish-an-honest-beta-contract](next-steps/issues/05-publish-an-honest-beta-contract.md) | task | agent | resolved | 01 |

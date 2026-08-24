@@ -63,6 +63,7 @@ function launchStageLabel(stage) {
     case "downloading": return "Downloading ROM...";
     case "validating": return "Validating ROM...";
     case "finalizing": return "Finalizing local copy...";
+    case "bios_preparation": return "Preparing BIOS...";
     case "save_sync": return "Synchronizing saves...";
     case "launching": return "Launching emulator...";
     case "running": return "Emulator running";

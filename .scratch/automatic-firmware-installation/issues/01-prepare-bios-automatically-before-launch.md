@@ -8,10 +8,10 @@ repair and retry controls.
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] On Play, relevant RomM BIOS files are downloaded only for the selected configured emulator with a real executable, using the supported generic mappings for RetroArch, DuckStation, PCSX2, melonDS, Flycast, and mGBA.
-- [ ] Existing validation and cache behavior is reused, valid cached BIOS files are reused on repeated launches, and unsupported, unconfigured, or stale targets receive no writes.
-- [ ] BIOS preparation completes before the emulator process is spawned, with progress exposed in both desktop and immersive launch UI.
-- [ ] A required preparation failure prevents launch and provides an actionable error.
-- [ ] Manual BIOS controls remain available for repair and retry.
+- [x] On Play, relevant RomM BIOS files are downloaded only for the selected configured emulator with a real executable, using the supported generic mappings for RetroArch, DuckStation, PCSX2, melonDS, Flycast, and mGBA.
+- [x] Existing validation and cache behavior is reused, valid cached BIOS files are reused on repeated launches, and unsupported, unconfigured, or stale targets receive no writes.
+- [x] BIOS preparation completes before the emulator process is spawned, with progress exposed in both desktop and immersive launch UI.
+- [x] A required preparation failure prevents launch and provides an actionable error.
+- [x] Manual BIOS controls remain available for repair and retry.
