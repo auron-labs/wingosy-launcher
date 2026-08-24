@@ -50,33 +50,30 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
               { label: "East / Esc", detail: "Back to library" },
               { label: "View / H", detail: "Hide help" },
             ]
-        : [
-            { label: "D-pad / Stick / Arrows", detail: "Navigate" },
-            { label: "South / Enter", detail: "Confirm / Open" },
-            { label: "East / Esc", detail: "Back" },
-            { label: "LB / RB / PgUp/PgDn", detail: "Sections" },
-            { label: "Menu / S", detail: "Menu" },
-            { label: "View / H", detail: "Hide help" },
-          ];
+          : [
+              { label: "D-pad / Stick / Arrows", detail: "Navigate" },
+              { label: "South / Enter", detail: "Confirm / Open" },
+              { label: "East / Esc", detail: "Back" },
+              { label: "LB / RB / PgUp/PgDn", detail: "Sections" },
+              { label: "Menu / S", detail: "Menu" },
+              { label: "View / H", detail: "Hide help" },
+            ];
 
   return (
     <Box
       data-testid="immersive-hintbar"
       sx={(t) => ({
-        position: "fixed",
-        left: 18,
-        right: 18,
-        bottom: 16,
-        zIndex: 2000,
-        pointerEvents: "none",
-        borderRadius: 3,
-        px: 2.25,
-        py: 1.4,
-        border: `1px solid ${alpha(t.palette.common.white, 0.12)}`,
-        bgcolor: alpha(t.palette.background.paper, 0.58),
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow: `0 18px 60px ${alpha("#000", 0.52)}`,
+        flexShrink: 0,
+        width: "100%",
+        minHeight: 48,
+        px: { xs: 1.5, sm: 2.25 },
+        py: 1,
+        borderTop: `1px solid ${alpha(t.palette.divider, 0.6)}`,
+        borderRadius: 0,
+        bgcolor: alpha(t.palette.background.paper, 0.7),
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        boxShadow: `0 -4px 24px ${alpha("#000", 0.25)}`,
       })}
     >
       {unsupportedGamepad ? (
@@ -84,13 +81,18 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
           role="status"
           variant="caption"
           color="warning.main"
-          sx={{ display: "block", mb: 1, fontWeight: 650 }}
+          sx={{ display: "block", mb: visible ? 1 : 0, fontWeight: 650 }}
         >
           Unsupported controller. Use a standard/XInput controller or keyboard for immersive navigation.
         </Typography>
       ) : null}
       {visible ? (
-        <Stack direction="row" spacing={1.5} divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />} sx={{ alignItems: "center" }}>
+        <Stack
+          direction="row"
+          spacing={1.5}
+          divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />}
+          sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.75 }}
+        >
           {hints.map((h) => (
             <Hint key={`${h.label}-${h.detail}`} label={h.label} detail={h.detail} />
           ))}

@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
+process.env.NODE_ENV = "development";
+
 // Single environment: React plugin must transform JSX in components imported from tests.
 export default defineConfig({
   plugins: [react()],

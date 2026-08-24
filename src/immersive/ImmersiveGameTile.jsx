@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import LinearProgress from "@mui/material/LinearProgress";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import CloudIcon from "@mui/icons-material/Cloud";
@@ -64,6 +65,10 @@ export default function ImmersiveGameTile({
   const showCover = Boolean(coverSrc) && !imgError;
   const platformColor = PLATFORM_COLORS[game.platform_id] || colors.primary;
   const platformSlug = platformBadgeLabel(game.platform_id);
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+
+  const remote = game.sync_state === "remote_only" || game.sync_state === "RemoteOnly";
+  const synced = game.sync_state === "synced" || game.sync_state === "Synced";
 
   return (
     <Box
@@ -76,6 +81,7 @@ export default function ImmersiveGameTile({
         appearance: "none",
         border: "none",
         padding: 0,
+        margin: 0,
         background: "transparent",
         textAlign: "left",
         cursor: "pointer",
@@ -86,16 +92,16 @@ export default function ImmersiveGameTile({
         sx={{
           position: "relative",
           aspectRatio: "3 / 4",
-          borderRadius: "8px",
+          borderRadius: "10px",
           overflow: "visible",
-          transition: "transform 0.18s ease, box-shadow 0.2s ease",
-          transform: focused ? "scale(1.06)" : "scale(1)",
+          transition: reducedMotion
+            ? "none"
+            : "transform 0.2s ease, box-shadow 0.2s ease",
+          transform: focused ? "scale(1.05)" : "scale(1)",
           boxShadow: focused
-            ? `0 8px 32px rgba(0,0,0,0.55), 0 0 22px ${colors.focusGlow}`
-            : "0 2px 10px rgba(0,0,0,0.35)",
+            ? `0 0 0 3px ${colors.primary}, 0 12px 32px ${alpha("#000", 0.45)}, 0 0 24px ${colors.focusGlow}`
+            : "0 1px 4px rgba(0,0,0,0.25)",
           zIndex: focused ? 2 : 1,
-          outline: focused ? `2px solid ${colors.primary}` : "none",
-          outlineOffset: 2,
         }}
       >
         <Box
@@ -103,10 +109,8 @@ export default function ImmersiveGameTile({
             position: "relative",
             width: "100%",
             height: "100%",
-            borderRadius: "8px",
+            borderRadius: "10px",
             overflow: "hidden",
-            border: focused ? `2px solid ${colors.primary}` : "2px solid transparent",
-            transition: "border-color 0.18s ease",
             bgcolor: "background.paper",
           }}
         >
@@ -121,8 +125,8 @@ export default function ImmersiveGameTile({
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
-                filter: focused ? "brightness(1.06)" : "brightness(1)",
-                transition: "filter 0.18s ease",
+                filter: focused ? "brightness(1.04)" : "brightness(1)",
+                transition: reducedMotion ? "none" : "filter 0.2s ease",
               }}
             />
           ) : (
@@ -138,7 +142,9 @@ export default function ImmersiveGameTile({
                 p: 2,
               }}
             >
-              <SportsEsportsIcon sx={{ fontSize: 44, color: alpha(platformColor, 0.45), mb: 1 }} />
+              <SportsEsportsIcon
+                sx={{ fontSize: 40, color: alpha(platformColor, 0.5), mb: 1 }}
+              />
               <Typography
                 variant="caption"
                 sx={{
@@ -161,8 +167,10 @@ export default function ImmersiveGameTile({
               position: "absolute",
               inset: 0,
               pointerEvents: "none",
-              boxShadow: "inset 0 0 12px rgba(0,0,0,0.45)",
-              borderRadius: "6px",
+              boxShadow: focused
+                ? "inset 0 0 0 1px rgba(255,255,255,0.12)"
+                : "inset 0 0 12px rgba(0,0,0,0.35)",
+              borderRadius: "10px",
             }}
           />
 
@@ -172,12 +180,11 @@ export default function ImmersiveGameTile({
                 position: "absolute",
                 top: 0,
                 left: 0,
-                bgcolor: "rgba(0,0,0,0.75)",
-                backdropFilter: "blur(8px)",
-                px: 1,
-                py: 0.4,
+                bgcolor: alpha("#000", 0.7),
+                px: 0.75,
+                py: 0.25,
                 borderBottomRightRadius: "8px",
-                minWidth: 28,
+                minWidth: 24,
               }}
             >
               <Typography
@@ -197,75 +204,58 @@ export default function ImmersiveGameTile({
           <Box
             sx={{
               position: "absolute",
-              bottom: 6,
-              left: 6,
-              right: 6,
+              top: 8,
+              right: 8,
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              gap: 0.75,
               pointerEvents: "none",
             }}
           >
             {game.is_favorite ? (
               <Box
                 sx={{
-                  width: 22,
-                  height: 22,
+                  width: 20,
+                  height: 20,
                   borderRadius: "50%",
-                  bgcolor: "rgba(0,0,0,0.6)",
-                  backdropFilter: "blur(4px)",
+                  bgcolor: alpha("#000", 0.55),
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <FavoriteIcon sx={{ fontSize: 12, color: "#fff" }} />
+                <FavoriteIcon sx={{ fontSize: 11, color: "#fff" }} />
               </Box>
-            ) : (
-              <Box />
-            )}
-            <Box sx={{ flex: 1 }} />
-            {(() => {
-              const remote = game.sync_state === "remote_only" || game.sync_state === "RemoteOnly";
-              const synced = game.sync_state === "synced" || game.sync_state === "Synced";
-              if (remote) {
-                return (
-                  <Box
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      bgcolor: "rgba(0,0,0,0.6)",
-                      backdropFilter: "blur(4px)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <CloudIcon sx={{ fontSize: 12, color: colors.primaryLight }} />
-                  </Box>
-                );
-              }
-              if (synced) {
-                return (
-                  <Box
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      bgcolor: "rgba(0,0,0,0.6)",
-                      backdropFilter: "blur(4px)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <CheckCircleIcon sx={{ fontSize: 12, color: "#66BB6A" }} />
-                  </Box>
-                );
-              }
-              return null;
-            })()}
+            ) : null}
+            {remote ? (
+              <Box
+                sx={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  bgcolor: alpha("#000", 0.55),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CloudIcon sx={{ fontSize: 11, color: colors.primaryLight }} />
+              </Box>
+            ) : null}
+            {synced ? (
+              <Box
+                sx={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  bgcolor: alpha("#000", 0.55),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CheckCircleIcon sx={{ fontSize: 11, color: "#66BB6A" }} />
+              </Box>
+            ) : null}
           </Box>
 
           {downloadProgress ? (
@@ -298,14 +288,14 @@ export default function ImmersiveGameTile({
                 left: 0,
                 right: 0,
                 bottom: 0,
-                p: 1.25,
-                pt: 3,
+                p: 1,
+                pt: 4,
                 background:
-                  "linear-gradient(transparent 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.88) 100%)",
+                  "linear-gradient(transparent 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0.88) 100%)",
               }}
             >
               <Typography
-                variant="subtitle2"
+                variant="caption"
                 sx={{
                   fontWeight: 700,
                   color: "#fff",
@@ -315,6 +305,7 @@ export default function ImmersiveGameTile({
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
                   overflow: "hidden",
+                  fontSize: "0.75rem",
                 }}
                 title={game.name}
               >
