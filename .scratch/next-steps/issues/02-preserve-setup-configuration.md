@@ -85,3 +85,14 @@ manual-flow checks remain open.
 
 The static merge is correct, but Windows Pair→Sync→Finish→restart and BIOS
 verification remain pending.
+
+### 2026-08-24 — Fresh automated verification
+
+Automated verification passed: `mise exec -- bun run typecheck`;
+`mise exec -- bun run test:unit` (10 files, 55 tests); the focused Rust setup
+merge test; and full
+`mise exec -- cargo test --manifest-path src-tauri/Cargo.toml`
+(244 unit passed/1 ignored, 4 emulator integration passed/9 ignored, 4 RomM
+integration passed/7 ignored). Windows Pair→Sync→Finish→restart and BIOS
+manual acceptance remain pending, so the spec should remain `IN PROGRESS` and
+this issue should remain `ready-for-human`.
