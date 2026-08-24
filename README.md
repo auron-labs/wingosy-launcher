@@ -6,10 +6,21 @@
 
 A Windows game launcher with RomM integration. Inspired by [Argosy Launcher](https://github.com/rommapp/argosy-launcher), with the goal of closely following Argosy's feature implementations.
 
+## Private Beta
+
+The planned private beta is for **Windows 11** and one narrow path: **RetroArch
+for NES, SNES, GB, GBC, GBA, and Genesis**, with RomM pair, library sync, ROM
+download, and one-Play. Save management in this beta means **manual save
+upload/download**. Automatic save sync is experimental until a real round trip
+passes. Standalone mGBA and every other emulator/platform combination are
+experimental. The six planned beta paths are still pending real Windows certification;
+see the [certification ledger](.scratch/transparent-romm-launching/emulator-certification.md)
+and [beta release notes](BETA_RELEASE_NOTES.md).
+
 ## Features
 
-- **RomM Integration** — Sync library, covers, saves from [RomM](https://github.com/rommapp/romm)
-- **20+ Platforms** — NES, SNES, N64, GameCube, Wii, PlayStation 1-3, PSP, and more
+- **RomM Integration** — Sync library, covers, and ROMs with [RomM](https://github.com/rommapp/romm); manually upload/download saves
+- **20+ Platforms** — 20+ emulator/platform combinations are available experimentally only and are outside the private-beta promise
 - **Emulator Management** — Auto-detect, download, and configure emulators
 - **ROM Downloads** — Download ROMs directly from RomM
 - **Game Launching** — Launch with preferred emulator, per-game overrides
@@ -121,6 +132,8 @@ that existing executable instead of moving it into the Wingosy data folder.
 Most save files remain in the location selected by the emulator. Wingosy does
 not currently impose one common save directory on every emulator.
 
+**Automatic path-aware save sync is experimental and outside the private-beta promise; manual save upload/download is the supported beta behavior.**
+
 For RetroArch, Wingosy's save-sync resolver checks these locations for `.srm`
 and `.sav` files:
 
@@ -204,40 +217,39 @@ the RetroArch installation, for example:
 Shader selection and shader preset storage remain controlled by RetroArch or
 the individual emulator.
 
-## Supported Emulators
+## Beta Emulator Scope
 
-| Emulator | Platform(s) | Download | Launch Intent | Save Sync (Wingosy) | Save Sync ([Argosy](https://github.com/rommapp/argosy-launcher)) |
-| --- | --- | :---: | :---: | :---: | :---: |
-| RetroArch (FCEUmm core) | NES | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Snes9x core) | SNES | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Mupen64Plus-Next core) | Nintendo 64 | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Gambatte core) | Game Boy | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Gambatte core) | Game Boy Color | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (mGBA core) | Game Boy Advance | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (melonDS core) | Nintendo DS | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Genesis Plus GX core) | Genesis / Mega Drive | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (PCSX-ReARMed core) | PlayStation 1 | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (Flycast core) | Dreamcast | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (PPSSPP core) | PSP | ⬜ | ⬜ | ⬜ | ✅ |
-| RetroArch (MAME core) | Arcade | ⬜ | ⬜ | ⬜ | ✅ |
-| mGBA | Game Boy / GBC / GBA | ✅ | ✅ | ⬜ | ✅ |
-| Dolphin | GameCube / Wii | ⬜ | ⬜ | ⬜ | ✅ |
-| PCSX2 | PlayStation 2 | ⬜ | ⬜ | ⬜ | ✅ |
-| RPCS3 | PlayStation 3 | ⬜ | ⬜ | ⬜ | ⬜ |
-| PPSSPP | PSP | ⬜ | ⬜ | ⬜ | ✅ |
-| DuckStation | PlayStation 1 | ⬜ | ⬜ | ⬜ | ⬜ |
-| Cemu | Wii U | ⬜ | ⬜ | ⬜ | ✅ |
-| Eden | Switch | ⬜ | ⬜ | ⬜ | ✅ |
-| melonDS | Nintendo DS | ⬜ | ⬜ | ⬜ | ✅ |
-| Lime3DS | Nintendo 3DS | ⬜ | ⬜ | ⬜ | ✅ |
-| Flycast | Dreamcast | ⬜ | ⬜ | ⬜ | ⬜ |
-| xemu | Xbox | ⬜ | ⬜ | ⬜ | ⬜ |
-| Xenia | Xbox 360 | ⬜ | ⬜ | ⬜ | ⬜ |
-| MAME | Arcade | ⬜ | ⬜ | ⬜ | ⬜ |
+| Emulator | Platform(s) | Private beta status |
+| --- | --- | --- |
+| RetroArch (FCEUmm core) | NES | Planned private-beta path; Windows certification pending |
+| RetroArch (Snes9x core) | SNES | Planned private-beta path; Windows certification pending |
+| RetroArch (Mupen64Plus-Next core) | Nintendo 64 | Experimental; not supported |
+| RetroArch (Gambatte core) | Game Boy | Planned private-beta path; Windows certification pending |
+| RetroArch (Gambatte core) | Game Boy Color | Planned private-beta path; Windows certification pending |
+| RetroArch (mGBA core) | Game Boy Advance | Planned private-beta path; Windows certification pending |
+| RetroArch (melonDS core) | Nintendo DS | Experimental; not supported |
+| RetroArch (Genesis Plus GX core) | Genesis / Mega Drive | Planned private-beta path; Windows certification pending |
+| RetroArch (PCSX-ReARMed core) | PlayStation 1 | Experimental; not supported |
+| RetroArch (Flycast core) | Dreamcast | Experimental; not supported |
+| RetroArch (PPSSPP core) | PSP | Experimental; not supported |
+| RetroArch (MAME core) | Arcade | Experimental; not supported |
+| mGBA | Game Boy / GBC / GBA | Experimental; not supported |
+| Dolphin | GameCube / Wii | Experimental; not supported |
+| PCSX2 | PlayStation 2 | Experimental; not supported |
+| RPCS3 | PlayStation 3 | Experimental; not supported |
+| PPSSPP | PSP | Experimental; not supported |
+| DuckStation | PlayStation 1 | Experimental; not supported |
+| Cemu | Wii U | Experimental; not supported |
+| Eden | Switch | Experimental; not supported |
+| melonDS | Nintendo DS | Experimental; not supported |
+| Lime3DS | Nintendo 3DS | Experimental; not supported |
+| Flycast | Dreamcast | Experimental; not supported |
+| xemu | Xbox | Experimental; not supported |
+| Xenia | Xbox 360 | Experimental; not supported |
+| MAME | Arcade | Experimental; not supported |
 
-✅ = implemented · ⬜ = planned
-
-**Save Sync (Argosy):** automatic bidirectional RomM save sync (negotiator API, pre/post-launch). Marked ✅ when [Argosy](https://github.com/rommapp/argosy-launcher) has save-path support for that emulator or RetroArch core on Android. **Save Sync (Wingosy):** manual list/upload/download in game details only (no automatic sync yet).
+Manual save upload/download is available from game details. Automatic save sync
+remains experimental until a real round trip is verified.
 
 ## Contributing
 

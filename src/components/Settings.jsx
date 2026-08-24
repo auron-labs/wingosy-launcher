@@ -1239,6 +1239,23 @@ export default function Settings({
           }}
         >
       {settingsSection === "general" && (
+      <>
+        <Paper sx={SETTINGS_CARD_SX}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <DesktopWindowsIcon color="primary" />
+            <Typography variant="h6">Private Beta</Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Planned private-beta path for Windows 11: RetroArch for NES, SNES, GB, GBC, GBA, and Genesis, with RomM pair, library sync, ROM download, and one-Play. Save behavior is manual save upload/download. Automatic save sync is experimental until a real round trip passes; standalone mGBA and every other emulator/platform are experimental. These six planned paths are pending Windows certification.
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md")}
+          >
+            Open certification ledger
+          </Button>
+        </Paper>
       <Paper sx={SETTINGS_CARD_SX}>
         <Typography variant="h6" gutterBottom>UI</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -1293,6 +1310,7 @@ export default function Settings({
           </Typography>
         </Box>
       </Paper>
+      </>
       )}
 
       {settingsSection === "appearance" && (

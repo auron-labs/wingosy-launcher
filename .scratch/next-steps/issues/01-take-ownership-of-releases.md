@@ -2,7 +2,7 @@
 
 Type: task
 Mode: human
-Status: ready-for-human
+Status: resolved
 Blocked by: none
 
 > Follow this plan step by step. Run each verification before continuing. If a

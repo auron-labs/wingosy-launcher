@@ -2,23 +2,32 @@
 
 Informal backlog and QA checklist — not shipped in the installer; for contributors tracking what to verify next.
 
+## Private Beta Contract
+
+The first beta is Windows 11 only: **RetroArch for NES, SNES, GB, GBC, GBA,
+and Genesis**, with RomM pair, library sync, ROM download, and one-Play. Save
+behavior must be documented as **manual save** upload/download; automatic save
+sync is experimental until a real round trip passes. The six rows below are the
+beta-critical core rows and remain pending real Windows certification. Standalone
+mGBA and all other emulator/platform combinations are experimental.
+
 ## Todo list
 
-1. **Emulators:** Test and support **all available platform emulators** and **RetroArch** (detection, install, cores, launches, per-platform defaults). Cover the platforms and emulators surfaced in Settings and docs.
+1. **Emulators:** Test all platform/emulator rows surfaced in Settings and docs, including **RetroArch** (detection, install, cores, launches, and per-platform defaults). Only the six beta-critical rows block the first beta; all other rows remain experimental/not supported.
 
    **RetroArch mapped-core checklist (each core verified separately):** Wingosy maps each platform id to exactly one libretro core DLL via `retroarch_cores()` — check each line off only after you’ve verified **install + launch** for that platform.
-   - [ ] **nes** → `fceumm_libretro.dll`
-   - [ ] **snes** → `snes9x_libretro.dll`
-   - [ ] **n64** → `mupen64plus_next_libretro.dll`
-   - [ ] **gb** → `gambatte_libretro.dll`
-   - [ ] **gbc** → `gambatte_libretro.dll`
-   - [ ] **gba** → `mgba_libretro.dll`
-   - [ ] **nds** → `melonds_libretro.dll`
-   - [ ] **genesis** → `genesis_plus_gx_libretro.dll`
-   - [ ] **psx** → `pcsx_rearmed_libretro.dll`
-   - [ ] **dreamcast** → `flycast_libretro.dll`
-   - [ ] **psp** → `ppsspp_libretro.dll`
-   - [ ] **arcade** → `mame_libretro.dll`
+   - [ ] **nes** → `fceumm_libretro.dll` (beta-critical)
+   - [ ] **snes** → `snes9x_libretro.dll` (beta-critical)
+   - [ ] **n64** → `mupen64plus_next_libretro.dll` (experimental)
+   - [ ] **gb** → `gambatte_libretro.dll` (beta-critical)
+   - [ ] **gbc** → `gambatte_libretro.dll` (beta-critical)
+   - [ ] **gba** → `mgba_libretro.dll` (beta-critical)
+   - [ ] **nds** → `melonds_libretro.dll` (experimental)
+   - [ ] **genesis** → `genesis_plus_gx_libretro.dll` (beta-critical)
+   - [ ] **psx** → `pcsx_rearmed_libretro.dll` (experimental)
+   - [ ] **dreamcast** → `flycast_libretro.dll` (experimental)
+   - [ ] **psp** → `ppsspp_libretro.dll` (experimental)
+   - [ ] **arcade** → `mame_libretro.dll` (experimental)
 
    **Buildbot validation (network; can be large downloads):** validates every distinct `*_libretro.dll` above against Libretro buildbot (sanity check, separate from the per-core launch checklist):
 
