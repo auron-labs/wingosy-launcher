@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -260,7 +261,11 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
         }
         digest.update(&buffer[..read]);
     }
-    let actual = format!("{:x}", digest.finalize());
+    let mut actual = String::with_capacity(64);
+    for byte in digest.finalize() {
+        write!(&mut actual, "{byte:02x}")
+            .expect("writing a SHA-256 digest to a String cannot fail");
+    }
     if actual != expected {
         anyhow::bail!(
             "SHA-256 mismatch for {}: expected {}, got {}",

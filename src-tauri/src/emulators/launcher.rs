@@ -210,9 +210,19 @@ impl EmulatorLauncher {
 
         let start_time = Instant::now();
 
+        tracing::info!("[Launch] Spawning command: {}", command.full_command);
         let mut child = match Command::new(exe_path).args(&command.args).spawn() {
             Ok(child) => child,
             Err(error) => {
+                tracing::error!(
+                    "[Launch] Failed to start emulator: game_id={} game={} emulator_id={} emulator={} executable={} reason={}",
+                    game.id,
+                    game.name,
+                    command.emulator_id,
+                    command.emulator_name,
+                    command.executable,
+                    error
+                );
                 return Ok(LaunchResult::EmulatorStartFailed {
                     name: command.emulator_name.clone(),
                     id: command.emulator_id.clone(),
@@ -223,6 +233,25 @@ impl EmulatorLauncher {
 
         on_running();
         let status = child.wait().context("Failed to wait for emulator")?;
+
+        if !status.success() {
+            tracing::error!(
+                "[Launch] Emulator exited unsuccessfully: game_id={} game={} emulator_id={} emulator={} executable={} exit_code={:?} status={:?}",
+                game.id,
+                game.name,
+                command.emulator_id,
+                command.emulator_name,
+                command.executable,
+                status.code(),
+                status
+            );
+            return Ok(LaunchResult::EmulatorExitedUnsuccessfully {
+                name: command.emulator_name.clone(),
+                id: command.emulator_id.clone(),
+                exit_code: status.code(),
+                command,
+            });
+        }
 
         let duration = start_time.elapsed();
         let duration_minutes = (duration.as_secs() / 60) as i32;
@@ -415,6 +444,12 @@ pub enum LaunchResult {
         id: String,
         reason: String,
     },
+    EmulatorExitedUnsuccessfully {
+        name: String,
+        id: String,
+        exit_code: Option<i32>,
+        command: LaunchCommand,
+    },
     EmulatorNotConfigured {
         platform: String,
     },
@@ -433,6 +468,7 @@ impl LaunchResult {
         match self {
             LaunchResult::Success { command, .. } => command.as_ref(),
             LaunchResult::DryRun { command } => Some(command),
+            LaunchResult::EmulatorExitedUnsuccessfully { command, .. } => Some(command),
             _ => None,
         }
     }
@@ -452,6 +488,21 @@ impl LaunchResult {
                 "Failed to start {}. Verify its configured executable is a valid {} executable and try again. Details: {}",
                 name, name, reason
             )),
+            LaunchResult::EmulatorExitedUnsuccessfully {
+                name,
+                id,
+                exit_code,
+                command,
+            } => {
+                let termination = match exit_code {
+                    Some(code) => format!("exit code {code}"),
+                    None => "signal termination".to_string(),
+                };
+                Some(format!(
+                    "{} ({}) exited unsuccessfully with {} while launching {}. Check the emulator executable and ROM, then try again.",
+                    name, id, termination, command.executable
+                ))
+            }
             LaunchResult::EmulatorNotConfigured { platform } => {
                 Some(format!("No emulator configured for {}", platform))
             }
@@ -479,6 +530,48 @@ mod tests {
             .platform_defaults
             .insert("gba".to_string(), "mgba".to_string());
         EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+    }
+
+    #[cfg(unix)]
+    fn process_test_executable(dir: &tempfile::TempDir, exit_code: i32) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = dir.path().join(format!("exit-{exit_code}.sh"));
+        fs::write(&path, format!("#!/bin/sh\nexit {exit_code}\n")).unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+        path
+    }
+
+    #[cfg(windows)]
+    fn process_test_executable(dir: &tempfile::TempDir, exit_code: i32) -> std::path::PathBuf {
+        let path = dir.path().join(format!("exit-{exit_code}.cmd"));
+        fs::write(&path, format!("@exit /b {exit_code}\r\n")).unwrap();
+        path
+    }
+
+    fn process_test_launcher(dir: &tempfile::TempDir, exit_code: i32) -> EmulatorLauncher {
+        let mut config = AppConfig::default();
+        let executable = process_test_executable(dir, exit_code);
+        let emulator_id = "melonds";
+        config.emulators.melonds = Some(executable);
+        config
+            .emulators
+            .platform_defaults
+            .insert("gba".to_string(), emulator_id.to_string());
+        EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+    }
+
+    fn persist_game_for_override(db: &Database, game: &mut Game) {
+        db.insert_platform(&crate::models::Platform::new(
+            game.platform_id.clone(),
+            game.platform_id.clone(),
+            vec![],
+        ))
+        .unwrap();
+        let id = db.insert_game(game).unwrap();
+        game.id = id;
     }
 
     #[test]
@@ -694,7 +787,7 @@ mod tests {
             let mut config = AppConfig::default();
             config.emulators.mgba = Some(executable.clone());
             let db = Database::open_in_memory().unwrap();
-            let game = Game::new(
+            let mut game = Game::new(
                 format!("{platform} game"),
                 rom.to_string_lossy().into_owned(),
                 platform.to_string(),
@@ -707,6 +800,7 @@ mod tests {
                     .emulators
                     .platform_defaults
                     .insert(platform.to_string(), "retroarch".to_string());
+                persist_game_for_override(&db, &mut game);
                 db.set_emulator_for_game(game.id, "mgba", None).unwrap();
             } else {
                 config
@@ -780,11 +874,12 @@ mod tests {
         config.emulators.retroarch_manifest_version =
             Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
         let db = Database::open_in_memory().unwrap();
-        let game = Game::new(
+        let mut game = Game::new(
             "NES Game".to_string(),
             rom.to_string_lossy().into_owned(),
             "nes".to_string(),
         );
+        persist_game_for_override(&db, &mut game);
         db.set_emulator_for_game(game.id, "retroarch", None)
             .unwrap();
 
@@ -842,11 +937,12 @@ mod tests {
             config.emulators.retroarch_manifest_version =
                 Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
             let db = Database::open_in_memory().unwrap();
-            let game = Game::new(
+            let mut game = Game::new(
                 format!("{platform} game"),
                 rom.to_string_lossy().into_owned(),
                 platform.to_string(),
             );
+            persist_game_for_override(&db, &mut game);
             db.set_emulator_for_game(game.id, "retroarch", None)
                 .unwrap();
 
@@ -881,11 +977,12 @@ mod tests {
         let mut config = AppConfig::default();
         config.emulators.retroarch = Some(executable.clone());
         let db = Database::open_in_memory().unwrap();
-        let game = Game::new(
+        let mut game = Game::new(
             "NES Game".to_string(),
             rom.to_string_lossy().into_owned(),
             "nes".to_string(),
         );
+        persist_game_for_override(&db, &mut game);
         db.set_emulator_for_game(game.id, "retroarch", Some("../../outside.dll"))
             .unwrap();
 
@@ -1201,7 +1298,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn launch_local_game_spawns_and_waits_for_test_binary() {
+    async fn launch_local_game_spawns_and_waits_for_test_executable() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("local.gba");
         fs::write(&path, b"rom").unwrap();
@@ -1213,7 +1310,7 @@ mod tests {
         let running = Arc::new(AtomicBool::new(false));
         let callback_running = Arc::clone(&running);
 
-        let result = test_launcher()
+        let result = process_test_launcher(&dir, 0)
             .launch_with_running_stage(&game, move || {
                 callback_running.store(true, Ordering::SeqCst);
             })
@@ -1222,6 +1319,46 @@ mod tests {
 
         assert!(matches!(result, LaunchResult::Success { .. }));
         assert!(running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn launch_process_exit_failure_returns_structured_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.gba");
+        fs::write(&path, b"rom").unwrap();
+        let game = Game::new(
+            "Local Game".to_string(),
+            path.to_string_lossy().into_owned(),
+            "gba".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let result = process_test_launcher(&dir, 7)
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        match &result {
+            LaunchResult::EmulatorExitedUnsuccessfully {
+                id,
+                exit_code,
+                command,
+                ..
+            } => {
+                assert_eq!(id, "melonds");
+                assert_eq!(*exit_code, Some(7));
+                assert_eq!(command.emulator_id, "melonds");
+            }
+            other => panic!("expected unsuccessful exit, got {other:?}"),
+        }
+        assert!(!result.is_success());
+        assert!(running.load(Ordering::SeqCst));
+        let error = result.error_message().unwrap();
+        assert!(error.contains("exited unsuccessfully"));
+        assert!(error.contains("exit code"));
     }
 
     #[tokio::test]
@@ -1239,7 +1376,7 @@ mod tests {
         let running = Arc::new(AtomicBool::new(false));
         let callback_running = Arc::clone(&running);
 
-        let result = test_launcher()
+        let result = process_test_launcher(&dir, 0)
             .launch_with_running_stage(&game, move || {
                 callback_running.store(true, Ordering::SeqCst);
             })

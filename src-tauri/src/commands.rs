@@ -586,6 +586,12 @@ fn emit_launch_failure(
     error: impl Into<String>,
 ) -> String {
     let error = error.into();
+    tracing::error!(
+        "[Launch] Launch failed: game_id={} game={} error={}",
+        game_id,
+        game_name,
+        error
+    );
     let _ = emit_launch_progress(
         app,
         game_id,
@@ -914,7 +920,19 @@ async fn run_launch_pipeline(
     tracing::info!("[Launch] Game: {} ({})", game.name, game.platform_id);
 
     let launcher = EmulatorLauncher::new(config.clone(), db.clone());
-    let launch_command = launcher.build_command(&game).ok();
+    let launch_command = match launcher.build_command(&game) {
+        Ok(command) => Some(command),
+        Err(error) => {
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                error.to_string(),
+            );
+            return Ok(failed_launch_result(error));
+        }
+    };
     let mut save_sync_warnings = Vec::new();
 
     previous_stage = emit_launch_progress(
@@ -977,7 +995,6 @@ async fn run_launch_pipeline(
     {
         Ok(result) => result,
         Err(e) => {
-            tracing::error!("[Launch] Failed to launch: {}", e);
             let error = emit_launch_failure(
                 app.as_ref(),
                 game.id,
@@ -1074,24 +1091,25 @@ async fn run_launch_pipeline(
             Ok(failed_launch_result(error))
         }
         _ => {
+            let exit_code = match &result {
+                LaunchResult::EmulatorExitedUnsuccessfully { exit_code, .. } => *exit_code,
+                _ => None,
+            };
             let error_msg = result.error_message();
-            tracing::error!("[Launch] Launch failed: {:?}", error_msg);
-            if let Some(error) = error_msg.as_deref() {
-                let _ = emit_launch_failure(
-                    app.as_ref(),
-                    game.id,
-                    &game.name,
-                    previous_stage,
-                    error,
-                );
-            }
+            let error = emit_launch_failure(
+                app.as_ref(),
+                game.id,
+                &game.name,
+                previous_stage,
+                error_msg.unwrap_or_else(|| "Emulator launch failed".to_string()),
+            );
             let result = LaunchGameResult {
                 success: false,
-                error: error_msg,
+                error: Some(error),
                 save_sync_warnings,
                 dry_run: false,
                 duration_minutes: None,
-                exit_code: None,
+                exit_code,
             };
             Ok(result)
         }
@@ -2124,7 +2142,8 @@ pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
         return Err("File no longer exists".to_string());
     }
     
-    let _parent = file_path.parent().ok_or("Invalid file path")?;
+    #[cfg(target_os = "linux")]
+    let parent = file_path.parent().ok_or("Invalid file path")?;
     
     #[cfg(target_os = "windows")]
     {
@@ -2477,17 +2496,19 @@ async fn download_verified_retroarch_artifact(
     artifact: crate::emulators::retroarch::Artifact,
 ) -> Result<PathBuf, String> {
     let archive_path = crate::emulators::retroarch::temporary_archive_path(artifact.filename);
+    let app = app.cloned();
+    let filename = artifact.filename;
     if let Err(error) = crate::emulators::installer::download_file_with_progress(
         artifact.url,
         &archive_path,
-        |progress| {
-            if let Some(app) = app {
+        move |progress| {
+            if let Some(app) = app.as_ref() {
                 let _ = app.emit(
                     "emulator-download-progress",
                     serde_json::json!({
                         "emulator_id": "retroarch",
                         "phase": "download",
-                        "filename": artifact.filename,
+                        "filename": filename,
                         "downloaded": progress.downloaded,
                         "total": progress.total,
                         "percent": progress.percent,

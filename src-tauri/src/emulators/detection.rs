@@ -7,7 +7,7 @@ use crate::emulators::cores::get_cores_dir;
 
 pub fn detect_installed_emulators() -> Vec<DetectedEmulator> {
     tracing::info!("[Emulators] Starting emulator detection scan...");
-    let mut detected = Vec::new();
+    let mut detected: Vec<DetectedEmulator> = Vec::new();
 
     #[cfg(windows)]
     {
@@ -497,19 +497,39 @@ pub struct RetroArchCore {
 }
 
 /// Open file explorer to the emulator's directory
-#[cfg(windows)]
 pub fn open_emulator_location(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
     if let Some(parent) = path.parent() {
         std::process::Command::new("explorer")
             .arg(parent)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    Ok(())
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .args(["-R", &path.to_string_lossy()])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(path.parent().ok_or("Invalid emulator path")?)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    {
+        Ok(())
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        Err("Opening emulator location is unsupported on this platform".to_string())
+    }
 }
 
 /// Launch the emulator standalone (without a ROM)
-#[cfg(windows)]
 pub fn launch_emulator(path: &Path) -> Result<(), String> {
     std::process::Command::new(path)
         .spawn()

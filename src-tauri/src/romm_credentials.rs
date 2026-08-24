@@ -1,4 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
+
+#[cfg(target_os = "windows")]
+use anyhow::Context;
 
 const ROMM_CREDENTIAL_SERVICE: &str = "com.wingosy.launcher.romm.refresh-token";
 const ROMM_DEVICE_TOKEN_SERVICE: &str = "com.wingosy.launcher.romm.device-token";
