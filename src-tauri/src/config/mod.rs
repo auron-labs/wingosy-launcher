@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -42,6 +42,40 @@ fn default_ui_sounds_volume() -> u8 {
 
 fn default_ambient_volume() -> u8 {
     35
+}
+
+const CONTROLLER_DEADZONE_DEFAULT: f32 = 0.35;
+const CONTROLLER_DEADZONE_MIN: f32 = 0.1;
+const CONTROLLER_DEADZONE_MAX: f32 = 0.8;
+
+fn default_controller_deadzone() -> f32 {
+    CONTROLLER_DEADZONE_DEFAULT
+}
+
+fn normalize_controller_deadzone(value: f32) -> f32 {
+    if !value.is_finite() {
+        return CONTROLLER_DEADZONE_DEFAULT;
+    }
+    value.clamp(CONTROLLER_DEADZONE_MIN, CONTROLLER_DEADZONE_MAX)
+}
+
+fn deserialize_controller_deadzone<'de, D>(deserializer: D) -> std::result::Result<f32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(normalize_controller_deadzone(f32::deserialize(
+        deserializer,
+    )?))
+}
+
+fn serialize_controller_deadzone<S>(
+    value: &f32,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    normalize_controller_deadzone(*value).serialize(serializer)
 }
 
 impl Default for AudioConfig {
@@ -284,6 +318,13 @@ pub struct DisplayConfig {
     /// When true, RetroAchievements integration is enabled app-wide (when implemented).
     #[serde(default)]
     pub retroachievements_enabled: bool,
+    /// Stick threshold used by Immersive controller navigation.
+    #[serde(
+        default = "default_controller_deadzone",
+        deserialize_with = "deserialize_controller_deadzone",
+        serialize_with = "serialize_controller_deadzone"
+    )]
+    pub controller_deadzone: f32,
 }
 
 impl Default for DisplayConfig {
@@ -298,6 +339,7 @@ impl Default for DisplayConfig {
             fullscreen: false,
             ui_sounds_enabled: false,
             retroachievements_enabled: false,
+            controller_deadzone: default_controller_deadzone(),
         }
     }
 }
@@ -411,6 +453,7 @@ mod tests {
         assert!(!display.fullscreen);
         assert!(!display.ui_sounds_enabled);
         assert!(!display.retroachievements_enabled);
+        assert_eq!(display.controller_deadzone, 0.35);
     }
 
     #[test]
@@ -607,6 +650,35 @@ mod tests {
         let config: AppConfig = toml::from_str(toml_str).expect("Should deserialize");
         assert!(config.display.big_picture);
         assert!(config.display.fullscreen);
+        assert_eq!(config.display.controller_deadzone, 0.35);
+    }
+
+    #[test]
+    fn controller_deadzone_is_bounded_at_the_config_boundary() {
+        let toml_str = r#"
+            [romm]
+            auto_sync = false
+            sync_saves = false
+            [library]
+            scan_subdirectories = true
+            auto_extract_archives = true
+            show_hidden_games = false
+            [display]
+            theme = "Dark"
+            grid_columns = 5
+            show_platform_icons = true
+            show_play_time = true
+            cover_aspect_ratio = "Vertical"
+            controller_deadzone = 1.5
+            [emulators]
+        "#;
+        let config: AppConfig = toml::from_str(toml_str).expect("Should deserialize");
+        assert_eq!(config.display.controller_deadzone, 0.8);
+
+        let mut config = AppConfig::default();
+        config.display.controller_deadzone = -0.2;
+        let serialized = toml::to_string(&config).expect("Should serialize");
+        assert!(serialized.contains("controller_deadzone = 0.1"));
     }
 
     #[test]

@@ -90,6 +90,25 @@ function renderSettings({ emulators = [], config = {}, initialSection = "general
 }
 
 describe("Settings beta support", () => {
+  it("loads the controller deadzone and persists the reset default", async () => {
+    renderSettings({ config: { display: { controller_deadzone: 0.6 } } });
+
+    const deadzone = await screen.findByRole("slider", { name: "Controller deadzone" });
+    expect(deadzone).toHaveValue("0.6");
+    expect(deadzone).toHaveAttribute("min", "0.1");
+    expect(deadzone).toHaveAttribute("max", "0.8");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset deadzone" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("save_config", {
+        config: expect.objectContaining({
+          display: expect.objectContaining({ controller_deadzone: 0.35 }),
+        }),
+      });
+    });
+  });
+
   it("opens the canonical logs folder from the Private Beta card", async () => {
     renderSettings();
 

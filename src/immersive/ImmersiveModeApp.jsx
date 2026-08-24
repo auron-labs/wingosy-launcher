@@ -12,6 +12,15 @@ import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 
 const GAMES_PER_PAGE = 60;
 const LOAD_AHEAD = 12;
+const DEFAULT_GAMEPAD_DEADZONE = 0.35;
+const GAMEPAD_DEADZONE_MIN = 0.1;
+const GAMEPAD_DEADZONE_MAX = 0.8;
+
+function normalizeControllerDeadzone(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_GAMEPAD_DEADZONE;
+  return Math.max(GAMEPAD_DEADZONE_MIN, Math.min(GAMEPAD_DEADZONE_MAX, numeric));
+}
 
 export default function ImmersiveModeApp({
   onExit,
@@ -33,6 +42,7 @@ export default function ImmersiveModeApp({
     big_picture: true,
     fullscreen: requestedFullscreen,
   }));
+  const [controllerDeadzone, setControllerDeadzone] = useState(DEFAULT_GAMEPAD_DEADZONE);
   const [audioCfg, setAudioCfg] = useState(null);
   const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
   const hasLoadedOnce = useRef(false);
@@ -73,7 +83,10 @@ export default function ImmersiveModeApp({
     },
   });
 
-  const { unsupportedGamepad } = useGamepadKeyboardMapper({ enabled: true });
+  const { unsupportedGamepad } = useGamepadKeyboardMapper({
+    enabled: true,
+    deadzone: controllerDeadzone,
+  });
 
   const loadData = useCallback(async () => {
     const requestId = ++libraryRequestId.current;
@@ -121,6 +134,11 @@ export default function ImmersiveModeApp({
         big_picture: Boolean(cfg.display?.big_picture),
         fullscreen: Boolean(cfg.display?.fullscreen),
       });
+      setControllerDeadzone(
+        normalizeControllerDeadzone(
+          cfg.display?.controller_deadzone ?? DEFAULT_GAMEPAD_DEADZONE,
+        ),
+      );
       setAudioCfg(cfg.audio || {});
       setRetroachievementsEnabled(Boolean(cfg.display?.retroachievements_enabled));
       return refreshedGames;
@@ -350,6 +368,7 @@ export default function ImmersiveModeApp({
           onFullscreenChange={(enabled) => {
             setFullscreen(enabled);
           }}
+          onControllerDeadzoneChange={setControllerDeadzone}
         />
       </Box>
     );

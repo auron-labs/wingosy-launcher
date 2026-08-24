@@ -1,13 +1,57 @@
 import { useEffect, useRef, useState } from "react";
 
-function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
+export const DEFAULT_GAMEPAD_DEADZONE = 0.35;
+export const GAMEPAD_DEADZONE_MIN = 0.1;
+export const GAMEPAD_DEADZONE_MAX = 0.8;
+
+export function normalizeGamepadDeadzone(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_GAMEPAD_DEADZONE;
+  return Math.max(GAMEPAD_DEADZONE_MIN, Math.min(GAMEPAD_DEADZONE_MAX, numeric));
 }
 
-function axisToDir(v, deadzone = 0.35) {
+function axisToDir(value, deadzone) {
+  const v = Math.max(-1, Math.min(1, Number(value) || 0));
   if (v <= -deadzone) return -1;
   if (v >= deadzone) return 1;
   return 0;
+}
+
+function emptyDigital() {
+  return {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    confirmOpen: false,
+    back: false,
+    previousSection: false,
+    nextSection: false,
+    menu: false,
+    view: false,
+  };
+}
+
+function readStandardPad(pad, deadzone) {
+  const buttons = pad.buttons || [];
+  const axes = pad.axes || [];
+  const digital = {
+    up: Boolean(buttons[12]?.pressed) || axisToDir(axes[1], deadzone) === -1,
+    down: Boolean(buttons[13]?.pressed) || axisToDir(axes[1], deadzone) === 1,
+    left: Boolean(buttons[14]?.pressed) || axisToDir(axes[0], deadzone) === -1,
+    right: Boolean(buttons[15]?.pressed) || axisToDir(axes[0], deadzone) === 1,
+    confirmOpen: Boolean(buttons[0]?.pressed),
+    back: Boolean(buttons[1]?.pressed),
+    previousSection: Boolean(buttons[4]?.pressed),
+    nextSection: Boolean(buttons[5]?.pressed),
+    view: Boolean(buttons[8]?.pressed),
+    menu: Boolean(buttons[9]?.pressed),
+  };
+
+  return {
+    digital,
+    hasInput: Object.values(digital).some(Boolean),
+  };
 }
 
 /** Maps logical keys to `code` for closer-to-real keyboard events (WebView / MUI). */
@@ -62,40 +106,37 @@ function dispatchKey(key) {
 /**
  * Minimal "Big Picture" style controller mapping by translating gamepad input to existing keyboard handlers.
  *
- * Standard-layout actions:
- * - D-pad / Left stick: Arrow keys
- * - South: Enter
- * - East: Escape
- * - LB/RB: PageUp/PageDown (section switching in library)
- * - Start: "s" (open settings in library)
- * - Back/View: "h" (toggle on-screen help/hints)
+ * Standard-layout intents:
+ * - Directional navigation: D-pad / left stick -> Arrow keys
+ * - Confirm/Open: South -> Enter
+ * - Back: East -> Escape
+ * - Sections: LB/RB -> PageUp/PageDown
+ * - Menu: Start -> "s" (open settings in library)
+ * - View: Back/View -> "h" (toggle on-screen help/hints)
  */
 export function useGamepadKeyboardMapper({
   enabled = true,
   // used to prevent repeating navigation too fast
   repeatDelayMs = 240,
   repeatRateMs = 110,
+  deadzone = DEFAULT_GAMEPAD_DEADZONE,
 } = {}) {
   const rafRef = useRef(0);
   const lastFireAt = useRef(new Map());
-  const connectedOnce = useRef(false);
+  const activePadKey = useRef(null);
   const unsupportedGamepadRef = useRef(false);
   const [unsupportedGamepad, setUnsupportedGamepad] = useState(false);
-  const lastDigital = useRef({
-    up: false,
-    down: false,
-    left: false,
-    right: false,
-    a: false,
-    b: false,
-    lb: false,
-    rb: false,
-    start: false,
-    back: false,
-  });
+  const lastDigital = useRef(emptyDigital());
 
   useEffect(() => {
+    function resetInputState() {
+      activePadKey.current = null;
+      lastDigital.current = emptyDigital();
+      lastFireAt.current.clear();
+    }
+
     if (!enabled) {
+      resetInputState();
       if (unsupportedGamepadRef.current) {
         unsupportedGamepadRef.current = false;
         setUnsupportedGamepad(false);
@@ -111,66 +152,48 @@ export function useGamepadKeyboardMapper({
 
     function canFire(key, isHeld) {
       const now = Date.now();
-      const last = lastFireAt.current.get(key) || 0;
+      const last = lastFireAt.current.get(key);
       const min = isHeld ? repeatRateMs : repeatDelayMs;
-      if (now - last < min) return false;
+      if (last !== undefined && now - last < min) return false;
       lastFireAt.current.set(key, now);
       return true;
     }
 
     function tick() {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const connectedPads = Array.from(pads || []).filter(Boolean);
-      const gp = connectedPads.find((pad) => pad.mapping === "standard") || null;
-      updateUnsupportedGamepad(connectedPads.length > 0 && !gp);
-      if (!gp) {
+      const connectedPads = Array.from(pads || [])
+        .map((pad, slot) => (pad ? { key: pad.index ?? slot, pad } : null))
+        .filter(Boolean);
+      const standardPads = connectedPads
+        .filter(({ pad }) => pad.mapping === "standard")
+        .map((entry) => ({
+          ...entry,
+          input: readStandardPad(entry.pad, normalizeGamepadDeadzone(deadzone)),
+        }));
+      updateUnsupportedGamepad(connectedPads.length > 0 && standardPads.length === 0);
+
+      const active = standardPads.find(({ key }) => key === activePadKey.current) || null;
+      if (!active && activePadKey.current !== null) resetInputState();
+
+      // Poll all standard pads, but route one owner's input so two pads cannot duplicate actions.
+      const producing = standardPads.filter(({ input }) => input.hasInput);
+      const selected = active || producing.at(-1) || null;
+      if (!selected) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
-      connectedOnce.current = true;
-
-      const b = gp.buttons || [];
-      const ax = gp.axes || [];
-
-      // Standard mapping indices
-      const pressedA = Boolean(b[0]?.pressed);
-      const pressedB = Boolean(b[1]?.pressed);
-      const pressedLB = Boolean(b[4]?.pressed);
-      const pressedRB = Boolean(b[5]?.pressed);
-      const pressedBack = Boolean(b[8]?.pressed);
-      const pressedStart = Boolean(b[9]?.pressed);
-      const pressedUp = Boolean(b[12]?.pressed);
-      const pressedDown = Boolean(b[13]?.pressed);
-      const pressedLeft = Boolean(b[14]?.pressed);
-      const pressedRight = Boolean(b[15]?.pressed);
-
-      const stickX = clamp01(Math.abs(ax[0] || 0)) * (ax[0] || 0);
-      const stickY = clamp01(Math.abs(ax[1] || 0)) * (ax[1] || 0);
-      const stickDirX = axisToDir(stickX);
-      const stickDirY = axisToDir(stickY);
-
-      const digital = {
-        up: pressedUp || stickDirY === -1,
-        down: pressedDown || stickDirY === 1,
-        left: pressedLeft || stickDirX === -1,
-        right: pressedRight || stickDirX === 1,
-        a: pressedA,
-        b: pressedB,
-        lb: pressedLB,
-        rb: pressedRB,
-        start: pressedStart,
-        back: pressedBack,
-      };
+      activePadKey.current = selected.key;
+      const digital = selected.input.digital;
 
       const prev = lastDigital.current;
 
-      // Edge-triggered buttons
-      if (digital.a && !prev.a) dispatchKey("Enter");
-      if (digital.b && !prev.b) dispatchKey("Escape");
-      if (digital.lb && !prev.lb) dispatchKey("PageUp");
-      if (digital.rb && !prev.rb) dispatchKey("PageDown");
-      if (digital.start && !prev.start) dispatchKey("s");
-      if (digital.back && !prev.back) dispatchKey("h");
+      // Edge-triggered intents
+      if (digital.confirmOpen && !prev.confirmOpen) dispatchKey("Enter");
+      if (digital.back && !prev.back) dispatchKey("Escape");
+      if (digital.previousSection && !prev.previousSection) dispatchKey("PageUp");
+      if (digital.nextSection && !prev.nextSection) dispatchKey("PageDown");
+      if (digital.menu && !prev.menu) dispatchKey("s");
+      if (digital.view && !prev.view) dispatchKey("h");
 
       // Held navigation (dpad/stick)
       if (digital.up && canFire("ArrowUp", prev.up)) dispatchKey("ArrowUp");
@@ -185,18 +208,9 @@ export function useGamepadKeyboardMapper({
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      resetInputState();
     };
-  }, [enabled, repeatDelayMs, repeatRateMs]);
-
-  useEffect(() => {
-    if (!enabled) return undefined;
-
-    function onConnect() {
-      connectedOnce.current = true;
-    }
-    window.addEventListener("gamepadconnected", onConnect);
-    return () => window.removeEventListener("gamepadconnected", onConnect);
-  }, [enabled]);
+  }, [deadzone, enabled, repeatDelayMs, repeatRateMs]);
 
   return { unsupportedGamepad };
 }

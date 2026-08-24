@@ -17,6 +17,13 @@ experimental. The six planned beta paths are still pending real Windows certific
 see the [certification ledger](.scratch/transparent-romm-launching/emulator-certification.md)
 and [beta release notes](BETA_RELEASE_NOTES.md).
 
+### Controller Support
+
+Immersive navigation supports standard-mapped/XInput controllers and keyboard
+fallback. Other pads are best-effort and may need the keyboard for launcher
+navigation. For a RetroArch gameplay binding issue, use **Input → RetroPad Binds
+→ Port 1 → Set All Controls → Save Controller Profile** in RetroArch.
+
 ## Features
 
 - **RomM Integration** — Sync library, covers, and ROMs with [RomM](https://github.com/rommapp/romm); manually upload/download saves

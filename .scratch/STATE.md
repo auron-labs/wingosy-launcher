@@ -1,6 +1,6 @@
 # Local Issue State
 
-Generated: 2026-08-24T05:43:25Z
+Generated: 2026-08-24T06:10:07Z
 
 Tickets: 2 active, 7 resolved
 
@@ -9,7 +9,7 @@ Tickets: 2 active, 7 resolved
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
-| [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-agent | 04 |
+| [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-human | 04 |
 
 ## Resolved Tickets
 

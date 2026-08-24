@@ -29,7 +29,7 @@ The first private beta is deliberately narrow:
 | [05](issues/05-publish-an-honest-beta-contract.md) | Publish an honest beta support contract | P1 | S | 01 | DONE |
 | [07](issues/07-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 01 | DONE |
 | [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | DONE |
-| [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | TODO |
+| [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | IN PROGRESS |
 | [06](issues/06-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 01-05, 08, 09 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with reason) | REJECTED
@@ -48,7 +48,11 @@ Do not invite testers until all of these are true:
 - A Wingosy-managed RetroArch install uses the pinned frontend/core manifest and
   a repairable Wingosy delta without overwriting a user's main configuration.
 - Immersive input ignores unknown controller mappings, survives disconnect and
-  reconnect, and identifies actions without assuming Xbox button labels.
+  reconnect, identifies actions without assuming Xbox button labels, and exposes
+  a bounded persisted stick deadzone with a `0.35` reset default. Unsupported
+  pads are best-effort; keyboard input and a standard/XInput controller are the
+  recovery path, while gameplay binding repairs belong in RetroArch's
+  **Input → RetroPad Binds → Port 1 → Set All Controls → Save Controller Profile**.
 - The six promised RetroArch combinations have real Windows 11 evidence, and at
   least one permitted game has completed remote first Play, cached replay,
   controller/fullscreen return, and a save round trip.

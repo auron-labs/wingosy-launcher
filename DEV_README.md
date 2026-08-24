@@ -36,11 +36,13 @@ mGBA and all other emulator/platform combinations are experimental.
    See `TESTING.md` for details/troubleshooting.
 2. **Save sync:** Test **save sync** against RomM (listing saves, upload, download, and local integration with launches).
 
-3. **Immersive fullscreen (Big Picture), controller‑native UX:** Extend `useGamepadKeyboardMapper` with view‑aware shortcuts (beyond D‑pad → arrows / A→Enter / B→Escape / LB‑RB→sections / Start→settings / Back→hints). Target behavior when implemented:
+3. **Immersive fullscreen (Big Picture), controller‑native UX:** `useGamepadKeyboardMapper` accepts standard-mapped/XInput layouts only and routes controller-neutral intents through the existing keyboard event path. Unsupported pads are best-effort: use the keyboard or a standard/XInput controller for Immersive navigation. Target behavior when implemented:
    - **Library:** face **X** → Downloads; emulate **`d`**/`D` on the library root for keyboards; **`S`/Menu** still opens Settings (ensure non‑library views route Start to Settings the same way).
    - **Game details:** **Y** → toggle favorite; **X** → download / re‑download when RomM allows; **`S`** opens Settings.
-   - **Global in immersive:** **L3** (left‑stick click) toggles OS fullscreen (same intent as **F11**); respect open dialogs/menus before favoriting or downloading.
-   - Prefer a small **`CustomEvent`** (e.g. `wingosy-immersive-gamepad` with `{ action }`) for actions that are not literal key spoofing; keep `ImmersiveHintBar` in sync.
+    - **Global in immersive:** **L3** (left‑stick click) toggles OS fullscreen (same intent as **F11**); respect open dialogs/menus before favoriting or downloading.
+    - Prefer a small **`CustomEvent`** (e.g. `wingosy-immersive-gamepad` with `{ action }`) for actions that are not literal key spoofing; keep `ImmersiveHintBar` in sync.
+    - **Gameplay controller recovery:** use RetroArch **Input → RetroPad Binds → Port 1 → Set All Controls → Save Controller Profile** when a game needs a controller binding repair. Wingosy does not provide a mapping database or in-app rebinding UI.
+    - **Stick drift:** Settings exposes the existing Immersive deadzone only, bounded to `0.1`–`0.8` and reset to `0.35`.
 
 _Add sub-bullets, dates, or PR links below as items are completed._
 

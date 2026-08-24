@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: 04
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -92,3 +92,19 @@ owns that).
 The launcher promises standard-mapped navigation, not universal controller
 support. Add remapping only after repeated beta failures cannot be recovered in
 RetroArch itself.
+
+## Implementation note
+
+The mapper, neutral recovery status, persisted bounded deadzone, and focused
+polling/config/hint tests are implemented. Verification on 2026-08-24:
+
+- `mise exec -- bun run test:unit` passed 55 tests.
+- `mise exec -- bun run typecheck` passed.
+- `mise exec -- bun run lint:frontend` passed with 7 pre-existing warnings and no
+  errors or new warnings.
+- `mise exec -- bun run test:rust` was attempted but blocked before tests by the
+  missing system library `javascriptcoregtk-4.1`.
+
+Real Windows/XInput navigation and hot-plug behavior remains for human
+verification. Keep this issue `ready-for-human` and unresolved until that check
+is completed.

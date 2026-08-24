@@ -28,20 +28,20 @@ function Hint({ label, detail }) {
 }
 
 export default function ImmersiveHintBar({ view, visible = true, unsupportedGamepad = false }) {
-  if (!visible) return null;
+  if (!visible && !unsupportedGamepad) return null;
 
   const hints =
     view === "details"
       ? [
-          { label: "D-pad / Stick", detail: "Navigate" },
-          { label: "South / Enter", detail: "Play" },
+          { label: "D-pad / Stick / Arrows", detail: "Navigate" },
+          { label: "South / Enter", detail: "Confirm / Open" },
           { label: "East / Esc", detail: "Back" },
           { label: "View / H", detail: "Hide help" },
         ]
       : view === "settings"
         ? [
-            { label: "D-pad / Stick", detail: "Navigate" },
-            { label: "South / Enter", detail: "Select" },
+            { label: "D-pad / Stick / Arrows", detail: "Navigate" },
+            { label: "South / Enter", detail: "Confirm / Open" },
             { label: "East / Esc", detail: "Back" },
             { label: "View / H", detail: "Hide help" },
           ]
@@ -51,11 +51,11 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
               { label: "View / H", detail: "Hide help" },
             ]
         : [
-            { label: "D-pad / Stick", detail: "Move" },
-            { label: "South / Enter", detail: "Open" },
+            { label: "D-pad / Stick / Arrows", detail: "Navigate" },
+            { label: "South / Enter", detail: "Confirm / Open" },
             { label: "East / Esc", detail: "Back" },
-            { label: "LB/RB", detail: "All / Favorites / Recent" },
-            { label: "Menu / S", detail: "Settings" },
+            { label: "LB / RB / PgUp/PgDn", detail: "Sections" },
+            { label: "Menu / S", detail: "Menu" },
             { label: "View / H", detail: "Hide help" },
           ];
 
@@ -89,11 +89,13 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
           Unsupported controller. Use a standard/XInput controller or keyboard for immersive navigation.
         </Typography>
       ) : null}
-      <Stack direction="row" spacing={1.5} divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />} sx={{ alignItems: "center" }}>
-        {hints.map((h) => (
-          <Hint key={`${h.label}-${h.detail}`} label={h.label} detail={h.detail} />
-        ))}
-      </Stack>
+      {visible ? (
+        <Stack direction="row" spacing={1.5} divider={<Divider flexItem orientation="vertical" sx={{ opacity: 0.16 }} />} sx={{ alignItems: "center" }}>
+          {hints.map((h) => (
+            <Hint key={`${h.label}-${h.detail}`} label={h.label} detail={h.detail} />
+          ))}
+        </Stack>
+      ) : null}
     </Box>
   );
 }

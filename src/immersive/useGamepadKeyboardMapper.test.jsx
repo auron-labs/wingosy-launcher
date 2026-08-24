@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 
-function HookProbe() {
-  const { unsupportedGamepad } = useGamepadKeyboardMapper();
+function HookProbe({ deadzone = 0.35, enabled = true } = {}) {
+  const { unsupportedGamepad } = useGamepadKeyboardMapper({ deadzone, enabled });
   return <span data-testid="unsupported">{String(unsupportedGamepad)}</span>;
 }
 
-function makeGamepad(mapping, buttonIndex = 0) {
+function makeGamepad(mapping, buttonIndex = 0, index = 0, axes = []) {
   const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
-  buttons[buttonIndex].pressed = true;
-  return { mapping, buttons, axes: [] };
+  if (buttonIndex !== null) buttons[buttonIndex].pressed = true;
+  return { index, mapping, buttons, axes };
 }
 
 describe("useGamepadKeyboardMapper", () => {
@@ -20,6 +20,7 @@ describe("useGamepadKeyboardMapper", () => {
   let getGamepads;
   let originalGetGamepadsDescriptor;
   let keydown;
+  let now;
 
   beforeEach(() => {
     frames = new Map();
@@ -38,6 +39,8 @@ describe("useGamepadKeyboardMapper", () => {
     });
     vi.stubGlobal("cancelAnimationFrame", (id) => frames.delete(id));
     keydown = vi.fn();
+    now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
     window.addEventListener("keydown", keydown);
   });
 
@@ -50,6 +53,7 @@ describe("useGamepadKeyboardMapper", () => {
       delete navigator.getGamepads;
     }
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   function runFrame() {
@@ -100,5 +104,92 @@ describe("useGamepadKeyboardMapper", () => {
 
     expect(keydown).not.toHaveBeenCalled();
     expect(screen.getByTestId("unsupported")).toHaveTextContent("false");
+  });
+
+  it("selects the standard pad that is producing input", () => {
+    pads = [makeGamepad("standard", null, 1), makeGamepad("standard", 0, 2)];
+    render(<HookProbe />);
+
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
+  });
+
+  it("clears held input when the active pad disconnects and allows takeover", () => {
+    const first = makeGamepad("standard", 12, 1);
+    const replacement = makeGamepad("standard", null, 2);
+    pads = [first, replacement];
+    render(<HookProbe />);
+
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    pads = [];
+    runFrame();
+    replacement.buttons[12].pressed = true;
+    pads = [replacement];
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
+  it("keeps the active pad sticky and takes over after it disconnects", () => {
+    const active = makeGamepad("standard", 0, 1);
+    const second = makeGamepad("standard", null, 2);
+    pads = [active, second];
+    render(<HookProbe />);
+
+    runFrame();
+    second.buttons[12].pressed = true;
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "Enter" }));
+
+    pads = [null, second];
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
+  it("ignores stick noise below the configured deadzone", () => {
+    pads = [makeGamepad("standard", null, 1, [0.2, -0.2])];
+    render(<HookProbe deadzone={0.35} />);
+
+    runFrame();
+
+    expect(keydown).not.toHaveBeenCalled();
+  });
+
+  it("keeps directional repeat timing while a pad is held", () => {
+    pads = [makeGamepad("standard", 12, 1)];
+    render(<HookProbe />);
+
+    runFrame();
+    now += 50;
+    runFrame();
+    now += 60;
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
+  it("resets held input when disabled and re-enabled", () => {
+    const pad = makeGamepad("standard", 0, 1);
+    pads = [pad];
+    const view = render(<HookProbe />);
+
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    view.rerender(<HookProbe enabled={false} />);
+    view.rerender(<HookProbe />);
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(2);
   });
 });

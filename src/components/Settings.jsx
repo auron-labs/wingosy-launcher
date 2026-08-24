@@ -70,6 +70,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import normalizeUrl from "../utils/normalizeUrl";
 import { tauriDragRegionProps, tauriDragRegionSx, tauriNoDragProps, tauriNoDragSx } from "../utils/isTauri";
 import { formatDownloadLabel, useRomDownloads } from "../RomDownloadsContext";
+import {
+  DEFAULT_GAMEPAD_DEADZONE,
+  GAMEPAD_DEADZONE_MAX,
+  GAMEPAD_DEADZONE_MIN,
+  normalizeGamepadDeadzone,
+} from "../immersive/useGamepadKeyboardMapper";
 
 /** Full-width cards in the scroll column (avoids uneven widths after flex/scroll changes). */
 const SETTINGS_CARD_SX = {
@@ -127,6 +133,7 @@ export default function Settings({
   onLibraryChange,
   onImmersiveModeChange = null,
   onFullscreenChange = null,
+  onControllerDeadzoneChange = null,
   initialSection = "general",
 }) {
   const { activeCount: activeRomDownloadCount } = useRomDownloads();
@@ -178,6 +185,7 @@ export default function Settings({
   // UI Mode flags: Desktop (default) vs Immersive mode (`display.big_picture` in config)
   const [immersiveModeEnabled, setImmersiveModeEnabled] = useState(false);
   const [fullscreenEnabled, setFullscreenEnabled] = useState(false);
+  const [controllerDeadzone, setControllerDeadzone] = useState(DEFAULT_GAMEPAD_DEADZONE);
   const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
   
   // Theme/Appearance settings from context
@@ -386,6 +394,9 @@ export default function Settings({
       setRomsDirectory(cfg.library?.roms_directory || "");
       setImmersiveModeEnabled(Boolean(cfg.display?.big_picture));
       setFullscreenEnabled(Boolean(cfg.display?.fullscreen));
+      setControllerDeadzone(
+        normalizeGamepadDeadzone(cfg.display?.controller_deadzone ?? DEFAULT_GAMEPAD_DEADZONE),
+      );
       setRetroachievementsEnabled(Boolean(cfg.display?.retroachievements_enabled));
       setCheckOnStartup(cfg.updater?.check_on_startup !== false);
       const auto = Boolean(cfg.updater?.auto_update_enabled);
@@ -545,6 +556,17 @@ export default function Settings({
     cfg.display.fullscreen = Boolean(nextFullscreen);
     await invoke("save_config", { config: cfg });
     setConfig(cfg);
+  }
+
+  async function persistControllerDeadzone(nextDeadzone) {
+    const bounded = normalizeGamepadDeadzone(nextDeadzone);
+    const cfg = config || (await invoke("get_config"));
+    cfg.display = cfg.display || {};
+    cfg.display.controller_deadzone = bounded;
+    await invoke("save_config", { config: cfg });
+    setConfig(cfg);
+    setControllerDeadzone(bounded);
+    onControllerDeadzoneChange?.(bounded);
   }
 
   async function persistRetroachievements(next) {
@@ -1362,6 +1384,29 @@ export default function Settings({
           <Typography variant="caption" color="text.secondary">
             Tip: F11 toggles fullscreen. From the Immersive library, Esc exits to desktop.
           </Typography>
+          <Box sx={{ mt: 2, maxWidth: 420 }}>
+            <Typography variant="subtitle2">Controller deadzone</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+              Raise this only when the stick drifts. It applies to Immersive directional navigation.
+            </Typography>
+            <Slider
+              aria-label="Controller deadzone"
+              value={controllerDeadzone}
+              min={GAMEPAD_DEADZONE_MIN}
+              max={GAMEPAD_DEADZONE_MAX}
+              step={0.05}
+              valueLabelDisplay="auto"
+              onChange={(_, value) => setControllerDeadzone(normalizeGamepadDeadzone(value))}
+              onChangeCommitted={(_, value) => persistControllerDeadzone(value)}
+            />
+            <Button
+              size="small"
+              color="inherit"
+              onClick={() => persistControllerDeadzone(DEFAULT_GAMEPAD_DEADZONE)}
+            >
+              Reset deadzone
+            </Button>
+          </Box>
         </Box>
       </Paper>
       </>
