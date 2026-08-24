@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -71,3 +71,17 @@ inspection. Never copy token values into a test fixture, log, issue, or plan.
 
 Configuration may describe which auth method is used, but secret-bearing values
 belong only in the platform credential store or process memory.
+
+## Comments
+
+Implementation securely migrates legacy access tokens before clearing them,
+stores refreshed access tokens in the existing Windows Credential Manager
+device-token entry, refuses config saves carrying legacy access tokens, and
+disconnect attempts both secure deletions before clearing fields. Focused tests
+were added without real keyring/token material. `mise exec -- bun run typecheck`
+passed; `mise exec -- bun run test:unit` passed (8 files, 41 tests); `git diff
+--check` passed. Full Rust test and Clippy were attempted but blocked before
+crate compilation because Linux lacks `javascriptcoregtk-4.1`; the Windows
+cross-check was blocked by missing `x86_64-w64-mingw32-gcc`. Windows Credential
+Manager/manual Pair/restart/refresh/BIOS/sync/disconnect remain to be
+exercised. Existing Windows criteria remain unchecked.

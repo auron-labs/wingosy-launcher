@@ -8,7 +8,7 @@ use crate::api::{
     download::{DownloadManager, DownloadProgress},
     RomMClient,
 };
-use crate::config::{AppConfig, RetroArchInstallKind, UpdateChannel};
+use crate::config::{AppConfig, RetroArchInstallKind, RomMConfig, UpdateChannel};
 use crate::database::Database;
 use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::emulators::detection::detect_installed_emulators;
@@ -1325,43 +1325,119 @@ pub fn get_default_romm_device_name() -> String {
     default_windows_device_name()
 }
 
+fn delete_romm_credentials<DeleteDevice, DeleteRefresh>(
+    server_url: &str,
+    username: Option<&str>,
+    delete_device: DeleteDevice,
+    delete_refresh: DeleteRefresh,
+) -> Result<(), String>
+where
+    DeleteDevice: FnOnce(&str) -> anyhow::Result<()>,
+    DeleteRefresh: FnOnce(&str, &str) -> anyhow::Result<()>,
+{
+    let mut first_error = None;
+    if let Err(error) = delete_device(server_url) {
+        first_error = Some(error.to_string());
+    }
+    if let Some(username) = username {
+        if let Err(error) = delete_refresh(server_url, username) {
+            if first_error.is_none() {
+                first_error = Some(error.to_string());
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
 /// Remove all locally stored RomM credentials and session metadata. This does
 /// not delete the device record from the RomM server; it only signs Wingosy out.
 #[tauri::command]
 pub fn disconnect_romm() -> Result<(), String> {
-    let mut config = AppConfig::load().unwrap_or_default();
+    let mut config = AppConfig::load().map_err(|error| error.to_string())?;
 
     if let Some(server_url) = config.romm.server_url.as_deref() {
-        crate::romm_credentials::delete_device_token(server_url)
-            .map_err(|error| error.to_string())?;
-        if let Some(username) = config.romm.username.as_deref() {
-            crate::romm_credentials::delete_refresh_token(server_url, username)
-                .map_err(|error| error.to_string())?;
-        }
+        delete_romm_credentials(
+            server_url,
+            config.romm.username.as_deref(),
+            crate::romm_credentials::delete_device_token,
+            crate::romm_credentials::delete_refresh_token,
+        )?;
     }
 
-    config.romm.username = None;
-    config.romm.auth_method = None;
-    config.romm.password = None;
-    config.romm.auth_token = None;
+    clear_romm_auth_fields(&mut config.romm);
     config.save().map_err(|error| error.to_string())
+}
+
+fn reconnect_required(error: impl std::fmt::Display) -> String {
+    format!("Reconnect required: secure RomM credential storage failed: {error}")
+}
+
+fn migrate_legacy_romm_access_token<Store, Save>(
+    config: &mut AppConfig,
+    server_url: &str,
+    store: Store,
+    save: Save,
+) -> Result<Option<String>, String>
+where
+    Store: FnOnce(&str, &str) -> anyhow::Result<()>,
+    Save: FnOnce(&AppConfig) -> anyhow::Result<()>,
+{
+    let Some(token) = config
+        .romm
+        .auth_token
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+    else {
+        return Ok(None);
+    };
+
+    store(server_url, &token).map_err(reconnect_required)?;
+    config.romm.auth_token = None;
+    save(config).map_err(|error| error.to_string())?;
+    Ok(Some(token))
+}
+
+fn clear_romm_auth_fields(config: &mut RomMConfig) {
+    config.username = None;
+    config.auth_method = None;
+    config.password = None;
+    config.auth_token = None;
 }
 
 /// Restore the saved RomM session on startup. Password-based connections are
 /// silently renewed using a refresh token in Windows Credential Manager. Device tokens are loaded
-/// from Credential Manager, while manually supplied access tokens are returned unchanged.
+/// from Credential Manager, and legacy access tokens are migrated there on first restore.
 #[tauri::command]
 pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
-    let mut config = AppConfig::load().unwrap_or_default();
+    let mut config = AppConfig::load().map_err(|error| error.to_string())?;
     let Some(server_url) = config.romm.server_url.clone() else {
         return Ok(None);
     };
-    let existing_token = config.romm.auth_token.clone();
+    let migrated_token = migrate_legacy_romm_access_token(
+        &mut config,
+        &server_url,
+        crate::romm_credentials::store_device_token,
+        |config| config.save(),
+    )?;
+    let (existing_token, access_token_error) = match migrated_token {
+        Some(token) => (Some(token), None),
+        None => match crate::romm_credentials::load_device_token(&server_url) {
+            Ok(access_token) => (access_token, None),
+            Err(error) => (None, Some(error.to_string())),
+        },
+    };
     let Some(username) = config.romm.username.clone() else {
-        let access_token = crate::romm_credentials::load_device_token(&server_url)
-            .map_err(|e| e.to_string())?
-            .or(existing_token);
-        return Ok(access_token.map(|access_token| RomMAuthSession {
+        if existing_token.is_none() {
+            if let Some(error) = access_token_error {
+                return Err(error);
+            }
+        }
+        return Ok(existing_token.map(|access_token| RomMAuthSession {
             server_url,
             access_token,
             refreshed: false,
@@ -1377,6 +1453,9 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
         }
     };
     let Some(refresh_token) = refresh_token else {
+        if let Some(error) = access_token_error {
+            return Err(error);
+        }
         return Ok(existing_token.map(|access_token| RomMAuthSession {
             server_url,
             access_token,
@@ -1387,9 +1466,9 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
     let mut client = RomMClient::new(&server_url);
     match client.refresh_authentication(&refresh_token).await {
         Ok(token_response) => {
-            config.romm.password = None;
-            config.romm.auth_token = Some(token_response.access_token.clone());
-            config.save().map_err(|e| e.to_string())?;
+            let access_token = token_response.access_token.clone();
+            crate::romm_credentials::store_device_token(&server_url, &access_token)
+                .map_err(reconnect_required)?;
             if let Some(next_refresh_token) = token_response.refresh_token.as_deref() {
                 crate::romm_credentials::store_refresh_token(
                     &server_url,
@@ -1398,9 +1477,12 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
                 )
                 .map_err(|e| e.to_string())?;
             }
+            config.romm.password = None;
+            config.romm.auth_token = None;
+            config.save().map_err(|e| e.to_string())?;
             Ok(Some(RomMAuthSession {
                 server_url,
-                access_token: token_response.access_token,
+                access_token,
                 refreshed: true,
             }))
         }
@@ -3458,6 +3540,102 @@ mod tests {
                 .map(String::as_str),
             Some("mgba")
         );
+    }
+
+    #[test]
+    fn legacy_access_token_migration_stores_before_clearing_and_saving() {
+        let mut config = AppConfig::default();
+        config.romm.auth_token = Some("synthetic-access-marker".to_string());
+        let events = std::cell::RefCell::new(Vec::new());
+
+        let migrated = migrate_legacy_romm_access_token(
+            &mut config,
+            "https://romm.example",
+            |server_url, token| {
+                assert_eq!(server_url, "https://romm.example");
+                assert_eq!(token, "synthetic-access-marker");
+                events.borrow_mut().push("store");
+                Ok(())
+            },
+            |saved_config| {
+                events.borrow_mut().push("save");
+                assert!(saved_config.romm.auth_token.is_none());
+                Ok(())
+            },
+        )
+        .expect("migration should succeed");
+
+        assert_eq!(migrated.as_deref(), Some("synthetic-access-marker"));
+        assert!(config.romm.auth_token.is_none());
+        assert_eq!(events.into_inner(), vec!["store", "save"]);
+    }
+
+    #[test]
+    fn failed_legacy_access_token_migration_keeps_token_and_skips_save() {
+        let mut config = AppConfig::default();
+        config.romm.auth_token = Some("synthetic-access-marker".to_string());
+        let save_called = std::cell::Cell::new(false);
+
+        let error = migrate_legacy_romm_access_token(
+            &mut config,
+            "https://romm.example",
+            |_, _| anyhow::bail!("synthetic secure-store failure"),
+            |_| {
+                save_called.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("failed secure storage must require reconnect");
+
+        assert!(error.contains("Reconnect required"));
+        assert_eq!(
+            config.romm.auth_token.as_deref(),
+            Some("synthetic-access-marker")
+        );
+        assert!(!save_called.get());
+    }
+
+    #[test]
+    fn deleting_romm_credentials_attempts_both_and_returns_first_error() {
+        let events = std::cell::RefCell::new(Vec::new());
+
+        let error = delete_romm_credentials(
+            "https://romm.example",
+            Some("synthetic-user"),
+            |server_url| {
+                assert_eq!(server_url, "https://romm.example");
+                events.borrow_mut().push("device");
+                anyhow::bail!("synthetic-device-delete-failure")
+            },
+            |server_url, username| {
+                assert_eq!(server_url, "https://romm.example");
+                assert_eq!(username, "synthetic-user");
+                events.borrow_mut().push("refresh");
+                anyhow::bail!("synthetic-refresh-delete-failure")
+            },
+        )
+        .expect_err("the first deletion failure should be returned");
+
+        assert_eq!(error, "synthetic-device-delete-failure");
+        assert_eq!(events.into_inner(), vec!["device", "refresh"]);
+    }
+
+    #[test]
+    fn clear_romm_auth_fields_removes_all_local_auth_fields() {
+        let mut config = RomMConfig {
+            username: Some("synthetic-user".to_string()),
+            auth_method: Some("pairing".to_string()),
+            password: Some("synthetic-password-marker".to_string()),
+            auth_token: Some("synthetic-access-marker".to_string()),
+            ..RomMConfig::default()
+        };
+
+        clear_romm_auth_fields(&mut config);
+
+        assert!(config.username.is_none());
+        assert!(config.auth_method.is_none());
+        assert!(config.password.is_none());
+        assert!(config.auth_token.is_none());
     }
 
     #[test]

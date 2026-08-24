@@ -114,6 +114,17 @@ impl AppConfig {
     }
 
     pub fn save(&self) -> Result<()> {
+        if self
+            .romm
+            .auth_token
+            .as_deref()
+            .is_some_and(|token| !token.is_empty())
+        {
+            anyhow::bail!(
+                "Refusing to save config with a legacy RomM access token; reconnect required"
+            );
+        }
+
         let config_path = Self::config_path()?;
         tracing::debug!("[Config] Saving config to {:?}", config_path);
 
@@ -209,6 +220,7 @@ pub struct RomMConfig {
     pub auth_method: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Legacy access token accepted on read; callers must clear it before saving.
     pub auth_token: Option<String>,
     pub auto_sync: bool,
     pub sync_saves: bool,
@@ -459,6 +471,37 @@ mod tests {
         assert!(toml_str.contains("[library]"));
         assert!(toml_str.contains("[display]"));
         assert!(toml_str.contains("[audio]"));
+    }
+
+    #[test]
+    fn legacy_auth_token_deserializes_and_clears_before_serialization() {
+        let serialized = toml::to_string(&AppConfig::default()).expect("Should serialize");
+        let legacy = serialized.replace(
+            "[romm]\n",
+            "[romm]\nauth_token = \"synthetic-access-marker\"\n",
+        );
+        let mut restored: AppConfig =
+            toml::from_str(&legacy).expect("Should deserialize legacy config");
+        assert_eq!(
+            restored.romm.auth_token.as_deref(),
+            Some("synthetic-access-marker")
+        );
+
+        restored.romm.auth_token = None;
+        let cleared = toml::to_string(&restored).expect("Should serialize cleared config");
+        assert!(!cleared.contains("auth_token"));
+        assert!(!cleared.contains("synthetic-access-marker"));
+    }
+
+    #[test]
+    fn save_rejects_nonempty_legacy_auth_token() {
+        let mut config = AppConfig::default();
+        config.romm.auth_token = Some("synthetic-access-marker".to_string());
+
+        let error = config
+            .save()
+            .expect_err("legacy access token must not be saved");
+        assert!(error.to_string().contains("legacy RomM access token"));
     }
 
     #[test]
