@@ -3,7 +3,7 @@
  *
  * Expects (after `bun run build && tauri build`):
  * - `src-tauri/target/release/bundle/nsis/*-setup.exe` and matching `*.sig`
- * - The same release tag already published by `tauri-action` (installer assets on GitHub)
+ * - The same release already created by `tauri-action` (installer assets on GitHub)
  *
  * Environment:
  * - `GITHUB_REPOSITORY` — `owner/repo` (set automatically in Actions)
@@ -69,7 +69,7 @@ async function withRetries(label, operation, { attempts = 3, delayMs = 5000 } = 
   throw lastError;
 }
 
-/** Resolve the installer URL GitHub actually published (avoids space vs dot filename mismatches). */
+/** Resolve the installer URL GitHub assigned (avoids space vs dot filename mismatches). */
 async function resolveGithubSetupAssetUrl() {
   const raw = await withRetries(
     "release asset lookup",
@@ -86,11 +86,12 @@ async function resolveGithubSetupAssetUrl() {
       typeof a.name === "string" &&
       a.name.endsWith("-setup.exe") &&
       !a.name.endsWith(".sig") &&
+      a.state === "uploaded" &&
       typeof a.browser_download_url === "string"
   );
   if (!setup) {
     console.error(
-      "write-updater-manifest: no *-setup.exe asset on release",
+      "write-updater-manifest: no uploaded *-setup.exe asset on release",
       tag,
       "— assets:",
       assets.map((a) => a.name).join(", ")
@@ -101,12 +102,6 @@ async function resolveGithubSetupAssetUrl() {
 }
 
 const assetUrl = await resolveGithubSetupAssetUrl();
-
-const head = await withRetries("installer HEAD", () => fetch(assetUrl, { method: "HEAD" }));
-if (!head.ok) {
-  console.error(`write-updater-manifest: installer HEAD failed (${head.status}): ${assetUrl}`);
-  process.exit(1);
-}
 
 const manifest = {
   version,

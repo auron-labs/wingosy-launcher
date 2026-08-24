@@ -8,12 +8,6 @@ name: Beta
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Git ref to build (default main)'
-        required: false
-        default: 'main'
-        type: string
 
 permissions:
   contents: write
@@ -30,10 +24,17 @@ jobs:
       BETA_TAG: beta-${{ github.run_id }}
 
     steps:
+      - name: Require main dispatch
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          echo "::error::Beta releases must be dispatched from refs/heads/main (got ${GITHUB_REF})"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
+          ref: main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -52,6 +53,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.TARGET }}
+          components: clippy
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -61,6 +63,44 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Frontend build
+        run: bun run build
+
+      - name: Frontend lint
+        run: bun run lint:frontend
+
+      - name: Frontend typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun run test:unit
+
+      - name: Rust tests
+        run: bun run test:rust
+
+      - name: Rust lint
+        run: bun run lint:rust
+
+      - name: Commit version bump to main
+        id: candidate
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::main moved since checkout; refusing to publish this beta candidate"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json bun.lock src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore(release): v${VERSION} beta [skip ci]"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri (beta prerelease)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -69,16 +109,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.BETA_TAG }}
+          releaseCommitish: ${{ steps.candidate.outputs.sha }}
           releaseName: 'Wingosy Launcher Beta v${{ steps.ver.outputs.version }}'
           releaseBody: |
             App version **v${{ steps.ver.outputs.version }}** (MINOR bump; nightly PATCH counter reset).
 
             **Beta** pre-release. Testing builds before stable.
 
+            Candidate commit: [`${{ steps.candidate.outputs.sha }}`](https://github.com/${{ github.repository }}/commit/${{ steps.candidate.outputs.sha }})
+            - [Certification ledger](https://github.com/${{ github.repository }}/blob/${{ steps.candidate.outputs.sha }}/.scratch/transparent-romm-launching/emulator-certification.md)
+            - [Beta gate ticket](https://github.com/${{ github.repository }}/blob/${{ steps.candidate.outputs.sha }}/.scratch/next-steps/issues/06-certify-and-gate-the-windows-beta.md)
+            - [Exact workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            **Do not publish until all must-pass gates are green and manual Windows certification is complete.**
+
             - **Stable**: [Latest](https://github.com/auron-labs/wingosy-launcher/releases/latest)
             - **Nightly**: scheduled *Nightly* workflow
           prerelease: true
-          releaseDraft: false
+          releaseDraft: true
 
       - name: Upload latest.json (signed updater)
         if: success()
@@ -87,15 +135,3 @@ jobs:
           RELEASE_TAG: ${{ env.BETA_TAG }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bun scripts/write-updater-manifest.mjs
-
-      - name: Commit version bump to main
-        if: success() && github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json bun.lock src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
-          git commit -m "chore(release): v${VERSION} beta [skip ci]"
-          git push origin HEAD:main
