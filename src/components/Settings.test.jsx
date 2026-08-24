@@ -1,0 +1,114 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import Settings from "./Settings";
+import { MuiTestProvider } from "../test/muiHarness";
+
+const { invoke, listen, shellOpen, open } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listen: vi.fn(),
+  shellOpen: vi.fn(),
+  open: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
+vi.mock("@tauri-apps/plugin-shell", () => ({ open: shellOpen }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
+vi.mock("../ThemeContext", () => ({
+  useAppTheme: () => ({
+    themeMode: "dark",
+    setThemeMode: vi.fn(),
+    accentHue: null,
+    setAccentHue: vi.fn(),
+  }),
+}));
+vi.mock("../UiSoundsContext", () => ({
+  useUiSounds: () => ({
+    uiSoundsEnabled: false,
+    uiSoundsVolume: 80,
+    setUiSoundsEnabled: vi.fn(),
+    setUiSoundsVolume: vi.fn(),
+    refreshUiSoundsFromConfig: vi.fn(),
+  }),
+}));
+
+afterEach(() => {
+  cleanup();
+  invoke.mockReset();
+  listen.mockReset();
+  shellOpen.mockReset();
+  open.mockReset();
+});
+
+function renderSettings() {
+  invoke.mockImplementation(async (command) => {
+    switch (command) {
+      case "get_config":
+        return {
+          romm: {},
+          library: {},
+          display: {},
+          audio: {},
+          updater: {},
+        };
+      case "get_all_emulators":
+      case "get_missing_cores":
+      case "get_platform_ids_with_installed_retroarch_core":
+      case "get_platforms_with_games":
+        return [];
+      case "get_retroarch_default_core_dlls":
+      case "get_platform_default_emulators":
+        return {};
+      case "has_saved_romm_session":
+        return false;
+      case "get_default_romm_device_name":
+        return "Windows PC";
+      case "get_app_version":
+        return "0.0.111";
+      case "get_storage_overview":
+        return { roms_directory: "" };
+      default:
+        return undefined;
+    }
+  });
+  listen.mockResolvedValue(() => {});
+
+  return render(
+    <MuiTestProvider>
+      <Settings
+        onBack={vi.fn()}
+        onRommConnect={vi.fn()}
+        onLibraryChange={vi.fn()}
+        rommToken="test-token"
+        rommUrl="https://romm.example"
+      />
+    </MuiTestProvider>
+  );
+}
+
+describe("Settings beta support", () => {
+  it("opens the canonical logs folder from the Private Beta card", async () => {
+    renderSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Logs Folder" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("open_logs_folder"));
+  });
+
+  it("shows report guidance and opens the canonical bug report route", async () => {
+    renderSettings();
+
+    expect(screen.getByText(/Windows version/)).toBeInTheDocument();
+    expect(screen.getByText(/reproduction steps/)).toBeInTheDocument();
+    expect(screen.getByText(/expected and actual behavior/)).toBeInTheDocument();
+    expect(screen.getByText(/relevant redacted logs/)).toBeInTheDocument();
+    expect(screen.getByText(/Never share credentials, user data/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Report a Problem" }));
+
+    expect(shellOpen).toHaveBeenCalledWith(
+      "https://github.com/auron-labs/wingosy-launcher/issues/new?template=bug_report.md"
+    );
+    expect(await screen.findByText("0.0.111")).toBeInTheDocument();
+  });
+});

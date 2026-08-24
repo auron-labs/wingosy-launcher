@@ -26,7 +26,10 @@ What you expected to happen.
 What actually happened.
 
 ## Screenshots / Logs
-If applicable, add screenshots or copy relevant output from the app or terminal.
+If applicable, add screenshots or copy relevant **redacted** log files from the
+Wingosy logs folder. Do not attach credentials, access tokens, configuration or
+database files, ROM names or paths, or other user data. Wingosy does not
+automatically attach, collect, or upload those files.
 
 ## Additional Context
 Any other relevant information.

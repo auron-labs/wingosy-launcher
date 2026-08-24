@@ -84,6 +84,8 @@ const SETTINGS_CARD_GRADIENT_SX = {
   ...SETTINGS_CARD_SX,
   background: "linear-gradient(135deg, #1e1e26 0%, #252530 100%)",
 };
+const BETA_BUG_REPORT_URL =
+  "https://github.com/auron-labs/wingosy-launcher/issues/new?template=bug_report.md";
 
 /** Human-friendly name for a libretro DLL (e.g. `mgba_libretro.dll` → "mgba"). */
 function formatLibretroDllLabel(dll) {
@@ -196,6 +198,7 @@ export default function Settings({
     normalizeSettingsSection(initialSection)
   );
   const [appVersion, setAppVersion] = useState("");
+  const [supportMessage, setSupportMessage] = useState(null);
   const [checkOnStartup, setCheckOnStartup] = useState(true);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
   const [updateChannel, setUpdateChannel] = useState("stable");
@@ -399,6 +402,24 @@ export default function Settings({
       refreshUiSoundsFromConfig(cfg);
       loadStorageOverview();
     } catch {}
+  }
+
+  async function handleOpenLogsFolder() {
+    try {
+      setSupportMessage(null);
+      await invoke("open_logs_folder");
+    } catch (err) {
+      setSupportMessage({ type: "error", message: err?.message || String(err) });
+    }
+  }
+
+  async function handleReportProblem() {
+    try {
+      setSupportMessage(null);
+      await shellOpen(BETA_BUG_REPORT_URL);
+    } catch (err) {
+      setSupportMessage({ type: "error", message: err?.message || String(err) });
+    }
   }
 
   async function loadStorageOverview() {
@@ -1240,22 +1261,46 @@ export default function Settings({
         >
       {settingsSection === "general" && (
       <>
-        <Paper sx={SETTINGS_CARD_SX}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-            <DesktopWindowsIcon color="primary" />
-            <Typography variant="h6">Private Beta</Typography>
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Planned private-beta path for Windows 11: RetroArch for NES, SNES, GB, GBC, GBA, and Genesis, with RomM pair, library sync, ROM download, and one-Play. Save behavior is manual save upload/download. Automatic save sync is experimental until a real round trip passes; standalone mGBA and every other emulator/platform are experimental. These six planned paths are pending Windows certification.
-          </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<OpenInNewIcon />}
-            onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md")}
-          >
-            Open certification ledger
-          </Button>
-        </Paper>
+       <Paper sx={SETTINGS_CARD_SX}>
+         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+           <DesktopWindowsIcon color="primary" />
+           <Typography variant="h6">Private Beta</Typography>
+         </Box>
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+           Planned private-beta path for Windows 11: RetroArch for NES, SNES, GB, GBC, GBA, and Genesis, with RomM pair, library sync, ROM download, and one-Play. Save behavior is manual save upload/download. Automatic save sync is experimental until a real round trip passes; standalone mGBA and every other emulator/platform are experimental. These six planned paths are pending Windows certification.
+         </Typography>
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+           Current app version: <Box component="span" sx={{ fontFamily: "monospace" }}>{appVersion || "—"}</Box>. For a report, include this version, your Windows version, reproduction steps, expected and actual behavior, and relevant redacted logs. Never share credentials, user data, configuration, database files, ROM names, or ROM paths.
+         </Typography>
+         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+           <Button
+             variant="outlined"
+             startIcon={<FolderOpenIcon />}
+             onClick={handleOpenLogsFolder}
+           >
+             Open Logs Folder
+           </Button>
+           <Button
+             variant="outlined"
+             startIcon={<OpenInNewIcon />}
+             onClick={handleReportProblem}
+           >
+             Report a Problem
+           </Button>
+         </Box>
+         {supportMessage && (
+           <Alert severity={supportMessage.type} sx={{ mt: 2 }}>
+             {supportMessage.message}
+           </Alert>
+         )}
+         <Button
+           variant="outlined"
+           startIcon={<OpenInNewIcon />}
+           onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md")}
+         >
+           Open certification ledger
+         </Button>
+       </Paper>
       <Paper sx={SETTINGS_CARD_SX}>
         <Typography variant="h6" gutterBottom>UI</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

@@ -16,18 +16,20 @@ mod scanner;
 mod storage;
 mod sync;
 
+use crate::config::AppConfig;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+fn logging_directory() -> std::path::PathBuf {
+    AppConfig::logs_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+}
+
 fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    // Get log directory (same as app data dir)
-    let log_dir = directories::ProjectDirs::from("com", "wingosy", "wingosy-launcher")
-        .map(|dirs| dirs.data_dir().to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_dir = logging_directory();
     
     // Create log directory if it doesn't exist
     std::fs::create_dir_all(&log_dir).ok();
     
-    // Set up rolling file appender (new file each day, keep 7 days)
+    // Set up a daily rolling file appender. Older files are retained until removed by the user.
     let file_appender = tracing_appender::rolling::daily(&log_dir, "wingosy.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     
@@ -123,6 +125,7 @@ fn main() {
             commands::get_hidden_games,
             commands::unhide_game,
             commands::open_rom_location,
+            commands::open_logs_folder,
             commands::refresh_game_metadata,
             commands::detect_emulators,
             commands::launch_emulator,
@@ -165,4 +168,13 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn logging_path_uses_the_public_config_logs_directory() {
+        let configured = crate::config::AppConfig::logs_dir().expect("logs directory should be available");
+        assert_eq!(super::logging_directory(), configured);
+    }
 }

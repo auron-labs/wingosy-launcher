@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -74,3 +74,16 @@ analytics, automatic uploads, attaching databases/configs, or collecting secrets
 
 Add telemetry only if local logs repeatedly fail to answer concrete beta issues.
 The private cohort should generate product evidence, not a new observability stack.
+
+## Comments
+
+- Startup logging and the Settings support command now use `AppConfig::logs_dir()`,
+  matching the README's `%APPDATA%\wingosy\launcher\data\logs\` path.
+- Settings now opens the logs folder and the canonical GitHub bug report form.
+  The form and Settings guidance request app version, Windows version, repro,
+  expected/actual behavior, and redacted logs without collecting or sharing user
+  data, credentials, configuration, database files, or ROM names/paths.
+- Daily rolling is documented as retaining older files until the user removes
+  them; no seven-day cleanup machinery or telemetry was added.
+- The beta guide names Auron Labs maintainers, uses best-effort review language
+  without an SLA, and records the 3-5 then 10-20 tester cohort gate.

@@ -2065,6 +2065,33 @@ pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_logs_folder() -> Result<(), String> {
+    let log_dir = AppConfig::logs_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer")
+        .arg(&log_dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&log_dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&log_dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    tracing::info!("[Support] Opened logs folder: {:?}", log_dir);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn refresh_game_metadata(
     game_id: i64,
     server_url: String,

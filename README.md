@@ -85,7 +85,7 @@ to `C:\Users\<username>\AppData\Local`.
 | BIOS staging library | `%APPDATA%\wingosy\launcher\data\bios\<RomM-platform-slug>\` |
 | Manually downloaded saves | `%APPDATA%\wingosy\launcher\data\saves\` |
 | Save-sync cache and backups | `%APPDATA%\wingosy\launcher\data\save_sync_cache\` |
-| Logs | `%APPDATA%\wingosy\launcher\data\logs\` |
+| Logs | `%APPDATA%\wingosy\launcher\data\logs\` (daily rolling; older files are not deleted automatically) |
 | Covers | `%LOCALAPPDATA%\wingosy\launcher\cache\covers\` |
 | General downloads | `%APPDATA%\wingosy\launcher\data\downloads\` |
 
