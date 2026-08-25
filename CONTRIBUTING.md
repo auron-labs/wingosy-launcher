@@ -82,26 +82,30 @@ Pre-release workflows set **`prerelease: true`** so they do not replace **stable
 ### Signed in-app updates (Tauri v2 updater)
 
 The canonical public repository is `auron-labs/wingosy-launcher`, and release
-assets and updater manifests are published there. `auron-labs` maintainers own
+assets and updater manifests are published there. Repository administrators own
 release publication and updater-key rotation. The current updater public-key
 SHA-256 fingerprint is
-`641a0dbf66561a323bf162139cfd0a9e1736dc07eb9d0ea12725b0309432f693`, computed
-from the UTF-8 bytes of the exact base64 value in `tauri.conf.json`, without a
-trailing newline. This is not the hash of the tracked `.pub` file including its
+`98c8b9fed680f214b13ea1822ec3eae4afe296f51d726357419c8f9b39366e6b`, computed
+from the UTF-8 bytes of the exact configured JSON pubkey string, without a
+trailing newline. This is not the hash of a generated `.pub` file including its
 line ending.
 Never record or substitute private key material or its password.
 
-Builds containing the previous updater public key cannot verify releases signed
-with the rotated key. Because control of the previous private key is
-unconfirmed, those installs require a manual reinstall from the canonical
-release page unless an authorized old-key-signed transition release can be
-produced.
+For a key rotation, a repository administrator generates the replacement key,
+updates the configured public key and this fingerprint together, replaces the
+`TAURI_SIGNING_PRIVATE_KEY` Actions secret and its password secret when used,
+and removes `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` when the replacement key is
+unpassworded.
+Verify the secret names and update timestamps in GitHub Settings without
+displaying their values. Existing installations built with the old public key
+must be manually reinstalled unless an authorized transition release signed by
+the old key is available.
 
 Release, Beta, and Nightly workflows build **signed** NSIS artifacts and upload **`latest.json`** next to the installer so the app can call **`install_signed_app_update`** (in-place update, then restart).
 
 `scripts/write-updater-manifest.mjs` reads the **published** NSIS asset URL from the GitHub API (GitHub renames `Wingosy Launcher` → `Wingosy.Launcher` in filenames). If an older release has a broken manifest (installer URL 404), run the **Repair updater manifest** workflow (`.github/workflows/repair-updater-manifest.yml`) with that release tag, or locally: `RELEASE_TAG=<tag> GITHUB_TOKEN=… bun scripts/repair-updater-manifest.mjs`.
 
-1. **One-time:** generate a minisign keypair (keep the private key secret; the public key is already in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey` — replace it if you rotate keys):
+1. **One-time / rotation:** a repository administrator generates a minisign keypair (keep the private key secret; the public key belongs in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`):
 
    ```bash
    bun run tauri -- signer generate -w src-tauri/tauri-signing.key

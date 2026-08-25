@@ -55,7 +55,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3QUZEOUYwMEVCNzM2OTIKUldTU05yY084Tm12WjZmNVVGZE5zZmR6NGZJUzFEZC9CbW9qc0ptdzFqREZHWm53RjVjWmYvcWsK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEMzM0RjM5Qjg0M0FERkYKUldUL3JVTzRPVTh6TGRLOXRWdmlLNzZRcngvZ0VHVWFTb0EwUXhQVUxJUUdsZnB3T0hRcUI4SFoK",
       "endpoints": [
         "https://github.com/auron-labs/wingosy-launcher/releases/latest/download/latest.json"
       ],

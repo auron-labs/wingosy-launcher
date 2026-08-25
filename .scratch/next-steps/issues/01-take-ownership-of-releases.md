@@ -81,13 +81,13 @@ license/authorship removal, stable public launch.
 
 ## Test plan and done criteria
 
-- [ ] Baseline commands pass.
+- [x] Baseline commands pass.
 - [x] `git remote -v` shows a maintainer-controlled origin.
 - [x] The old owner string is absent from operational runtime/workflow URLs.
 - [ ] A beta installer and manifest are attached to the canonical repository.
 - [ ] A clean Windows install discovers a signed higher-version beta from that
       same origin; a manifest signed by another key is rejected.
-- [ ] No private signing material appears in `git status`, `git diff`, or logs.
+- [x] No private signing material appears in `git status`, `git diff`, or logs.
 
 ## STOP conditions
 
@@ -121,3 +121,25 @@ operational URL audit is clean. Updater private-key ownership or authorized
 rotation is still not evidenced, so the ticket's STOP condition applies before
 release or signing changes. The existing stable-release `workflow_dispatch` tag
 guard defect remains a safe follow-up after the ownership decision.
+
+### 2026-08-25 — Ownership decisions
+
+The maintainer confirmed `auron-labs/wingosy-launcher` as the definitive public
+canonical release repository and authorized rotation to a new updater signing
+key under current maintainer control.
+
+### 2026-08-25 — Local release ownership work complete
+
+The stable workflow now validates the effective push or dispatch tag as an exact
+stable SemVer tag. A new encrypted updater key is ignored locally, both signing
+secret names are configured in the canonical repository, and only the public
+key plus its fingerprint are tracked. `actionlint`, the fingerprint/config
+check, `git diff --check`, the old-origin audit, `mise exec -- bun run
+typecheck`, `mise exec -- bun run test:unit` (11 files, 74 tests), and native
+`mise exec -- cargo test --manifest-path src-tauri/Cargo.toml` (266 unit passed/1
+ignored, 4 emulator integration passed/9 ignored, 4 RomM integration passed/7
+ignored) passed. The Windows GNU Cargo check remains blocked because
+`x86_64-w64-mingw32-gcc` is unavailable. The first push, branch protection,
+published beta artifacts, and clean-Windows update/signature verification remain
+pending, so this issue stays `ready-for-human` and the roadmap stays `IN
+PROGRESS`.
