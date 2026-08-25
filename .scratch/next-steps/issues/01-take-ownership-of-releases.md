@@ -82,8 +82,8 @@ license/authorship removal, stable public launch.
 ## Test plan and done criteria
 
 - [ ] Baseline commands pass.
-- [ ] `git remote -v` shows a maintainer-controlled origin.
-- [ ] The old owner string is absent from operational runtime/workflow URLs.
+- [x] `git remote -v` shows a maintainer-controlled origin.
+- [x] The old owner string is absent from operational runtime/workflow URLs.
 - [ ] A beta installer and manifest are attached to the canonical repository.
 - [ ] A clean Windows install discovers a signed higher-version beta from that
       same origin; a manifest signed by another key is rejected.
@@ -111,3 +111,13 @@ The canonical repository is empty and has no releases. The stable-release
 `workflow_dispatch` tag guard is defective: it checks the dispatch ref instead of
 the selected tag, while signing ownership/evidence and Windows evidence remain
 pending.
+
+### 2026-08-25 — Implementation stopped at ownership gate
+
+Scout and coder review confirmed that `origin` is the public
+`auron-labs/wingosy-launcher` repository and the current GitHub identity has admin
+permission, but the repository is still empty and has no releases. The old-owner
+operational URL audit is clean. Updater private-key ownership or authorized
+rotation is still not evidenced, so the ticket's STOP condition applies before
+release or signing changes. The existing stable-release `workflow_dispatch` tag
+guard defect remains a safe follow-up after the ownership decision.
