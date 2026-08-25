@@ -1,6 +1,6 @@
 # Local Issue State
 
-Generated: 2026-08-25T00:56:17Z
+Generated: 2026-08-25T01:44:43Z
 
 Tickets: 8 active, 3 resolved
 
@@ -11,7 +11,7 @@ Tickets: 8 active, 3 resolved
 | [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [02-preserve-setup-configuration](next-steps/issues/02-preserve-setup-configuration.md) | task | agent | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [03-secure-romm-access-tokens](next-steps/issues/03-secure-romm-access-tokens.md) | task | agent | ready-for-human | 02 |
-| [next-steps](next-steps/spec.md) | [04-bound-library-loading](next-steps/issues/04-bound-library-loading.md) | task | agent | ready-for-agent | 02 |
+| [next-steps](next-steps/spec.md) | [04-bound-library-loading](next-steps/issues/04-bound-library-loading.md) | task | agent | ready-for-human | 02 |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
 | [next-steps](next-steps/spec.md) | [07-add-a-beta-support-path](next-steps/issues/07-add-a-beta-support-path.md) | task | agent | ready-for-human | 01 |
 | [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | ready-for-agent | 01, 02 |

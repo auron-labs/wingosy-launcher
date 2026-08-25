@@ -49,7 +49,7 @@ export default function ImmersiveModeApp({
   const launchInFlightRef = useRef(false);
   const libraryRequestId = useRef(0);
   const nextPageRef = useRef(2);
-  const nextPageInFlightRef = useRef(false);
+  const nextPageInFlightRef = useRef(null);
   const selectedGameIdRef = useRef(null);
   const focusedGameIdRef = useRef(null);
   const gamesRef = useRef([]);
@@ -90,6 +90,7 @@ export default function ImmersiveModeApp({
 
   const loadData = useCallback(async () => {
     const requestId = ++libraryRequestId.current;
+    nextPageInFlightRef.current = null;
     try {
       setLoading(true);
       setError(null);
@@ -115,7 +116,7 @@ export default function ImmersiveModeApp({
       gamesRef.current = refreshedGames;
       setGames(refreshedGames);
       setGameTotal(total);
-      nextPageRef.current = Math.floor(refreshedGames.length / GAMES_PER_PAGE) + 1;
+      nextPageRef.current = Math.ceil(refreshedGames.length / GAMES_PER_PAGE) + 1;
       const preservedGameId = selectedGameIdRef.current ?? focusedGameIdRef.current;
       const selectedIndexInGames = refreshedGames.findIndex(
         (game) => game.id === preservedGameId,
@@ -154,11 +155,12 @@ export default function ImmersiveModeApp({
   }, []);
 
   const loadNextPage = useCallback(() => {
-    if (nextPageInFlightRef.current || games.length >= gameTotal) return;
+    if (nextPageInFlightRef.current || gamesRef.current.length >= gameTotal) return;
 
     const requestId = libraryRequestId.current;
     const page = nextPageRef.current;
-    nextPageInFlightRef.current = true;
+    const request = { requestId, page };
+    nextPageInFlightRef.current = request;
     void (async () => {
       try {
         const result = await invoke("get_games_page", {
@@ -185,10 +187,12 @@ export default function ImmersiveModeApp({
           setError(err?.message || String(err));
         }
       } finally {
-        nextPageInFlightRef.current = false;
+        if (nextPageInFlightRef.current === request) {
+          nextPageInFlightRef.current = null;
+        }
       }
     })();
-  }, [gameTotal, games.length]);
+  }, [gameTotal]);
 
   useEffect(() => {
     loadData();

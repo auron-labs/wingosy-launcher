@@ -275,4 +275,157 @@ describe("ImmersiveModeApp launch context", () => {
     expect(screen.getByTestId("game-61")).toHaveAttribute("data-focused", "true");
     expect(invoke.mock.calls.some(([, args]) => args?.page === 3)).toBe(false);
   });
+
+  it("does not re-request retained later-page games after refresh", async () => {
+    const firstPage = Array.from({ length: 60 }, (_, index) => ({
+      id: index + 1,
+      name: `Game ${index + 1}`,
+      platform_id: "gba",
+    }));
+    const secondPage = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 61,
+      name: `Game ${index + 61}`,
+      platform_id: "gba",
+    }));
+    let pageOneCalls = 0;
+    let pageTwoCalls = 0;
+    let pageThreeCalls = 0;
+    let finishLaunch;
+
+    invoke.mockImplementation((command, args) => {
+      if (command === "get_games_page") {
+        if (args.page === 1) {
+          pageOneCalls += 1;
+          return Promise.resolve({ games: firstPage, total: 73 });
+        }
+        if (args.page === 2) {
+          pageTwoCalls += 1;
+          return Promise.resolve({ games: secondPage, total: 73 });
+        }
+        if (args.page === 3) {
+          pageThreeCalls += 1;
+          return Promise.resolve({
+            games: [{ id: 73, name: "Game 73", platform_id: "gba" }],
+            total: 73,
+          });
+        }
+        return Promise.reject(new Error(`unexpected page ${args.page}`));
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "prepare_and_launch_game") {
+        return new Promise((resolve) => {
+          finishLaunch = resolve;
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("game-60")).toBeInTheDocument());
+    const library = screen.getByTestId("immersive-library");
+    for (let index = 0; index < 59; index += 1) {
+      fireEvent.keyDown(library, { key: "ArrowRight" });
+    }
+    await waitFor(() => expect(screen.getByTestId("game-72")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("game-61"));
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(finishLaunch).toEqual(expect.any(Function)));
+    await act(async () => finishLaunch({ success: true }));
+    await waitFor(() => expect(pageOneCalls).toBe(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(pageThreeCalls).toBe(1));
+    expect(pageTwoCalls).toBe(1);
+  });
+
+  it("does not let a stale page request clear a replacement request guard", async () => {
+    const firstPage = Array.from({ length: 60 }, (_, index) => ({
+      id: index + 1,
+      name: `Game ${index + 1}`,
+      platform_id: "gba",
+    }));
+    const stalePage = [{ id: 999, name: "Stale Game", platform_id: "gba" }];
+    const secondPage = [{ id: 61, name: "Game 61", platform_id: "gba" }];
+    let pageOneCalls = 0;
+    let pageTwoCalls = 0;
+    let finishStalePage;
+    let finishRefresh;
+    let finishReplacementPage;
+
+    invoke.mockImplementation((command, args) => {
+      if (command === "get_games_page") {
+        if (args.page === 1) {
+          pageOneCalls += 1;
+          if (pageOneCalls === 1) return Promise.resolve({ games: firstPage, total: 61 });
+          return new Promise((resolve) => {
+            finishRefresh = resolve;
+          });
+        }
+        if (args.page === 2) {
+          pageTwoCalls += 1;
+          if (pageTwoCalls === 1) {
+            return new Promise((resolve) => {
+              finishStalePage = resolve;
+            });
+          }
+          return new Promise((resolve) => {
+            finishReplacementPage = resolve;
+          });
+        }
+        return Promise.reject(new Error(`unexpected page ${args.page}`));
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "prepare_and_launch_game") return Promise.resolve({ success: true });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("game-60")).toBeInTheDocument());
+    const library = screen.getByTestId("immersive-library");
+    for (let index = 0; index < 59; index += 1) {
+      fireEvent.keyDown(library, { key: "ArrowRight" });
+    }
+    await waitFor(() => expect(finishStalePage).toEqual(expect.any(Function)));
+
+    fireEvent.click(screen.getByTestId("game-60"));
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(finishRefresh).toEqual(expect.any(Function)));
+    await act(async () => finishRefresh({ games: firstPage, total: 61 }));
+    await waitFor(() => expect(finishReplacementPage).toEqual(expect.any(Function)));
+    expect(pageTwoCalls).toBe(2);
+
+    await act(async () => finishStalePage({ games: stalePage, total: 61 }));
+    fireEvent.keyDown(screen.getByTestId("immersive-library"), { key: "ArrowLeft" });
+    expect(pageTwoCalls).toBe(2);
+
+    await act(async () => finishReplacementPage({ games: secondPage, total: 61 }));
+    await waitFor(() => expect(screen.getByTestId("game-61")).toBeInTheDocument());
+    expect(screen.getAllByTestId("game-61")).toHaveLength(1);
+    expect(screen.queryByTestId("game-999")).not.toBeInTheDocument();
+    expect(invoke.mock.calls.some(([, request]) => request?.page === 3)).toBe(false);
+  });
 });

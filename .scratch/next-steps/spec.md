@@ -35,6 +35,10 @@ The first private beta is deliberately narrow:
 Plan 03 code follow-up is complete but remains **IN PROGRESS** pending native
 Windows credential and manual acceptance.
 
+Plan 04 agent code follow-up is complete but remains **IN PROGRESS** pending
+native Windows Cargo and representative large-catalogue first-render/next-page
+checks.
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with reason) | REJECTED
 
 ## Beta-ready definition

@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: 02
 
 > Preserve current user-owned changes. Run `git status --short` before editing;
@@ -100,3 +100,32 @@ Windows Cargo and the representative large-catalogue manual exercise remain open
 
 A stale immersive pagination race remains to be resolved, and the Windows
 large-catalogue check remains pending.
+
+### 2026-08-25 — Investigation complete
+
+The stale race occurs when an obsolete next-page request clears a newer
+request's shared in-flight lock in `finally`; implementation will use request
+ownership and add a regression test.
+
+### 2026-08-25 — Implementation progress
+
+Each immersive next-page request now owns the in-flight guard, and an overlap
+regression test has been added. At that point, verification had not yet run
+because the implementation agent had no shell.
+
+### 2026-08-25 — Review progress
+
+The request-ownership fix is correct. Review found that refresh pagination
+bookkeeping can repeat the last partially loaded page and that the next-page
+total guard should read the current games ref; these findings were addressed
+before final verification.
+
+### 2026-08-25 — Review findings addressed
+
+Retained-page bookkeeping now advances with ceiling page math, the next-page
+total guard uses the current games ref, and a refresh regression was added.
+The earlier pending-verification note is superseded by the final verification below.
+
+### 2026-08-25 — Agent follow-up complete
+
+The stale request ownership race and refresh page bookkeeping were fixed, and regressions were added. Verification passed: focused immersive 5/5; typecheck; full Vitest (11 files, 74 tests); build; lint with 7 pre-existing warnings and no errors; Rust unit (260 passed, 1 ignored). Native Windows Cargo and the representative Windows large-catalogue first-render/next-page exercise remain for human acceptance.
