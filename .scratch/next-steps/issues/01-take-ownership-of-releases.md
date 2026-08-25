@@ -147,3 +147,10 @@ PROGRESS`.
 The pre-push Gitleaks scan covered all 370 commits. Its 23 findings were repeated
 detections of one deterministic, test-only Switch firmware fixture; review found
 no live credential and no required history rewrite or rotation.
+
+### 2026-08-25 — Remote publication deferred
+
+The maintainer declined the first public `main` push and public beta publication
+for now. Branch protection cannot be configured until `main` exists remotely, and
+the installer, manifest, and Windows update verification therefore remain
+blocked. Local ownership work is committed, but the task is not complete.
