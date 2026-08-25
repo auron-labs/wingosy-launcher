@@ -92,6 +92,15 @@ fn target_path(root: &Path, record: &FirmwareRecord) -> Result<PathBuf> {
     Ok(root.join(platform).join(file_name))
 }
 
+fn switch_target_path(root: &Path, record: &FirmwareRecord) -> Result<PathBuf> {
+    if map_romm_slug(&record.platform_slug) != "switch" {
+        anyhow::bail!("Firmware record is not a Switch artifact");
+    }
+    safe_component(&record.platform_slug, "platform slug")?;
+    let file_name = safe_component(&record.firmware.file_name, "firmware filename")?;
+    Ok(root.join("switch").join(file_name))
+}
+
 async fn fetch_firmware(config: &AppConfig) -> Result<(RomMClient, Vec<FirmwareRecord>)> {
     let client = configured_client(config)?;
     let platforms = client.get_platforms().await?;
@@ -166,6 +175,15 @@ async fn download_record(
     root: &Path,
     record: &FirmwareRecord,
 ) -> Result<PathBuf> {
+    let target = target_path(root, record)?;
+    download_record_at(client, &target, record).await
+}
+
+async fn download_record_at(
+    client: &RomMClient,
+    target: &Path,
+    record: &FirmwareRecord,
+) -> Result<PathBuf> {
     if record.firmware.missing_from_fs {
         anyhow::bail!(
             "{} is missing from the RomM server filesystem",
@@ -173,9 +191,8 @@ async fn download_record(
         );
     }
 
-    let target = target_path(root, record)?;
-    if file_is_current(&target, record.firmware.md5_hash.as_deref()) {
-        return Ok(target);
+    if file_is_current(target, record.firmware.md5_hash.as_deref()) {
+        return Ok(target.to_path_buf());
     }
 
     let parent = target
@@ -219,10 +236,10 @@ async fn download_record(
     }
 
     if target.exists() {
-        tokio::fs::remove_file(&target).await?;
+        tokio::fs::remove_file(target).await?;
     }
-    tokio::fs::rename(&partial, &target).await?;
-    Ok(target)
+    tokio::fs::rename(&partial, target).await?;
+    Ok(target.to_path_buf())
 }
 
 #[tauri::command]
@@ -398,12 +415,153 @@ fn relevant_records<'a>(
         .collect()
 }
 
+fn select_switch_record<'a>(
+    records: &[&'a FirmwareRecord],
+    canonical_name: &str,
+    is_fallback: fn(&str) -> bool,
+    label: &str,
+) -> Result<Option<&'a FirmwareRecord>> {
+    let mut canonical = records.iter().copied().filter(|record| {
+        record
+            .firmware
+            .file_name
+            .eq_ignore_ascii_case(canonical_name)
+    });
+    let selected = canonical.next();
+    if canonical.next().is_some() {
+        anyhow::bail!("Multiple Switch {label} records match the canonical {canonical_name}");
+    }
+    if selected.is_some() {
+        return Ok(selected);
+    }
+
+    let mut fallbacks = records
+        .iter()
+        .copied()
+        .filter(|record| is_fallback(&record.firmware.file_name));
+    match (fallbacks.next(), fallbacks.next()) {
+        (None, _) => Ok(None),
+        (Some(record), None) => Ok(Some(record)),
+        (Some(_), Some(_)) => {
+            anyhow::bail!("Multiple Switch {label} fallback records were found")
+        }
+    }
+}
+
+fn switch_records(
+    records: &[FirmwareRecord],
+) -> Result<Option<(&FirmwareRecord, &FirmwareRecord)>> {
+    let switch_records: Vec<_> = records
+        .iter()
+        .filter(|record| map_romm_slug(&record.platform_slug) == "switch")
+        .collect();
+    let prod_keys =
+        select_switch_record(&switch_records, "prod.keys", is_prod_keys_name, "prod.keys")?;
+    let firmware_zip = select_switch_record(
+        &switch_records,
+        "firmware.zip",
+        is_firmware_archive_name,
+        "firmware archive",
+    )?;
+
+    match (prod_keys, firmware_zip) {
+        (Some(prod_keys), Some(firmware_zip)) => Ok(Some((prod_keys, firmware_zip))),
+        (None, None) => Ok(None),
+        (None, Some(_)) => anyhow::bail!("No Switch prod.keys was found in the configured RomM"),
+        (Some(_), None) => {
+            anyhow::bail!("No Switch firmware archive was found in the configured RomM")
+        }
+    }
+}
+
+fn prepare_switch_firmware_for_launch(
+    root: &Path,
+    eden_executable: &Path,
+    appdata: Option<&Path>,
+) -> Result<BiosDistributionResult> {
+    if !eden_executable.is_file() {
+        anyhow::bail!(
+            "Configured Eden executable is unavailable at {}",
+            eden_executable.display()
+        );
+    }
+    let installed = install_switch_firmware(root, eden_executable, appdata)?;
+    installed.context(format!(
+        "Eden Switch preparation requires prod.keys and firmware.zip in {}",
+        root.join("switch").display()
+    ))
+}
+
+async fn prepare_eden_firmware_for_launch(
+    config: &AppConfig,
+    game_platform_id: &str,
+    eden_executable: &Path,
+) -> Result<BiosDownloadSummary> {
+    if map_romm_slug(game_platform_id) != "switch" {
+        return Ok(BiosDownloadSummary {
+            downloaded: 0,
+            skipped: 0,
+            paths: Vec::new(),
+        });
+    }
+    if !eden_executable.is_file() {
+        anyhow::bail!(
+            "Configured Eden executable is unavailable at {}",
+            eden_executable.display()
+        );
+    }
+
+    let root = config.bios_dir();
+    let (client, records) = fetch_firmware(config).await?;
+    let Some((prod_keys_record, firmware_zip_record)) = switch_records(&records)? else {
+        anyhow::bail!("No Switch prod.keys or firmware archive was found in the configured RomM");
+    };
+
+    let mut summary = BiosDownloadSummary {
+        downloaded: 0,
+        skipped: 0,
+        paths: Vec::new(),
+    };
+    for record in [prod_keys_record, firmware_zip_record] {
+        let path = switch_target_path(&root, record)?;
+        let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
+        let downloaded_path = download_record_at(&client, &path, record).await?;
+        if existed {
+            summary.skipped += 1;
+        } else {
+            summary.downloaded += 1;
+        }
+        summary
+            .paths
+            .push(downloaded_path.to_string_lossy().into_owned());
+    }
+
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    let prod_keys_path = switch_target_path(&root, prod_keys_record)?;
+    let firmware_zip_path = switch_target_path(&root, firmware_zip_record)?;
+    install_switch_firmware_from_files(
+        &prod_keys_path,
+        &firmware_zip_path,
+        eden_executable,
+        appdata.as_deref(),
+    )?
+    .context(format!(
+        "Eden Switch preparation requires prod.keys and firmware.zip in {}",
+        root.join("switch").display()
+    ))?;
+    Ok(summary)
+}
+
 pub(crate) async fn prepare_bios_for_launch(
     config: &AppConfig,
     emulator_id: &str,
     game_platform_id: &str,
     executable: &Path,
 ) -> Result<BiosDownloadSummary> {
+    if emulator_id == "eden" {
+        return prepare_eden_firmware_for_launch(config, game_platform_id, executable).await;
+    }
+
     let Some(target) = launch_target(emulator_id, executable) else {
         return Ok(BiosDownloadSummary {
             downloaded: 0,
@@ -498,23 +656,25 @@ fn find_case_insensitive_file(
         })
 }
 
+fn is_prod_keys_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("prod") && name.ends_with(".keys")
+}
+
+fn is_firmware_archive_name(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".zip")
+}
+
 fn switch_firmware_files(root: &Path) -> Result<Option<(PathBuf, PathBuf)>> {
     let directory = root.join("switch");
     if !directory.is_dir() {
         return Ok(None);
     }
 
-    let prod_keys = find_case_insensitive_file(&directory, |name| {
-        let name = name.to_ascii_lowercase();
-        name.starts_with("prod") && name.ends_with(".keys")
-    });
+    let prod_keys = find_case_insensitive_file(&directory, is_prod_keys_name);
     let firmware_zip =
         find_case_insensitive_file(&directory, |name| name.eq_ignore_ascii_case("firmware.zip"))
-            .or_else(|| {
-                find_case_insensitive_file(&directory, |name| {
-                    name.to_ascii_lowercase().ends_with(".zip")
-                })
-            });
+            .or_else(|| find_case_insensitive_file(&directory, is_firmware_archive_name));
 
     match (prod_keys, firmware_zip) {
         (None, None) => Ok(None),
@@ -685,12 +845,23 @@ fn install_switch_firmware(
     eden_executable: &Path,
     appdata: Option<&Path>,
 ) -> Result<Option<BiosDistributionResult>> {
+    if !eden_executable.is_file() {
+        return Ok(None);
+    }
     let Some((prod_keys, firmware_zip)) = switch_firmware_files(root)? else {
         return Ok(None);
     };
+    install_switch_firmware_from_files(&prod_keys, &firmware_zip, eden_executable, appdata)
+}
 
-    let header_key = read_header_key(&prod_keys)?;
-    let nca_count = validate_switch_firmware(&firmware_zip, &header_key)?;
+fn install_switch_firmware_from_files(
+    prod_keys: &Path,
+    firmware_zip: &Path,
+    eden_executable: &Path,
+    appdata: Option<&Path>,
+) -> Result<Option<BiosDistributionResult>> {
+    let header_key = read_header_key(prod_keys)?;
+    let nca_count = validate_switch_firmware(firmware_zip, &header_key)?;
     let eden_root = eden_data_root(eden_executable, appdata)?;
     let keys_directory = eden_root.join("keys");
     let registered_directory = eden_root
@@ -702,11 +873,11 @@ fn install_switch_firmware(
     std::fs::create_dir_all(&registered_directory)?;
 
     let prod_keys_partial = keys_directory.join("prod.keys.part");
-    std::fs::copy(&prod_keys, &prod_keys_partial).context("Failed to stage prod.keys for Eden")?;
+    std::fs::copy(prod_keys, &prod_keys_partial).context("Failed to stage prod.keys for Eden")?;
     replace_file(&prod_keys_partial, &keys_directory.join("prod.keys"))
         .context("Failed to install prod.keys for Eden")?;
 
-    let file = File::open(&firmware_zip)?;
+    let file = File::open(firmware_zip)?;
     let mut archive = ZipArchive::new(file)?;
     let mut installed = 0;
     for index in 0..archive.len() {
@@ -874,6 +1045,68 @@ mod tests {
         }
     }
 
+    fn switch_firmware_record(file_name: &str, id: i64) -> FirmwareRecord {
+        let mut record = firmware_record("switch", id);
+        record.firmware.file_name = file_name.to_string();
+        record
+    }
+
+    #[test]
+    fn switch_records_prefer_canonical_artifacts() {
+        let records = vec![
+            switch_firmware_record("prod-backup.keys", 1),
+            switch_firmware_record("prod-older.keys", 5),
+            switch_firmware_record("firmware-old.zip", 2),
+            switch_firmware_record("firmware-older.zip", 6),
+            switch_firmware_record("prod.keys", 3),
+            switch_firmware_record("firmware.zip", 4),
+        ];
+
+        let selected = switch_records(&records).unwrap().unwrap();
+
+        assert_eq!(selected.0.firmware.id, 3);
+        assert_eq!(selected.1.firmware.id, 4);
+    }
+
+    #[test]
+    fn switch_records_allow_one_unambiguous_fallback() {
+        let records = vec![
+            switch_firmware_record("prod-user.keys", 1),
+            switch_firmware_record("firmware-user.zip", 2),
+        ];
+
+        let selected = switch_records(&records).unwrap().unwrap();
+
+        assert_eq!(selected.0.firmware.id, 1);
+        assert_eq!(selected.1.firmware.id, 2);
+    }
+
+    #[test]
+    fn switch_records_reject_ambiguous_key_fallbacks() {
+        let records = vec![
+            switch_firmware_record("prod-one.keys", 1),
+            switch_firmware_record("prod-two.keys", 2),
+            switch_firmware_record("firmware.zip", 3),
+        ];
+
+        let error = switch_records(&records).unwrap_err().to_string();
+
+        assert!(error.contains("Multiple Switch prod.keys fallback records"));
+    }
+
+    #[test]
+    fn switch_records_reject_ambiguous_fallbacks() {
+        let records = vec![
+            switch_firmware_record("prod.keys", 1),
+            switch_firmware_record("firmware-one.zip", 2),
+            switch_firmware_record("firmware-two.zip", 3),
+        ];
+
+        let error = switch_records(&records).unwrap_err().to_string();
+
+        assert!(error.contains("Multiple Switch firmware archive fallback records"));
+    }
+
     #[test]
     fn relevant_records_filters_retroarch_to_selected_platform_and_maps_romm_aliases() {
         let temp = tempfile::tempdir().unwrap();
@@ -979,6 +1212,24 @@ mod tests {
         assert!(!bios_root.exists());
     }
 
+    #[tokio::test]
+    async fn launch_preparation_rejects_stale_eden_executable_for_switch() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios_root = temp.path().join("bios");
+        let executable = temp.path().join("missing-eden.exe");
+        let mut config = AppConfig::default();
+        config.library.bios_directory = Some(bios_root);
+
+        let error = prepare_bios_for_launch(&config, "eden", "switch", &executable)
+            .await
+            .unwrap_err()
+            .to_string();
+        let executable_display = executable.display().to_string();
+
+        assert!(error.contains("Configured Eden executable is unavailable"));
+        assert!(error.contains(executable_display.as_str()));
+    }
+
     #[test]
     fn validates_prod_keys_header_key() {
         let temp = tempfile::tempdir().unwrap();
@@ -1042,5 +1293,130 @@ mod tests {
             .join("nand/system/Contents/registered/0100000000000001.nca")
             .is_file());
         assert!(!temp.path().join("ignored.nca").exists());
+    }
+
+    fn eden_test_executable(temp: &tempfile::TempDir) -> (PathBuf, PathBuf) {
+        let eden = temp.path().join("Eden");
+        let user = eden.join("user");
+        std::fs::create_dir_all(user.join("nand")).unwrap();
+        let executable = eden.join("eden.exe");
+        std::fs::write(&executable, b"").unwrap();
+        (executable, user)
+    }
+
+    fn write_switch_test_artifacts(root: &Path, archive_key: [u8; 32], prod_keys: &str) {
+        use zip::write::SimpleFileOptions;
+
+        let switch = root.join("switch");
+        std::fs::create_dir_all(&switch).unwrap();
+        std::fs::write(switch.join("prod.keys"), prod_keys).unwrap();
+
+        let mut encrypted_nca = vec![0_u8; 0xC00];
+        encrypted_nca[0x200..0x204].copy_from_slice(b"NCA3");
+        transform_nca_header_xts(&mut encrypted_nca, &archive_key, false).unwrap();
+
+        let archive_file = File::create(switch.join("firmware.zip")).unwrap();
+        let mut archive = zip::ZipWriter::new(archive_file);
+        archive
+            .start_file("0100000000000001.nca", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&encrypted_nca).unwrap();
+        archive.finish().unwrap();
+    }
+
+    const VALID_PROD_KEYS: &str =
+        "header_key = 00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\n";
+    const VALID_HEADER_KEY: [u8; 32] = [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+        0xee, 0xff,
+    ];
+
+    #[test]
+    fn eden_launch_preparation_installs_valid_artifacts_into_selected_instance() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        let other_eden_user = temp.path().join("other-eden/user");
+        std::fs::create_dir_all(other_eden_user.join("nand")).unwrap();
+        let other_eden_executable = temp.path().join("other-eden/eden.exe");
+        std::fs::write(&other_eden_executable, b"").unwrap();
+        write_switch_test_artifacts(&bios, VALID_HEADER_KEY, VALID_PROD_KEYS);
+
+        let result = prepare_switch_firmware_for_launch(&bios, &eden_executable, None).unwrap();
+
+        assert_eq!(result.emulator_id, "eden");
+        assert_eq!(result.files_copied, 2);
+        assert!(eden_user.join("keys/prod.keys").is_file());
+        assert!(eden_user
+            .join("nand/system/Contents/registered/0100000000000001.nca")
+            .is_file());
+        assert!(!other_eden_user.join("keys/prod.keys").exists());
+        assert!(other_eden_executable.is_file());
+    }
+
+    #[test]
+    fn eden_launch_preparation_rejects_missing_artifacts_before_install() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+
+        let error = prepare_switch_firmware_for_launch(&bios, &eden_executable, None)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("prod.keys"));
+        assert!(error.contains("firmware.zip"));
+        assert!(!eden_user.join("keys").exists());
+        assert!(!eden_user.join("nand/system/Contents/registered").exists());
+    }
+
+    #[test]
+    fn eden_launch_preparation_rejects_invalid_keys_before_install() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        write_switch_test_artifacts(&bios, VALID_HEADER_KEY, "not prod keys\n");
+
+        let error = prepare_switch_firmware_for_launch(&bios, &eden_executable, None)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("header_key"));
+        assert!(!eden_user.join("keys").exists());
+        assert!(!eden_user.join("nand/system/Contents/registered").exists());
+    }
+
+    #[test]
+    fn eden_launch_preparation_rejects_incompatible_archive_before_install() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        write_switch_test_artifacts(&bios, [0xaa; 32], VALID_PROD_KEYS);
+
+        let error = prepare_switch_firmware_for_launch(&bios, &eden_executable, None)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("not compatible"));
+        assert!(!eden_user.join("keys").exists());
+        assert!(!eden_user.join("nand/system/Contents/registered").exists());
+    }
+
+    #[test]
+    fn eden_launch_preparation_retries_idempotently() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        write_switch_test_artifacts(&bios, VALID_HEADER_KEY, VALID_PROD_KEYS);
+
+        prepare_switch_firmware_for_launch(&bios, &eden_executable, None).unwrap();
+        let result = prepare_switch_firmware_for_launch(&bios, &eden_executable, None).unwrap();
+
+        assert_eq!(result.files_copied, 2);
+        assert!(!eden_user.join("keys/prod.keys.part").exists());
+        assert!(!eden_user
+            .join("nand/system/Contents/registered/0100000000000001.nca.part")
+            .exists());
     }
 }
