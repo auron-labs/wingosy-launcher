@@ -166,7 +166,7 @@ fn file_is_current(path: &Path, expected_md5: Option<&str>) -> bool {
         Some(expected) => md5_file(path)
             .map(|actual| actual.eq_ignore_ascii_case(expected))
             .unwrap_or(false),
-        None => true,
+        None => false,
     }
 }
 
@@ -771,7 +771,6 @@ fn validate_switch_firmware(path: &Path, header_key: &[u8; 32]) -> Result<usize>
     let mut archive =
         ZipArchive::new(file).context("Switch firmware is not a valid ZIP archive")?;
     let mut count = 0;
-    let mut compatible_nca_found = false;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
         let Some(enclosed) = entry.enclosed_name() else {
@@ -784,29 +783,35 @@ fn validate_switch_firmware(path: &Path, header_key: &[u8; 32]) -> Result<usize>
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("nca"))
         {
             count += 1;
-            if !compatible_nca_found {
-                let mut encrypted_header = vec![0_u8; NCA_HEADER_SIZE];
-                let mut read = 0;
-                while read < encrypted_header.len() {
-                    let amount = entry.read(&mut encrypted_header[read..])?;
-                    if amount == 0 {
-                        break;
-                    }
-                    read += amount;
+            let file_name = enclosed
+                .file_name()
+                .context("Switch firmware archive contains an invalid NCA filename")?;
+            let mut encrypted_header = vec![0_u8; NCA_HEADER_SIZE];
+            let mut read = 0;
+            while read < encrypted_header.len() {
+                let amount = entry.read(&mut encrypted_header[read..])?;
+                if amount == 0 {
+                    break;
                 }
-                if read == NCA_HEADER_SIZE {
-                    transform_nca_header_xts(&mut encrypted_header, header_key, true)?;
-                    compatible_nca_found =
-                        &encrypted_header[NCA_MAGIC_OFFSET..NCA_MAGIC_OFFSET + 4] == b"NCA3";
-                }
+                read += amount;
+            }
+            if read != NCA_HEADER_SIZE {
+                anyhow::bail!(
+                    "Switch firmware NCA {} has an incomplete header",
+                    file_name.to_string_lossy()
+                );
+            }
+            transform_nca_header_xts(&mut encrypted_header, header_key, true)?;
+            if &encrypted_header[NCA_MAGIC_OFFSET..NCA_MAGIC_OFFSET + 4] != b"NCA3" {
+                anyhow::bail!(
+                    "prod.keys is not compatible with Switch firmware NCA {}",
+                    file_name.to_string_lossy()
+                );
             }
         }
     }
     if count == 0 {
         anyhow::bail!("Switch firmware ZIP does not contain any .nca files");
-    }
-    if !compatible_nca_found {
-        anyhow::bail!("prod.keys is not compatible with the Switch firmware ZIP");
     }
     Ok(count)
 }
@@ -818,6 +823,7 @@ fn eden_data_root(eden_executable: &Path, appdata: Option<&Path>) -> Result<Path
     let portable_user = parent.join("user");
 
     if parent.join("portable.txt").is_file()
+        || portable_user.is_dir()
         || portable_user.join("nand").is_dir()
         || portable_user.join("keys").is_dir()
     {
@@ -1026,6 +1032,17 @@ mod tests {
             target_path(Path::new("C:/bios"), &record).unwrap(),
             PathBuf::from("C:/bios/psx/scph1001.bin")
         );
+    }
+
+    #[test]
+    fn file_without_expected_md5_is_not_current() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("firmware.bin");
+        std::fs::write(&path, b"cached artifact").unwrap();
+
+        assert!(!file_is_current(&path, None));
+        let expected_md5 = md5_file(&path).unwrap();
+        assert!(file_is_current(&path, Some(expected_md5.as_str())));
     }
 
     fn firmware_record(platform_slug: &str, id: i64) -> FirmwareRecord {
@@ -1247,6 +1264,19 @@ mod tests {
     }
 
     #[test]
+    fn eden_data_root_uses_adjacent_user_directory_as_portable_instance() {
+        let temp = tempfile::tempdir().unwrap();
+        let eden = temp.path().join("Eden");
+        let user = eden.join("user");
+        let executable = eden.join("eden.exe");
+        let appdata = temp.path().join("appdata");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(&executable, b"").unwrap();
+
+        assert_eq!(eden_data_root(&executable, Some(&appdata)).unwrap(), user);
+    }
+
+    #[test]
     fn installs_switch_firmware_into_existing_portable_eden_layout() {
         use zip::write::SimpleFileOptions;
 
@@ -1401,6 +1431,47 @@ mod tests {
         assert!(error.contains("not compatible"));
         assert!(!eden_user.join("keys").exists());
         assert!(!eden_user.join("nand/system/Contents/registered").exists());
+    }
+
+    #[test]
+    fn eden_launch_preparation_rejects_later_incompatible_nca_before_install() {
+        use zip::write::SimpleFileOptions;
+
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        let switch = bios.join("switch");
+        std::fs::create_dir_all(&switch).unwrap();
+        std::fs::write(switch.join("prod.keys"), VALID_PROD_KEYS).unwrap();
+
+        let mut compatible_nca = vec![0_u8; 0xC00];
+        compatible_nca[0x200..0x204].copy_from_slice(b"NCA3");
+        transform_nca_header_xts(&mut compatible_nca, &VALID_HEADER_KEY, false).unwrap();
+
+        let archive_file = File::create(switch.join("firmware.zip")).unwrap();
+        let mut archive = zip::ZipWriter::new(archive_file);
+        archive
+            .start_file("0100000000000001.nca", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&compatible_nca).unwrap();
+        archive
+            .start_file("0100000000000002.nca", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&[0_u8; 0xC00]).unwrap();
+        archive.finish().unwrap();
+
+        let error = prepare_switch_firmware_for_launch(&bios, &eden_executable, None)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("not compatible"));
+        assert!(!eden_user.join("keys/prod.keys").exists());
+        assert!(!eden_user
+            .join("nand/system/Contents/registered/0100000000000001.nca")
+            .exists());
+        assert!(!eden_user
+            .join("nand/system/Contents/registered/0100000000000002.nca")
+            .exists());
     }
 
     #[test]
