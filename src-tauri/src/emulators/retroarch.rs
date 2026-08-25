@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
-use std::io::Read;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,6 +11,10 @@ use crate::config::{AppConfig, RetroArchInstallKind};
 pub const RETROARCH_VERSION: &str = "1.19.1";
 pub const MANIFEST_VERSION: &str = "beta-2026-08-23";
 pub const RETROARCH_EXECUTABLE_SHA256: &str = "738ca659d2360cedbc62bab7b53c6e9bb20c7d92dfe3de743fa4f3b1fa218e7b";
+const RETROARCH_CORES_URL: &str =
+    "https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_cores.7z";
+const RETROARCH_CORES_ARCHIVE_SHA256: &str =
+    "4384854038d3e2a85cae6563e3a78ba7a8c0696fc6e1f9f4a0e6b8044cef8d92";
 
 #[derive(Debug, Clone, Copy)]
 pub struct Artifact {
@@ -23,7 +28,10 @@ pub struct Artifact {
 pub struct CoreArtifact {
     pub platform_id: &'static str,
     pub filename: &'static str,
-    pub sha256: &'static str,
+    /// All certified core DLLs are members of this one immutable bundle.
+    pub archive_url: &'static str,
+    pub archive_sha256: &'static str,
+    pub installed_sha256: &'static str,
 }
 
 pub fn retroarch_artifact() -> Artifact {
@@ -38,9 +46,9 @@ pub fn retroarch_artifact() -> Artifact {
 pub fn retroarch_cores_artifact() -> Artifact {
     Artifact {
         filename: "RetroArch_cores.7z",
-        url: "https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_cores.7z",
+        url: RETROARCH_CORES_URL,
         format: "7z",
-        sha256: "4384854038d3e2a85cae6563e3a78ba7a8c0696fc6e1f9f4a0e6b8044cef8d92",
+        sha256: RETROARCH_CORES_ARCHIVE_SHA256,
     }
 }
 
@@ -49,44 +57,56 @@ pub fn core_artifacts() -> &'static [CoreArtifact] {
         CoreArtifact {
             platform_id: "nes",
             filename: "fceumm_libretro.dll",
-            sha256: "2352c2592986fb3155c36dd316a20886f7fbaed0434130c6d464c8ffec9e08b3",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "2352c2592986fb3155c36dd316a20886f7fbaed0434130c6d464c8ffec9e08b3",
         },
         CoreArtifact {
             platform_id: "snes",
             filename: "snes9x_libretro.dll",
-            sha256: "1d7d68f6568f74e8de0599af718d9fce8e66b656d8b77594cd37b7ee2465cffd",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "1d7d68f6568f74e8de0599af718d9fce8e66b656d8b77594cd37b7ee2465cffd",
         },
         CoreArtifact {
             platform_id: "gb",
             filename: "gambatte_libretro.dll",
-            sha256: "588692d07db0c7fd28703326fe14b9b58cfaee19b88eec21952a39d8d7730fe2",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "588692d07db0c7fd28703326fe14b9b58cfaee19b88eec21952a39d8d7730fe2",
         },
         CoreArtifact {
             platform_id: "gbc",
             filename: "gambatte_libretro.dll",
-            sha256: "588692d07db0c7fd28703326fe14b9b58cfaee19b88eec21952a39d8d7730fe2",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "588692d07db0c7fd28703326fe14b9b58cfaee19b88eec21952a39d8d7730fe2",
         },
         CoreArtifact {
             platform_id: "gba",
             filename: "mgba_libretro.dll",
-            sha256: "1de88f427faf79353837a547070f9b74bde8454cb3f27f41a8f7ed4540e7d324",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "1de88f427faf79353837a547070f9b74bde8454cb3f27f41a8f7ed4540e7d324",
         },
         CoreArtifact {
             platform_id: "genesis",
             filename: "genesis_plus_gx_libretro.dll",
-            sha256: "a5648038ee099670b7225d9acdb4a5afb77c2215d5038e70ae995877bdbed504",
+            archive_url: RETROARCH_CORES_URL,
+            archive_sha256: RETROARCH_CORES_ARCHIVE_SHA256,
+            installed_sha256: "a5648038ee099670b7225d9acdb4a5afb77c2215d5038e70ae995877bdbed504",
         },
     ];
 
     CORES
 }
 
-pub fn core_artifact_for_filename(filename: &str) -> Option<Artifact> {
+pub fn core_artifact_for_filename(filename: &str) -> Option<CoreArtifact> {
     let filename = filename.trim_end_matches(".zip");
     core_artifacts()
         .iter()
         .find(|core| core.filename == filename)
-        .map(|_| retroarch_cores_artifact())
+        .copied()
 }
 
 pub fn profile_dir() -> Result<PathBuf> {
@@ -108,16 +128,18 @@ pub fn ensure_profile_at(root: &Path) -> Result<PathBuf> {
 
     let config_path = root.join("wingosy-retroarch-v1.cfg");
     if !config_path.exists() {
-        std::fs::write(&config_path, profile_contents())
-            .context("Failed to write Wingosy RetroArch profile")?;
+        write_profile_atomically(&config_path)?;
     }
 
     Ok(config_path)
 }
 
 pub fn repair_profile_at(root: &Path) -> Result<Option<PathBuf>> {
-    let backup = reset_profile_at(root)?;
-    ensure_profile_at(root)?;
+    std::fs::create_dir_all(root)
+        .context("Failed to create Wingosy RetroArch profile directory")?;
+    let config_path = root.join("wingosy-retroarch-v1.cfg");
+    let backup = backup_profile_at(root, &config_path)?;
+    write_profile_atomically(&config_path)?;
     Ok(backup)
 }
 
@@ -132,6 +154,16 @@ pub fn reset_profile_at(root: &Path) -> Result<Option<PathBuf>> {
         return Ok(None);
     }
 
+    let backup = backup_profile_at(root, &config_path)?;
+    std::fs::remove_file(config_path).context("Failed to remove Wingosy RetroArch profile")?;
+    Ok(backup)
+}
+
+fn backup_profile_at(root: &Path, config_path: &Path) -> Result<Option<PathBuf>> {
+    if !config_path.is_file() {
+        return Ok(None);
+    }
+
     let backups = root.join("backups");
     std::fs::create_dir_all(&backups)
         .context("Failed to create RetroArch profile backup directory")?;
@@ -142,8 +174,49 @@ pub fn reset_profile_at(root: &Path) -> Result<Option<PathBuf>> {
     let backup_path = backups.join(format!("wingosy-retroarch-v1-{timestamp}.cfg"));
     std::fs::copy(&config_path, &backup_path)
         .context("Failed to back up Wingosy RetroArch profile")?;
-    std::fs::remove_file(config_path).context("Failed to remove Wingosy RetroArch profile")?;
     Ok(Some(backup_path))
+}
+
+fn write_profile_atomically(config_path: &Path) -> Result<()> {
+    let parent = config_path
+        .parent()
+        .context("Wingosy RetroArch profile must have a parent directory")?;
+    let filename = config_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Wingosy RetroArch profile must have a file name")?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("System clock is before Unix epoch")?
+        .as_nanos();
+    let temporary = parent.join(format!(".{filename}-{nonce}-{}.tmp", std::process::id()));
+
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .context("Failed to create temporary Wingosy RetroArch profile")?;
+        file.write_all(profile_contents().as_bytes())
+            .context("Failed to write temporary Wingosy RetroArch profile")?;
+        file.sync_all()
+            .context("Failed to flush temporary Wingosy RetroArch profile")?;
+        drop(file);
+
+        #[cfg(windows)]
+        if config_path.exists() {
+            std::fs::remove_file(config_path)
+                .context("Failed to replace Wingosy RetroArch profile")?;
+        }
+        std::fs::rename(&temporary, config_path)
+            .context("Failed to replace Wingosy RetroArch profile")?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        std::fs::remove_file(&temporary).ok();
+    }
+    result
 }
 
 pub fn manifest_identity_matches(config: &AppConfig) -> bool {
@@ -186,22 +259,23 @@ pub fn managed_profile_enabled(config: &AppConfig, retroarch_executable: &Path) 
 }
 
 pub fn managed_install_is_ready(config: &AppConfig, retroarch_executable: &Path) -> bool {
-    manifest_identity_matches(config)
-        && managed_manifest_marker_matches(retroarch_executable)
-        && managed_core_set_is_present(retroarch_executable)
+    validate_managed_install(config, retroarch_executable).is_ok()
 }
 
 pub fn validate_managed_install(config: &AppConfig, retroarch_executable: &Path) -> Result<()> {
     if !manifest_identity_matches(config) {
         anyhow::bail!("RetroArch is not a Wingosy-managed certified install");
     }
-    if !retroarch_executable.is_file() {
-        anyhow::bail!("Managed RetroArch executable was not found");
-    }
     if !managed_manifest_marker_matches(retroarch_executable) {
         anyhow::bail!("Managed RetroArch manifest marker is missing or invalid");
     }
+    validate_managed_artifacts(retroarch_executable)
+}
 
+pub fn validate_managed_artifacts(retroarch_executable: &Path) -> Result<()> {
+    if !retroarch_executable.is_file() {
+        anyhow::bail!("Managed RetroArch executable was not found");
+    }
     let cores_dir = retroarch_executable
         .parent()
         .context("RetroArch executable must have a parent directory")?
@@ -211,7 +285,7 @@ pub fn validate_managed_install(config: &AppConfig, retroarch_executable: &Path)
             .iter()
             .find(|artifact| artifact.filename == *filename)
             .context("Certified RetroArch core is missing from the manifest")?;
-        verify_sha256(&cores_dir.join(filename), artifact.sha256)
+        verify_sha256(&cores_dir.join(filename), artifact.installed_sha256)
             .with_context(|| format!("Certified RetroArch core {} failed validation", filename))?;
     }
     verify_sha256(retroarch_executable, RETROARCH_EXECUTABLE_SHA256)
@@ -340,7 +414,25 @@ mod tests {
         assert!(core_artifacts()
             .iter()
             .all(|core| core.filename.ends_with("_libretro.dll")));
-        assert!(core_artifacts().iter().all(|core| core.sha256.len() == 64));
+        assert!(core_artifacts().iter().all(|core| {
+            core.archive_url == cores.url
+                && core.archive_sha256 == cores.sha256
+                && core.installed_sha256.len() == 64
+        }));
+    }
+
+    #[test]
+    fn every_promised_core_records_the_same_pinned_bundle_url_and_its_own_hash() {
+        let bundle = retroarch_cores_artifact();
+
+        assert_eq!(core_artifacts().len(), 6);
+        assert!(core_artifacts().iter().all(|core| {
+            core.archive_url == bundle.url
+                && core.archive_sha256 == bundle.sha256
+                && !core.archive_url.contains("latest")
+                && core.archive_sha256 != core.installed_sha256
+                && core.installed_sha256.len() == 64
+        }));
     }
 
     #[test]
@@ -363,14 +455,14 @@ mod tests {
     #[test]
     fn profile_repair_preserves_user_files_and_regenerates_only_delta() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = ensure_profile_at(dir.path()).unwrap();
+        let config_path = ensure_profile_at(&dir.path().join("wingosy-profile")).unwrap();
         let sentinels = [
-            dir.path().join("retroarch.cfg"),
-            dir.path().join("controller-profiles").join("user.cfg"),
-            dir.path().join("remaps").join("user.rmp"),
-            dir.path().join("saves").join("game.srm"),
-            dir.path().join("states").join("game.state"),
-            dir.path().join("system").join("firmware.bin"),
+            dir.path().join("retroarch").join("retroarch.cfg"),
+            dir.path().join("retroarch").join("autoconfig").join("user.cfg"),
+            dir.path().join("retroarch").join("remaps").join("user.rmp"),
+            dir.path().join("retroarch").join("saves").join("game.srm"),
+            dir.path().join("retroarch").join("states").join("game.state"),
+            dir.path().join("retroarch").join("system").join("firmware.bin"),
         ];
         for sentinel in &sentinels {
             std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
@@ -378,7 +470,9 @@ mod tests {
         }
         std::fs::write(&config_path, b"stale profile").unwrap();
 
-        let backup = repair_profile_at(dir.path()).unwrap().unwrap();
+        let backup = repair_profile_at(&dir.path().join("wingosy-profile"))
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             std::fs::read(&config_path).unwrap(),
@@ -388,6 +482,7 @@ mod tests {
             assert_eq!(std::fs::read(sentinel).unwrap(), b"keep me");
         }
         assert!(backup.exists());
+        assert_eq!(std::fs::read(backup).unwrap(), b"stale profile");
     }
 
     #[test]
@@ -412,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn extra_user_cores_do_not_invalidate_managed_readiness() {
+    fn extra_user_cores_do_not_change_the_certified_core_set() {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("retroarch.exe");
         let cores = dir.path().join("cores");
@@ -424,11 +519,26 @@ mod tests {
         }
         std::fs::write(cores.join("user_core_libretro.dll"), b"user core").unwrap();
 
+        assert!(managed_core_set_is_present(&executable));
+    }
+
+    #[test]
+    fn managed_readiness_revalidates_the_executable_and_cores() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let cores = dir.path().join("cores");
+        std::fs::create_dir_all(&cores).unwrap();
+        std::fs::write(&executable, b"modified executable").unwrap();
+        write_manifest_marker(&executable).unwrap();
+        for filename in certified_core_filenames() {
+            std::fs::write(cores.join(filename), b"modified core").unwrap();
+        }
+
         let mut config = AppConfig::default();
         config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
         config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
 
-        assert!(managed_install_is_ready(&config, &executable));
+        assert!(!managed_install_is_ready(&config, &executable));
     }
 
     #[test]

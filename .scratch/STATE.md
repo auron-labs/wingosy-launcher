@@ -1,8 +1,8 @@
 # Local Issue State
 
-Generated: 2026-08-25T01:44:43Z
+Generated: 2026-08-25T03:35:10Z
 
-Tickets: 8 active, 3 resolved
+Tickets: 7 active, 4 resolved
 
 ## Active Tickets
 
@@ -14,7 +14,6 @@ Tickets: 8 active, 3 resolved
 | [next-steps](next-steps/spec.md) | [04-bound-library-loading](next-steps/issues/04-bound-library-loading.md) | task | agent | ready-for-human | 02 |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
 | [next-steps](next-steps/spec.md) | [07-add-a-beta-support-path](next-steps/issues/07-add-a-beta-support-path.md) | task | agent | ready-for-human | 01 |
-| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | ready-for-agent | 01, 02 |
 | [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-human | 04 |
 
 ## Resolved Tickets
@@ -24,3 +23,4 @@ Tickets: 8 active, 3 resolved
 | [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [01-prepare-bios-automatically-before-launch](automatic-firmware-installation/issues/01-prepare-bios-automatically-before-launch.md) | — | — | resolved | None — can start immediately |
 | [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [02-prepare-switch-firmware-automatically-for-eden](automatic-firmware-installation/issues/02-prepare-switch-firmware-automatically-for-eden.md) | — | — | resolved | 01 — Prepare BIOS automatically before launch |
 | [next-steps](next-steps/spec.md) | [05-publish-an-honest-beta-contract](next-steps/issues/05-publish-an-honest-beta-contract.md) | task | agent | resolved | 01 |
+| [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | resolved | 01, 02 |

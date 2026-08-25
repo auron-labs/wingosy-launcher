@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -80,7 +80,7 @@ general configuration editor.
 - [x] The managed launch appends the Wingosy delta; an existing external launch
       is byte-for-byte unchanged unless explicitly opted in.
 - [x] Repair restores the generated delta and preserves all sentinel user files.
-- [ ] `bun run test:unit`, `bun run typecheck`, and the relevant Rust tests pass.
+- [x] `bun run test:unit`, `bun run typecheck`, and the relevant Rust tests pass.
 - [x] No dependency is added solely to parse or generate the two-setting delta.
 
 ## STOP conditions
@@ -160,3 +160,36 @@ Verification:
 
 Per-core manifest shape and launch-time hash validation/data-preserving install
 concerns remain open, and Rust/Windows verification is pending.
+
+### 2026-08-25 — Follow-up implementation claimed
+
+- [x] Re-read the ticket, roadmap, tracker rules, and relevant implementation surface.
+- [x] Resolve the per-core manifest and managed-artifact validation concerns.
+- [x] Preserve user-owned install data and the managed/external launch policy in code and focused tests.
+- [x] Run focused and full available verification.
+- [x] Complete an independent code review and resolve the ticket.
+
+## Answer
+
+Resolved the completed-task audit concerns. Each promised core now records the
+pinned bundle URL and bundle SHA-256 separately from its installed DLL SHA-256.
+Managed installs stage and validate the frontend and cores before replacing
+Wingosy-owned files, remove stale managed files, and preserve RetroArch user
+configuration, autoconfigs, remaps, saves, states, and BIOS/system data.
+
+Managed launch paths validate artifacts before profile generation, BIOS work,
+save sync, or process start. Managed and opted-in external standalone/game
+launches append the Wingosy delta; ordinary external launches remain unchanged.
+Profile repair writes the generated delta atomically and keeps its backup.
+
+Verification on 2026-08-25:
+
+- `mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --bin wingosy-launcher retroarch` passed 34 tests with 1 ignored.
+- `mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --bin wingosy-launcher` passed.
+- `mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --bin wingosy-launcher` passed 266 tests with 1 ignored.
+- `mise exec -- bun run typecheck` passed.
+- `mise exec -- bun run test:unit` passed 74 tests across 11 files.
+- `git diff --check` passed.
+- Independent standards/spec reviews were completed; their blocking findings were fixed and the final confirmation review passed.
+
+Native Windows certification remains part of plan 06 rather than this code task.

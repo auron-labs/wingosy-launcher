@@ -28,7 +28,7 @@ The first private beta is deliberately narrow:
 | [04](issues/04-bound-library-loading.md) | Bound desktop and immersive library loading | P0 | M | 02 | IN PROGRESS |
 | [05](issues/05-publish-an-honest-beta-contract.md) | Publish an honest beta support contract | P1 | S | 01 | DONE |
 | [07](issues/07-add-a-beta-support-path.md) | Add a minimal beta support path | P1 | S | 01 | IN PROGRESS |
-| [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | IN PROGRESS |
+| [08](issues/08-manage-a-reproducible-retroarch-profile.md) | Manage a reproducible RetroArch profile | P0 | M | 01, 02 | DONE |
 | [09](issues/09-harden-immersive-controller-input.md) | Harden immersive controller input | P0 | M | 04 | IN PROGRESS |
 | [06](issues/06-certify-and-gate-the-windows-beta.md) | Certify and gate the Windows beta | P0 | M | 01-05, 08, 09 | TODO |
 

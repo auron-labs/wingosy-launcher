@@ -66,16 +66,7 @@ impl EmulatorLauncher {
         game: &Game,
         mut emulator: Emulator,
     ) -> Result<LaunchCommand> {
-        let rom_path = match game.local_file_path.as_deref() {
-            Some(path) if Path::new(path).is_file() => path,
-            _ if Path::new(&game.file_path).is_file() => game.file_path.as_str(),
-            _ => game
-                .local_file_path
-                .as_deref()
-                .unwrap_or(game.file_path.as_str()),
-        };
-
-        if emulator.is_retroarch {
+        let managed_install_validated = if emulator.is_retroarch {
             let configured_executable = emulator
                 .executable_path
                 .as_ref()
@@ -90,17 +81,48 @@ impl EmulatorLauncher {
             emulator.executable_path = Some(executable.clone());
             if self.config.emulators.retroarch_install_kind
                 == crate::config::RetroArchInstallKind::Managed
-                && !crate::emulators::retroarch::managed_install_is_ready(&self.config, &executable)
             {
-                bail!(
-                    "Managed RetroArch install is not ready; reinstall RetroArch to restore the Wingosy profile and certified cores"
-                );
+                crate::emulators::retroarch::validate_managed_install(&self.config, &executable)
+                    .context("Managed RetroArch install failed integrity validation")?;
+                true
+            } else {
+                false
             }
-            let use_beta_profile =
-                crate::emulators::retroarch::managed_profile_enabled(&self.config, &executable)
-                    || (self.config.emulators.retroarch_install_kind
-                        == crate::config::RetroArchInstallKind::External
-                        && self.config.emulators.retroarch_use_beta_profile);
+        } else {
+            false
+        };
+
+        self.build_command_after_validation(game, emulator, managed_install_validated)
+    }
+
+    fn build_command_after_validation(
+        &self,
+        game: &Game,
+        mut emulator: Emulator,
+        managed_install_validated: bool,
+    ) -> Result<LaunchCommand> {
+        let rom_path = match game.local_file_path.as_deref() {
+            Some(path) if Path::new(path).is_file() => path,
+            _ if Path::new(&game.file_path).is_file() => game.file_path.as_str(),
+            _ => game
+                .local_file_path
+                .as_deref()
+                .unwrap_or(game.file_path.as_str()),
+        };
+
+        if emulator.is_retroarch {
+            let executable = emulator
+                .executable_path
+                .as_ref()
+                .context("RetroArch executable is not configured")?;
+            let use_beta_profile = managed_install_validated
+                || crate::emulators::retroarch::managed_profile_enabled(
+                    &self.config,
+                    executable,
+                )
+                || (self.config.emulators.retroarch_install_kind
+                    == crate::config::RetroArchInstallKind::External
+                    && self.config.emulators.retroarch_use_beta_profile);
             if use_beta_profile {
                 let profile = crate::emulators::retroarch::ensure_profile()
                     .context("Failed to prepare Wingosy RetroArch profile")?;
@@ -114,7 +136,7 @@ impl EmulatorLauncher {
                 .as_deref()
                 .context("No RetroArch core is configured")?;
             emulator.core_name = Some(
-                resolve_core_path(&executable, core_name)?
+                resolve_core_path(executable, core_name)?
                     .to_string_lossy()
                     .into_owned(),
             );
@@ -167,6 +189,19 @@ impl EmulatorLauncher {
         }
 
         let command = self.build_command_with_emulator(game, emulator)?;
+        self.launch_command_with_running_stage(game, command, on_running)
+            .await
+    }
+
+    pub(crate) async fn launch_command_with_running_stage<F>(
+        &self,
+        game: &Game,
+        command: LaunchCommand,
+        on_running: F,
+    ) -> Result<LaunchResult>
+    where
+        F: FnOnce() + Send + 'static,
+    {
         let rom_path = &command.rom_path;
 
         if !Path::new(rom_path).is_file() {
@@ -519,8 +554,10 @@ mod tests {
     use super::*;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     };
+
+    static PROFILE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn test_launcher() -> EmulatorLauncher {
         let mut config = AppConfig::default();
@@ -616,6 +653,7 @@ mod tests {
 
     #[test]
     fn opted_in_external_retroarch_appends_wingosy_profile() {
+        let _profile_lock = PROFILE_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("retroarch.exe");
         let core = dir.path().join("cores").join("fceumm_libretro.dll");
@@ -845,7 +883,8 @@ mod tests {
     }
 
     #[test]
-    fn build_retroarch_nes_command_uses_managed_layout_and_per_game_default_core() {
+    fn build_managed_retroarch_rejects_modified_artifacts_before_profile_generation() {
+        let _profile_lock = PROFILE_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let executable = dir
             .path()
@@ -883,14 +922,54 @@ mod tests {
         db.set_emulator_for_game(game.id, "retroarch", None)
             .unwrap();
 
-        let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+        let profile = crate::emulators::retroarch::delta_path().unwrap();
+        let profile_before = fs::read(&profile).ok();
+        let error = EmulatorLauncher::new(config, db)
+            .build_command(&game)
+            .unwrap_err();
 
-        assert_eq!(command.core_name.as_deref(), core.to_str());
+        assert!(error.to_string().contains("integrity validation"));
+        assert_eq!(fs::read(&profile).ok(), profile_before);
+    }
+
+    #[test]
+    fn build_managed_retroarch_appends_wingosy_profile_after_validation() {
+        let _profile_lock = PROFILE_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&executable, b"retroarch").unwrap();
+        fs::write(&core, b"core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable.clone());
+        config.emulators.retroarch_install_kind =
+            crate::config::RetroArchInstallKind::Managed;
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        let emulator = launcher.resolve_emulator(&game).unwrap();
+
+        let command = launcher
+            .build_command_after_validation(&game, emulator, true)
+            .unwrap();
+        let profile = crate::emulators::retroarch::delta_path().unwrap();
+
         assert_eq!(
             command.args,
             vec![
                 "--fullscreen".to_string(),
-                format!("--appendconfig={}", crate::emulators::retroarch::delta_path().unwrap().to_string_lossy()),
+                format!("--appendconfig={}", profile.to_string_lossy()),
                 "-L".to_string(),
                 core.to_string_lossy().into_owned(),
                 rom.to_string_lossy().into_owned(),
@@ -899,7 +978,8 @@ mod tests {
     }
 
     #[test]
-    fn build_retroarch_mapped_platforms_use_managed_layout_and_per_game_selection() {
+    fn build_retroarch_mapped_platforms_use_opted_in_external_profile() {
+        let _profile_lock = PROFILE_TEST_LOCK.lock().unwrap();
         let cases = [
             ("snes", "snes9x_libretro.dll", "Chrono Trigger 世界.sfc"),
             (
@@ -933,9 +1013,7 @@ mod tests {
 
             let mut config = AppConfig::default();
             config.emulators.retroarch = Some(executable.clone());
-            config.emulators.retroarch_install_kind = crate::config::RetroArchInstallKind::Managed;
-            config.emulators.retroarch_manifest_version =
-                Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
+            config.emulators.retroarch_use_beta_profile = true;
             let db = Database::open_in_memory().unwrap();
             let mut game = Game::new(
                 format!("{platform} game"),
@@ -964,6 +1042,54 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn launch_revalidates_managed_artifacts_before_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = executable
+            .parent()
+            .unwrap()
+            .join("cores")
+            .join("fceumm_libretro.dll");
+        let rom = dir.path().join("game.nes");
+        fs::create_dir_all(core.parent().unwrap()).unwrap();
+        fs::write(&executable, b"modified executable").unwrap();
+        fs::write(&core, b"modified core").unwrap();
+        fs::write(&rom, b"rom").unwrap();
+        crate::emulators::retroarch::write_manifest_marker(&executable).unwrap();
+        for filename in crate::emulators::retroarch::certified_core_filenames() {
+            fs::write(core.parent().unwrap().join(filename), b"modified core").unwrap();
+        }
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(executable);
+        config.emulators.retroarch_install_kind = crate::config::RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version =
+            Some(crate::emulators::retroarch::MANIFEST_VERSION.to_string());
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
+        let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
+        let running = Arc::new(AtomicBool::new(false));
+        let callback_running = Arc::clone(&running);
+
+        let error = launcher
+            .launch_with_running_stage(&game, move || {
+                callback_running.store(true, Ordering::SeqCst);
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("integrity validation"));
+        assert!(!running.load(Ordering::SeqCst));
     }
 
     #[test]
