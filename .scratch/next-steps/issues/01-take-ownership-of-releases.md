@@ -143,3 +143,7 @@ ignored) passed. The Windows GNU Cargo check remains blocked because
 published beta artifacts, and clean-Windows update/signature verification remain
 pending, so this issue stays `ready-for-human` and the roadmap stays `IN
 PROGRESS`.
+
+The pre-push Gitleaks scan covered all 370 commits. Its 23 findings were repeated
+detections of one deterministic, test-only Switch firmware fixture; review found
+no live credential and no required history rewrite or rotation.
