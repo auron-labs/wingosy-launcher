@@ -67,7 +67,7 @@ new dependencies, custom image caching, database replacement, or design changes.
 
 - [x] `bun run typecheck`, `bun run test:unit`, and `bun run build` exit 0.
 - [x] `bun run lint:frontend` has no new warnings and the `App.jsx:130` warning is gone.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [x] Desktop and immersive initial loads request at most 60 games.
 - [x] Immersive navigation can reach later pages without losing controller focus.
 - [x] Search/platform changes cannot display a stale earlier response.
@@ -129,3 +129,13 @@ The earlier pending-verification note is superseded by the final verification be
 ### 2026-08-25 — Agent follow-up complete
 
 The stale request ownership race and refresh page bookkeeping were fixed, and regressions were added. Verification passed: focused immersive 5/5; typecheck; full Vitest (11 files, 74 tests); build; lint with 7 pre-existing warnings and no errors; Rust unit (260 passed, 1 ignored). Native Windows Cargo and the representative Windows large-catalogue first-render/next-page exercise remain for human acceptance.
+
+### 2026-08-26 — Native Windows verification
+
+The full native Windows Rust suite passed: 270 unit tests passed with 1 ignored,
+including the bounded page/count/filter regression. Computer Use launched the
+native build against a representative RomM catalogue and observed a responsive
+first desktop page with 60 bounded entries and 43 pages of results. Next-page and
+immersive navigation could not be exercised because Computer Use input injection
+was rejected by the fullscreen Tauri/WebView window after refocus-and-retry.
+Keep the ticket `ready-for-human` until that remaining interaction is observed.

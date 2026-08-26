@@ -172,7 +172,7 @@ fn backup_profile_at(root: &Path, config_path: &Path) -> Result<Option<PathBuf>>
         .context("System clock is before Unix epoch")?
         .as_nanos();
     let backup_path = backups.join(format!("wingosy-retroarch-v1-{timestamp}.cfg"));
-    std::fs::copy(&config_path, &backup_path)
+    std::fs::copy(config_path, &backup_path)
         .context("Failed to back up Wingosy RetroArch profile")?;
     Ok(Some(backup_path))
 }

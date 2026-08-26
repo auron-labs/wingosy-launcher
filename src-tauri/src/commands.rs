@@ -1283,8 +1283,10 @@ pub async fn poll_romm_device_auth(
             },
             crate::romm_credentials::store_device_token,
             |config| config.save(),
-            crate::romm_credentials::delete_device_token,
-            crate::romm_credentials::delete_refresh_token,
+            (
+                crate::romm_credentials::delete_device_token,
+                crate::romm_credentials::delete_refresh_token,
+            ),
         )?;
     }
 
@@ -1411,8 +1413,7 @@ fn persist_device_session<Configure, Store, Save, DeleteDevice, DeleteRefresh>(
     configure: Configure,
     store: Store,
     save: Save,
-    delete_device: DeleteDevice,
-    delete_refresh: DeleteRefresh,
+    cleanup: (DeleteDevice, DeleteRefresh),
 ) -> Result<(), String>
 where
     Configure: FnOnce(&mut RomMConfig),
@@ -1421,6 +1422,7 @@ where
     DeleteDevice: FnOnce(&str) -> anyhow::Result<()>,
     DeleteRefresh: FnOnce(&str, &str) -> anyhow::Result<()>,
 {
+    let (delete_device, delete_refresh) = cleanup;
     let previous_server = config.romm.server_url.clone();
     let previous_username = config.romm.username.clone();
 
@@ -1535,8 +1537,7 @@ fn persist_refreshed_session<StoreRefresh, StoreDevice, Save>(
     username: &str,
     access_token: &str,
     refresh_token: Option<&str>,
-    store_refresh: StoreRefresh,
-    store_device: StoreDevice,
+    stores: (StoreRefresh, StoreDevice),
     save: Save,
 ) -> Result<(), String>
 where
@@ -1544,6 +1545,7 @@ where
     StoreDevice: FnOnce(&str, &str) -> anyhow::Result<()>,
     Save: FnOnce(&AppConfig) -> anyhow::Result<()>,
 {
+    let (store_refresh, store_device) = stores;
     if let Some(refresh_token) = refresh_token {
         store_refresh(server_url, username, refresh_token).map_err(reconnect_required)?;
     }
@@ -1617,8 +1619,10 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
                 &username,
                 &access_token,
                 token_response.refresh_token.as_deref(),
-                crate::romm_credentials::store_refresh_token,
-                crate::romm_credentials::store_device_token,
+                (
+                    crate::romm_credentials::store_refresh_token,
+                    crate::romm_credentials::store_device_token,
+                ),
                 |config| config.save(),
             )?;
             Ok(Some(RomMAuthSession {
@@ -1723,8 +1727,10 @@ pub async fn connect_romm_with_token(
         },
         crate::romm_credentials::store_device_token,
         |config| config.save(),
-        crate::romm_credentials::delete_device_token,
-        crate::romm_credentials::delete_refresh_token,
+        (
+            crate::romm_credentials::delete_device_token,
+            crate::romm_credentials::delete_refresh_token,
+        ),
     )?;
     
     tracing::info!("[RomM] Connected to {} with token", server_url);
@@ -3862,8 +3868,6 @@ mod tests {
         existing.romm.server_url = Some("https://paired.example".to_string());
         existing.romm.auth_method = Some("pairing".to_string());
         existing.romm.username = Some("paired-user".to_string());
-        existing.romm.password = Some("legacy-password".to_string());
-        existing.romm.auth_token = Some("legacy-session-token".to_string());
         existing.romm.auto_sync = true;
         existing.romm.sync_saves = true;
         existing.romm.device_id = Some("device-123".to_string());
@@ -3895,11 +3899,6 @@ mod tests {
         );
         assert_eq!(merged.romm.auth_method.as_deref(), Some("pairing"));
         assert_eq!(merged.romm.username.as_deref(), Some("paired-user"));
-        assert_eq!(merged.romm.password.as_deref(), Some("legacy-password"));
-        assert_eq!(
-            merged.romm.auth_token.as_deref(),
-            Some("legacy-session-token")
-        );
         assert!(merged.romm.auto_sync);
         assert!(merged.romm.sync_saves);
         assert_eq!(merged.romm.device_id.as_deref(), Some("device-123"));
@@ -4033,14 +4032,16 @@ mod tests {
                 events.borrow_mut().push("save");
                 Ok(())
             },
-            |_| {
-                events.borrow_mut().push("device");
-                Ok(())
-            },
-            |_, _| {
-                events.borrow_mut().push("refresh");
-                Ok(())
-            },
+            (
+                |_| {
+                    events.borrow_mut().push("device");
+                    Ok(())
+                },
+                |_, _| {
+                    events.borrow_mut().push("refresh");
+                    Ok(())
+                },
+            ),
         )
         .unwrap();
 
@@ -4058,8 +4059,10 @@ mod tests {
             |_| panic!("store failure must skip mutation"),
             |_, _| anyhow::bail!("synthetic-store-failure"),
             |_| panic!("store failure must skip save"),
-            |_| panic!("store failure must skip device cleanup"),
-            |_, _| panic!("store failure must skip refresh cleanup"),
+            (
+                |_| panic!("store failure must skip device cleanup"),
+                |_, _| panic!("store failure must skip refresh cleanup"),
+            ),
         )
         .unwrap_err();
 
@@ -4075,8 +4078,10 @@ mod tests {
             |_| {},
             |_, _| Ok(()),
             |_| anyhow::bail!("synthetic-save-failure"),
-            |_| panic!("save failure must skip device cleanup"),
-            |_, _| panic!("save failure must skip refresh cleanup"),
+            (
+                |_| panic!("save failure must skip device cleanup"),
+                |_, _| panic!("save failure must skip refresh cleanup"),
+            ),
         )
         .unwrap_err();
 
@@ -4096,14 +4101,16 @@ mod tests {
             |_| {},
             |_, _| Ok(()),
             |_| Ok(()),
-            |_| {
-                events.borrow_mut().push("device");
-                anyhow::bail!("synthetic-device-failure")
-            },
-            |_, _| {
-                events.borrow_mut().push("refresh");
-                anyhow::bail!("synthetic-refresh-failure")
-            },
+            (
+                |_| {
+                    events.borrow_mut().push("device");
+                    anyhow::bail!("synthetic-device-failure")
+                },
+                |_, _| {
+                    events.borrow_mut().push("refresh");
+                    anyhow::bail!("synthetic-refresh-failure")
+                },
+            ),
         )
         .unwrap_err();
 
@@ -4162,14 +4169,16 @@ mod tests {
                 "synthetic-user",
                 "synthetic-access",
                 rotation,
-                |_, _, _| {
-                    events.borrow_mut().push("refresh");
-                    Ok(())
-                },
-                |_, _| {
-                    events.borrow_mut().push("device");
-                    Ok(())
-                },
+                (
+                    |_, _, _| {
+                        events.borrow_mut().push("refresh");
+                        Ok(())
+                    },
+                    |_, _| {
+                        events.borrow_mut().push("device");
+                        Ok(())
+                    },
+                ),
                 |_| {
                     events.borrow_mut().push("save");
                     Ok(())
@@ -4196,8 +4205,10 @@ mod tests {
             "synthetic-user",
             "synthetic-access",
             Some("synthetic-next-refresh"),
-            |_, _, _| anyhow::bail!("synthetic-refresh-failure"),
-            |_, _| panic!("refresh failure must skip device store"),
+            (
+                |_, _, _| anyhow::bail!("synthetic-refresh-failure"),
+                |_, _| panic!("refresh failure must skip device store"),
+            ),
             |_| panic!("refresh failure must skip save"),
         )
         .unwrap_err();
@@ -4210,14 +4221,16 @@ mod tests {
             "synthetic-user",
             "synthetic-access",
             Some("synthetic-next-refresh"),
-            |_, _, _| {
-                events.borrow_mut().push("refresh");
-                Ok(())
-            },
-            |_, _| {
-                events.borrow_mut().push("device");
-                anyhow::bail!("synthetic-device-failure")
-            },
+            (
+                |_, _, _| {
+                    events.borrow_mut().push("refresh");
+                    Ok(())
+                },
+                |_, _| {
+                    events.borrow_mut().push("device");
+                    anyhow::bail!("synthetic-device-failure")
+                },
+            ),
             |_| panic!("device failure must skip save"),
         )
         .unwrap_err();

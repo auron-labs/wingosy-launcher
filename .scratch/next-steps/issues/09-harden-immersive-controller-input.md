@@ -108,3 +108,13 @@ polling/config/hint tests are implemented. Verification on 2026-08-24:
 Real Windows/XInput navigation and hot-plug behavior remains for human
 verification. Keep this issue `ready-for-human` and unresolved until that check
 is completed.
+
+### 2026-08-26 — Native Windows automated verification
+
+Windows typecheck, 74 Vitest tests across 11 files, frontend build, and frontend
+lint all passed; lint retained 7 pre-existing warnings and no errors. The full
+native Rust suite also passed (270 unit tests with 1 ignored, plus 4 emulator and
+4 RomM parsing integration tests). No controller was available to Computer Use,
+and the fullscreen Tauri/WebView window rejected injected input after the
+documented recovery, so the real XInput navigation, hot-plug, and second-pad case
+remains required. Keep the ticket `ready-for-human`.

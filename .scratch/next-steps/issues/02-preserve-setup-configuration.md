@@ -56,7 +56,7 @@ methods, BIOS behavior, or rebuilding the wizard.
 
 - [x] `bun run typecheck` exits 0.
 - [x] `bun run test:unit` passes.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [ ] Manual Windows flow Pair → Sync → Finish → restart retains the connection.
 - [ ] Opening BIOS after restart no longer reports an unconfigured server.
 - [ ] Completing local-only setup still creates a valid default config.
@@ -96,3 +96,54 @@ merge test; and full
 integration passed/7 ignored). Windows Pair→Sync→Finish→restart and BIOS
 manual acceptance remain pending, so the spec should remain `IN PROGRESS` and
 this issue should remain `ready-for-human`.
+
+### 2026-08-25 — Step 1 reassessment
+
+Confirmed `complete_setup` still loads and merges the existing configuration,
+applies only supplied setup values, and persists the selected ROM directory.
+The existing focused test covers preservation of paired session metadata and
+unrelated settings. No repair was identified; Windows runtime acceptance remains
+the outstanding work.
+
+### 2026-08-25 — Steps 2–3 reassessment
+
+Confirmed the focused Rust regression still covers paired metadata preservation
+and ROM directory replacement. The setup WebDriver path does not encode the old
+destructive behavior, so no frontend or WebDriver change is needed.
+
+Focused verification passed on Linux:
+`mise exec -- cargo test --manifest-path src-tauri/Cargo.toml setup_merge_preserves_paired_config_and_applies_setup_values`
+(1 passed).
+
+Frontend verification also passed: `mise exec -- bun run typecheck` and
+`mise exec -- bun run test:unit` (11 files, 74 tests).
+
+The full Linux Rust suite passed: 266 unit tests passed/1 ignored, 4 emulator
+integration tests passed/9 ignored, and 4 RomM integration tests passed/7
+ignored. Native Windows and manual Pair→Sync→Finish→restart/BIOS checks remain
+open.
+
+Code review found the regression fixture still modeled legacy credentials inside
+`AppConfig`. The fixture now reflects current secure pairing: session metadata is
+preserved while credential secrets remain outside the TOML configuration.
+The focused test and full Rust suite passed again after that correction.
+
+This task cannot be resolved or committed as completed from this Linux host. A
+human must still run the native Windows Pair → Sync → Finish → restart flow and
+confirm BIOS retains RomM access; the issue therefore remains `ready-for-human`
+and the roadmap remains `IN PROGRESS`.
+
+### 2026-08-26 — Native Windows verification
+
+The full native Windows Rust suite passed: 270 unit tests passed with 1 ignored,
+4 emulator integration tests passed with 9 network/download tests ignored, and
+4 RomM parsing integration tests passed with 7 live-server tests ignored. The
+focused setup merge regression passed as part of that run.
+
+Computer Use launched the native debug build against the existing Windows
+profile and observed a populated RomM library after startup. A reversible config
+rename also proved the first-run wizard renders, with the original config restored
+before setup continued. Computer Use could not inject clicks into the fullscreen
+Tauri/WebView window after its documented refocus-and-retry recovery, so
+Pair → Sync → Finish → restart and the BIOS screen remain unverified. Keep the
+ticket `ready-for-human`.

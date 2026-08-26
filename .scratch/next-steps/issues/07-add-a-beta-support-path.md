@@ -56,8 +56,8 @@ analytics, automatic uploads, attaching databases/configs, or collecting secrets
 
 ## Verification and done criteria
 
-- [ ] `bun run typecheck && bun run test:unit` exits 0.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
+- [x] `bun run typecheck && bun run test:unit` exits 0.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
 - [ ] Settings opens the same log folder documented in README.
 - [ ] A test report can identify app version, OS, and relevant log without sharing
       credentials or user data.
@@ -92,3 +92,12 @@ The private cohort should generate product evidence, not a new observability sta
 
 The named monitored owner and response window still need confirmation, and the
 first cohort is pending.
+
+### 2026-08-26 — Native Windows verification
+
+Windows verification passed: typecheck, 74 Vitest tests across 11 files, the
+frontend build, and the full Rust suite (270 unit tests passed with 1 ignored;
+4 emulator and 4 RomM parsing integration tests passed). Frontend lint completed
+with the same 7 pre-existing warnings and no errors. The monitored feedback owner,
+response window, Settings log-folder action, and cohort gates remain unverified,
+so this ticket stays `ready-for-human`.

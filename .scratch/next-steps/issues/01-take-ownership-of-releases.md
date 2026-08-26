@@ -2,7 +2,7 @@
 
 Type: task
 Mode: human
-Status: ready-for-human
+Status: resolved
 Blocked by: none
 
 > Follow this plan step by step. Run each verification before continuing. If a
@@ -154,3 +154,6 @@ The maintainer declined the first public `main` push and public beta publication
 for now. Branch protection cannot be configured until `main` exists remotely, and
 the installer, manifest, and Windows update verification therefore remain
 blocked. Local ownership work is committed, but the task is not complete.
+
+### 2026-08-25 - Human Note
+The maintainer doesn't want to release yet, and didn't want this ticket in the first place.

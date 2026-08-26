@@ -54,8 +54,8 @@ inspection. Never copy token values into a test fixture, log, issue, or plan.
 
 ## Verification and done criteria
 
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` exits 0.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes on Windows.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` exits 0.
 - [ ] Pair, restart, refresh, BIOS access, sync, and disconnect work on Windows.
 - [ ] After those actions, `config.toml` contains no usable access, refresh, or
       device token.
@@ -104,3 +104,18 @@ Linux non-Windows cfg, reqwest, and other pre-existing crate compile failures. T
 Windows cross-check is blocked by missing `x86_64-w64-mingw32-gcc`. Windows Pair,
 restart, refresh, BIOS, sync, and disconnect flows, plus Credential Manager
 inspection, remain required.
+
+### 2026-08-26 — Native Windows verification and Clippy cleanup
+
+The full native Windows Rust suite passed: 270 unit tests passed with 1 ignored,
+4 emulator integration tests passed with 9 network/download tests ignored, and
+4 RomM parsing integration tests passed with 7 live-server tests ignored. Strict
+Clippy initially found two over-wide private credential-persistence test seams;
+their related callbacks are now grouped without changing ordering or storage
+behavior. Strict Clippy then passed across all targets and features.
+
+Computer Use observed the native build restoring an existing RomM-backed library,
+but input injection into the fullscreen Tauri/WebView window failed after the
+documented recovery. Pair/restart/refresh/BIOS/sync/disconnect and direct Windows
+Credential Manager inspection remain required, so this ticket stays
+`ready-for-human`.

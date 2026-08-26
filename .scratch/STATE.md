@@ -1,14 +1,13 @@
 # Local Issue State
 
-Generated: 2026-08-25T03:35:10Z
+Generated: 2026-08-25T05:14:48Z
 
-Tickets: 7 active, 4 resolved
+Tickets: 6 active, 5 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [02-preserve-setup-configuration](next-steps/issues/02-preserve-setup-configuration.md) | task | agent | ready-for-human | none |
 | [next-steps](next-steps/spec.md) | [03-secure-romm-access-tokens](next-steps/issues/03-secure-romm-access-tokens.md) | task | agent | ready-for-human | 02 |
 | [next-steps](next-steps/spec.md) | [04-bound-library-loading](next-steps/issues/04-bound-library-loading.md) | task | agent | ready-for-human | 02 |
@@ -22,5 +21,6 @@ Tickets: 7 active, 4 resolved
 | --- | --- | --- | --- | --- | --- |
 | [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [01-prepare-bios-automatically-before-launch](automatic-firmware-installation/issues/01-prepare-bios-automatically-before-launch.md) | — | — | resolved | None — can start immediately |
 | [automatic-firmware-installation](automatic-firmware-installation/spec.md) | [02-prepare-switch-firmware-automatically-for-eden](automatic-firmware-installation/issues/02-prepare-switch-firmware-automatically-for-eden.md) | — | — | resolved | 01 — Prepare BIOS automatically before launch |
+| [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | resolved | none |
 | [next-steps](next-steps/spec.md) | [05-publish-an-honest-beta-contract](next-steps/issues/05-publish-an-honest-beta-contract.md) | task | agent | resolved | 01 |
 | [next-steps](next-steps/spec.md) | [08-manage-a-reproducible-retroarch-profile](next-steps/issues/08-manage-a-reproducible-retroarch-profile.md) | task | agent | resolved | 01, 02 |
