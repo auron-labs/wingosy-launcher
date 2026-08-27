@@ -118,3 +118,46 @@ native Rust suite also passed (270 unit tests with 1 ignored, plus 4 emulator an
 and the fullscreen Tauri/WebView window rejected injected input after the
 documented recovery, so the real XInput navigation, hot-plug, and second-pad case
 remains required. Keep the ticket `ready-for-human`.
+
+### 2026-08-27 — Acceptance failure claimed
+
+Native Windows acceptance recorded that controller navigation stops working on
+the ROM details view while the rest of the primary-controller case works. The
+agent follow-up is claimed to reproduce that exact route, fix its root cause,
+and add the narrowest regression check before the hardware case is repeated.
+
+### 2026-08-27 — Regression and fix complete
+
+The focused regression reproduced the failure through real Gamepad polling and
+the synthetic keyboard route: directional events reached the details view, but
+that view had no directional focus handler. The details view now moves focus
+across enabled actions, activates the focused action on Confirm, and retains
+dialog/menu suppression. The regression went from 1 failure to 9 passing tests;
+the full 75-test frontend unit suite, typecheck, build, and frontend lint passed.
+Lint retained 7 pre-existing warnings and no errors or new warnings.
+
+### 2026-08-27 — Review findings
+
+Independent standards and ticket reviews confirmed the mapper-to-details
+regression route, but found two gaps before acceptance: Confirm retries a failed
+launch even when another details action is focused, and the generic focus query
+can include hidden or non-actionable tabindex elements. Focused checks for
+selected-action Confirm and dialog/menu suppression are also required. The same
+implementation agent is addressing these findings before final verification.
+
+### 2026-08-27 — Review findings addressed
+
+Details navigation now limits selection to visible enabled buttons, Confirm
+prefers the selected details action before the launch fallback, and focused
+regressions cover Confirm plus menu/dialog suppression. Verification passed with
+12 focused tests, 78 full frontend unit tests, typecheck, build, frontend lint
+with the same 7 pre-existing warnings, and `git diff --check`.
+
+### 2026-08-27 — Agent follow-up ready for hardware retest
+
+Final standards and ticket reviews passed after restoring strict modal
+suppression and exercising the genuine mapper direction → selected details
+action → Confirm route. The Windows acceptance blocker now has a deterministic
+regression, and all automated checks above are green. Repeat the primary XInput
+details-navigation/hot-plug case on Windows; keep this ticket `ready-for-human`
+until that real-controller run passes.

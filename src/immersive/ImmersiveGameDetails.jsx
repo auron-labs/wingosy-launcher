@@ -46,6 +46,20 @@ import GameScreenshotsSection from "../components/game/GameScreenshotsSection";
 import GameAchievementsSection from "../components/game/GameAchievementsSection";
 import CollectionPickerDialog from "../components/game/CollectionPickerDialog";
 
+const DETAILS_ACTION_SELECTOR = "button:not(:disabled)";
+
+function getVisibleDetailsActions(root) {
+  return Array.from(root?.querySelectorAll(DETAILS_ACTION_SELECTOR) || []).filter((element) => {
+    for (let current = element; current; current = current.parentElement) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = window.getComputedStyle(current);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      if (current === root) break;
+    }
+    return true;
+  });
+}
+
 function isLocalPath(path) {
   if (!path) return false;
   return /^[a-zA-Z]:/.test(path) || path.startsWith("\\") || path.startsWith("/");
@@ -104,6 +118,7 @@ export default function ImmersiveGameDetails({
   const launchInFlightRef = useRef(false);
   const staleLaunchProgressRef = useRef(null);
   const playButtonRef = useRef(null);
+  const detailsRef = useRef(null);
   const wasLaunchingRef = useRef(false);
   const [justDownloaded, setJustDownloaded] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -163,13 +178,49 @@ export default function ImmersiveGameDetails({
       const targetIsWindow = e.target === window || e.target?.window === e.target;
       if (!targetIsWindow) return;
       if (e.repeat) return;
+      if (e.key.startsWith("Arrow")) {
+        if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+        const actions = getVisibleDetailsActions(detailsRef.current);
+        if (!actions.length) return;
+
+        const direction = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
+        const focusedIndex = actions.indexOf(document.activeElement);
+        const anchorIndex = actions.indexOf(playButtonRef.current);
+        const startIndex = focusedIndex >= 0
+          ? focusedIndex
+          : anchorIndex >= 0
+            ? anchorIndex
+            : direction > 0
+              ? -1
+              : actions.length;
+        const nextIndex = Math.max(0, Math.min(actions.length - 1, startIndex + direction));
+        e.preventDefault();
+        actions[nextIndex]?.focus();
+        return;
+      }
       if (e.key === "Enter") {
-        if (launchFailure) {
+        const hasInputOverlay = document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]');
+        if (hasInputOverlay) {
+          if (launchFailure && !launching) {
+            e.preventDefault();
+            handleLaunchGame();
+          }
+          return;
+        }
+        const focusedAction = getVisibleDetailsActions(detailsRef.current).find(
+          (action) => action === document.activeElement,
+        );
+        if (focusedAction && !launching) {
+          e.preventDefault();
+          focusedAction.click();
+          return;
+        }
+        if (launchFailure && !launching) {
           e.preventDefault();
           handleLaunchGame();
           return;
         }
-        if (launching || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+        if (launching) return;
         e.preventDefault();
         handleLaunchGame();
       } else if (e.key === "Escape") {
@@ -285,6 +336,8 @@ export default function ImmersiveGameDetails({
 
   return (
     <Box
+      ref={detailsRef}
+      data-testid="immersive-game-details"
       sx={{
         flex: 1,
         minHeight: 0,

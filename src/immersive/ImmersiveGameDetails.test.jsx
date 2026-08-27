@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ImmersiveGameDetails from "./ImmersiveGameDetails";
+import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { RomDownloadsProvider } from "../RomDownloadsContext";
 import { MuiTestProvider } from "../test/muiHarness";
 
@@ -50,6 +51,62 @@ function dispatchControllerKey(key, { repeat = false } = {}) {
   });
 }
 
+function ControllerProbe() {
+  useGamepadKeyboardMapper();
+  return null;
+}
+
+function makeStandardPad(buttonIndex = null) {
+  const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
+  if (buttonIndex !== null) buttons[buttonIndex].pressed = true;
+  return { index: 1, mapping: "standard", buttons, axes: [] };
+}
+
+function installControllerTestEnvironment() {
+  const frames = new Map();
+  let nextFrameId = 1;
+  let pads = [];
+  let now = 1000;
+  const originalGetGamepadsDescriptor = Object.getOwnPropertyDescriptor(navigator, "getGamepads");
+  const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+  Object.defineProperty(navigator, "getGamepads", {
+    configurable: true,
+    value: () => pads,
+  });
+  vi.stubGlobal("requestAnimationFrame", (callback) => {
+    const id = nextFrameId++;
+    frames.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id) => frames.delete(id));
+
+  return {
+    setPads(nextPads) {
+      pads = nextPads;
+    },
+    runFrame() {
+      const next = frames.entries().next().value;
+      if (!next) return;
+      const [id, callback] = next;
+      frames.delete(id);
+      act(() => callback(0));
+    },
+    advanceRepeatDelay() {
+      now += 240;
+    },
+    restore() {
+      if (originalGetGamepadsDescriptor) {
+        Object.defineProperty(navigator, "getGamepads", originalGetGamepadsDescriptor);
+      } else {
+        delete navigator.getGamepads;
+      }
+      vi.unstubAllGlobals();
+      nowSpy.mockRestore();
+    },
+  };
+}
+
 afterEach(() => {
   cleanup();
   eventListeners.clear();
@@ -70,17 +127,21 @@ const remoteOnlyGame = {
   is_favorite: false,
 };
 
-function renderDetails(onLaunch = vi.fn().mockResolvedValue({ success: true }), game = remoteOnlyGame) {
+function renderDetails(
+  onLaunch = vi.fn().mockResolvedValue({ success: true }),
+  game = remoteOnlyGame,
+  { onBack = vi.fn(), onToggleFavorite = vi.fn(), onGameUpdate = vi.fn() } = {},
+) {
   return render(
     <MuiTestProvider>
       <RomDownloadsProvider>
         <ImmersiveGameDetails
           game={game}
           platformLabel="Game Boy Advance"
-          onBack={vi.fn()}
+          onBack={onBack}
           onLaunch={onLaunch}
-          onToggleFavorite={vi.fn()}
-          onGameUpdate={vi.fn()}
+          onToggleFavorite={onToggleFavorite}
+          onGameUpdate={onGameUpdate}
           rommToken="saved-token"
           rommUrl="https://romm.example"
         />
@@ -124,6 +185,124 @@ describe("ImmersiveGameDetails launch controls", () => {
 
     expect(onLaunch).toHaveBeenCalledWith(remoteOnlyGame.id);
     await waitFor(() => expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled());
+  });
+
+  it("moves focus across details actions from a standard controller direction", () => {
+    const controller = installControllerTestEnvironment();
+    try {
+      const pad = makeStandardPad(15);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+      renderDetails();
+      const details = screen.getByTestId("immersive-game-details");
+      const hiddenAncestor = document.createElement("div");
+      hiddenAncestor.hidden = true;
+      hiddenAncestor.setAttribute("aria-hidden", "true");
+      hiddenAncestor.style.display = "none";
+      const hiddenAction = document.createElement("button");
+      hiddenAncestor.append(hiddenAction);
+      details.append(hiddenAncestor);
+
+      controller.runFrame();
+      expect(screen.getByRole("button", { name: "Download" })).toHaveFocus();
+
+      pad.buttons[15].pressed = false;
+      controller.runFrame();
+      controller.advanceRepeatDelay();
+      pad.buttons[15].pressed = true;
+      controller.runFrame();
+
+      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+
+      pad.buttons[15].pressed = false;
+      controller.runFrame();
+      controller.advanceRepeatDelay();
+      pad.buttons[15].pressed = true;
+      controller.runFrame();
+
+      expect(hiddenAction).not.toHaveFocus();
+      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("lets mapper Confirm activate a focused non-Play action", () => {
+    const onLaunch = vi.fn().mockResolvedValue({ success: true });
+    const onToggleFavorite = vi.fn();
+    const controller = installControllerTestEnvironment();
+
+    try {
+      renderDetails(onLaunch, remoteOnlyGame, { onToggleFavorite });
+      const pad = makeStandardPad(15);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+      controller.runFrame();
+      expect(screen.getByRole("button", { name: "Download" })).toHaveFocus();
+
+      pad.buttons[15].pressed = false;
+      controller.runFrame();
+      controller.advanceRepeatDelay();
+      pad.buttons[15].pressed = true;
+      controller.runFrame();
+      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+
+      pad.buttons[15].pressed = false;
+      controller.runFrame();
+      pad.buttons[0].pressed = true;
+      controller.runFrame();
+
+      expect(onToggleFavorite).toHaveBeenCalledWith(remoteOnlyGame.id);
+      expect(onLaunch).not.toHaveBeenCalled();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("does not move details focus while a menu owns controller input", () => {
+    const controller = installControllerTestEnvironment();
+
+    try {
+      const pad = makeStandardPad();
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+      renderDetails();
+      controller.runFrame();
+
+      fireEvent.click(screen.getByRole("button", { name: "More options" }));
+      const menuFocus = document.activeElement;
+      if (!(menuFocus instanceof HTMLElement)) throw new Error("Expected menu to own focus");
+      expect(screen.getByRole("menu")).toContainElement(menuFocus);
+
+      pad.buttons[15].pressed = true;
+      controller.runFrame();
+
+      expect(document.activeElement).toBe(menuFocus);
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("does not move details focus while a dialog owns controller input", async () => {
+    const onLaunch = vi.fn().mockRejectedValue(new Error("network unavailable"));
+    const controller = installControllerTestEnvironment();
+
+    try {
+      renderDetails(onLaunch);
+      fireEvent.click(screen.getByRole("button", { name: "Play" }));
+      await waitFor(() => expect(screen.getByText("network unavailable")).toBeInTheDocument());
+      const retry = screen.getByRole("button", { name: "Retry" });
+      await waitFor(() => expect(retry).toHaveFocus());
+
+      const pad = makeStandardPad(15);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+      controller.runFrame();
+
+      expect(retry).toHaveFocus();
+    } finally {
+      controller.restore();
+    }
   });
 
   it("does not route native control key events through the controller handler", () => {
