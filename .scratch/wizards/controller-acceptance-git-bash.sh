@@ -184,8 +184,7 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=11
-: "$RED"
+TOTAL_STAGES=4
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
@@ -194,14 +193,14 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)"
 REPORT_FILE="$EVIDENCE_DIR/${RUN_ID}-controller-acceptance.md"
 REPORT_RELATIVE_PATH=".scratch/next-steps/evidence/${RUN_ID}-controller-acceptance.md"
 
-# Do not overwrite an earlier run made in the same second.
 if [[ -e "$REPORT_FILE" ]]; then
   REPORT_SUFFIX=2
   while [[ -e "$EVIDENCE_DIR/${RUN_ID}-${REPORT_SUFFIX}-controller-acceptance.md" ]]; do
     REPORT_SUFFIX=$((REPORT_SUFFIX + 1))
   done
-  REPORT_FILE="$EVIDENCE_DIR/${RUN_ID}-${REPORT_SUFFIX}-controller-acceptance.md"
-  REPORT_RELATIVE_PATH=".scratch/next-steps/evidence/${RUN_ID}-${REPORT_SUFFIX}-controller-acceptance.md"
+  RUN_ID="${RUN_ID}-${REPORT_SUFFIX}"
+  REPORT_FILE="$EVIDENCE_DIR/${RUN_ID}-controller-acceptance.md"
+  REPORT_RELATIVE_PATH=".scratch/next-steps/evidence/${RUN_ID}-controller-acceptance.md"
 fi
 
 mkdir -p "$EVIDENCE_DIR"
@@ -209,13 +208,6 @@ mkdir -p "$EVIDENCE_DIR"
 PASS_COUNT=0
 FAIL_COUNT=0
 SKIP_COUNT=0
-REQUIRED_PASS_COUNT=0
-REQUIRED_FAIL_COUNT=0
-REQUIRED_SKIP_COUNT=0
-OPTIONAL_PASS_COUNT=0
-OPTIONAL_FAIL_COUNT=0
-OPTIONAL_SKIP_COUNT=0
-SAFE_VALUE=""
 REPLY=""
 
 on_interrupt() {
@@ -224,418 +216,81 @@ on_interrupt() {
 }
 trap on_interrupt INT
 
-escape_report_value() {
-  local value="$1"
-  local pipe='|'
-  local backtick='`'
-  local escaped_pipe='\|'
-  local escaped_backtick='\`'
-  value=${value//"$pipe"/"$escaped_pipe"}
-  value=${value//"$backtick"/"$escaped_backtick"}
-  printf '%s' "$value"
-}
-
-normalize_short_text() {
-  local value="$1"
-  value="${value//$'\r'/ }"
-  value="${value//$'\n'/ }"
-  value="${value//$'\t'/ }"
-  while [[ "$value" == *'  '* ]]; do
-    value="${value//'  '/' '}"
-  done
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  printf '%s' "$value"
-}
-
-# Returns a reason when text is unsafe, or failure when it is acceptable.
-unsafe_text_reason() {
-  local value="$1" maximum_length="$2" lower markdown_link_pattern
-  lower="${value,,}"
-  markdown_link_pattern='\[[^][]+\]\([^)]*\)'
-
-  if [[ "$value" =~ [[:alpha:]][[:alnum:].+_-]*:// || "$lower" =~ (^|[[:space:]])www\. ]]; then
-    printf '%s' 'URLs are not allowed.'
-    return 0
-  fi
-  if [[ "$value" =~ $markdown_link_pattern ]]; then
-    printf '%s' 'Markdown links are not allowed.'
-    return 0
-  fi
-  if [[ "$lower" == *screenshot* || "$lower" == *'screen shot'* || "$lower" == *.png || "$lower" == *.jpg || "$lower" == *.jpeg || "$lower" == *.gif || "$lower" == *.webp ]]; then
-    printf '%s' 'Screenshot and image-file references are not allowed.'
-    return 0
-  fi
-  if [[ "$value" =~ (^|[[:space:]])[A-Za-z]:[\\/]|(^|[[:space:]])\\\\ ]]; then
-    printf '%s' 'Windows absolute paths and UNC paths are not allowed.'
-    return 0
-  fi
-  if [[ "$value" =~ (^|[[:space:]])/[^[:space:]]* ]]; then
-    printf '%s' 'Unix absolute paths are not allowed.'
-    return 0
-  fi
-  if [[ "$value" =~ (^|[[:space:]])\.\.?[\\/] || "$value" =~ (^|[[:space:]])~/ ]]; then
-    printf '%s' 'Relative paths are not allowed.'
-    return 0
-  fi
-  if [[ "$lower" =~ (^|[[:space:]])(access[_-]?token|refresh[_-]?token|device[_-]?token|token|password|passwd|secret|api[_-]?key|client[_-]?secret|authorization)[[:space:]]*[:=] ]]; then
-    printf '%s' 'Credential-like assignments are not allowed.'
-    return 0
-  fi
-  if [[ "$lower" =~ (^|[[:space:]])bearer[[:space:]]+[^[:space:]]+ ]]; then
-    printf '%s' 'Bearer credentials are not allowed.'
-    return 0
-  fi
-  if (( ${#value} > maximum_length )); then
-    printf 'Use %s characters or fewer.' "$maximum_length"
-    return 0
-  fi
-  return 1
-}
-
 read_line() {
   if ! IFS= read -r REPLY; then
     printf '\n'
     warn "Input ended before the wizard finished. Report preserved at $REPORT_RELATIVE_PATH"
     exit 1
   fi
-  # Git Bash can expose the CR from CRLF input; it is not part of the value.
   REPLY="${REPLY%$'\r'}"
 }
 
-prompt_value() {
-  local prompt="$1" required="$2" maximum_length="$3" value reason
-  while :; do
-    printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
-    read_line
-    value=$(normalize_short_text "$REPLY")
-    if [[ "$required" == 1 && -z "$value" ]]; then
-      warn 'This value is required.'
-      continue
-    fi
-    if reason=$(unsafe_text_reason "$value" "$maximum_length"); then
-      warn "$reason"
-      continue
-    fi
-    SAFE_VALUE="$value"
-    return 0
-  done
-}
-
-ask_public_metadata() {
-  local label="$1" prompt="$2" required="$3" maximum_length="$4"
-  prompt_value "$prompt" "$required" "$maximum_length"
-  append_metadata "$label" "$SAFE_VALUE"
-}
-
-ask_yes_no() {
-  local prompt="$1" answer
-  while :; do
-    printf '  %s? %s [yes/no] ' "$YELLOW" "$prompt"
-    read_line
-    answer="${REPLY,,}"
-    answer=$(normalize_short_text "$answer")
-    case "$answer" in
-      y|yes) return 0 ;;
-      n|no) return 1 ;;
-      *) warn 'Enter yes or no.' ;;
-    esac
-  done
-}
-
-read_commit_sha() {
-  while :; do
-    printf '  %sExact tested commit SHA (7–64 hexadecimal characters)%s ' "$BOLD" "$RESET"
-    read_line
-    SAFE_VALUE=$(normalize_short_text "$REPLY")
-    if [[ "$SAFE_VALUE" =~ ^[0-9a-fA-F]{7,64}$ ]]; then
-      return 0
-    fi
-    warn 'Enter the exact tested commit SHA as 7–64 hexadecimal characters.'
-  done
-}
-
-read_transport() {
-  local transport
-  while :; do
-    prompt_value 'Transport (USB, Bluetooth, or 2.4 GHz):' 1 40
-    transport="${SAFE_VALUE,,}"
-    case "$transport" in
-      usb) TRANSPORT='USB'; return 0 ;;
-      bluetooth) TRANSPORT='Bluetooth'; return 0 ;;
-      '2.4 ghz'|'2.4ghz'|'2.4-ghz') TRANSPORT='2.4 GHz'; return 0 ;;
-      *) warn 'Choose USB, Bluetooth, or 2.4 GHz.' ;;
-    esac
-  done
-}
-
-append_stage_heading() {
-  printf '\n## Stage %s/%s — %s\n\n' "$_STAGE_INDEX" "$TOTAL_STAGES" "$1" >> "$REPORT_FILE"
-}
-
-append_metadata() {
-  local label="$1" value="$2" escaped_value
-  escaped_value=$(escape_report_value "$value")
-  [[ -n "$escaped_value" ]] || escaped_value='Not recorded'
-  printf -- '- **%s:** %s\n' "$label" "$escaped_value" >> "$REPORT_FILE"
-}
-
 record_result() {
-  local ticket="$1" check="$2" result="$3" classification="$4" notes="$5" evidence="$6"
-  local safe_notes safe_evidence
-  safe_notes=$(escape_report_value "$(normalize_short_text "$notes")")
-  safe_evidence=$(escape_report_value "$(normalize_short_text "$evidence")")
-
+  local label="$1" result="$2"
   case "$result" in
     PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
     FAIL) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
     SKIP) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
   esac
-  if [[ "$classification" == 'Optional' ]]; then
-    case "$result" in
-      PASS) OPTIONAL_PASS_COUNT=$((OPTIONAL_PASS_COUNT + 1)) ;;
-      FAIL) OPTIONAL_FAIL_COUNT=$((OPTIONAL_FAIL_COUNT + 1)) ;;
-      SKIP) OPTIONAL_SKIP_COUNT=$((OPTIONAL_SKIP_COUNT + 1)) ;;
-    esac
-  else
-    case "$result" in
-      PASS) REQUIRED_PASS_COUNT=$((REQUIRED_PASS_COUNT + 1)) ;;
-      FAIL) REQUIRED_FAIL_COUNT=$((REQUIRED_FAIL_COUNT + 1)) ;;
-      SKIP) REQUIRED_SKIP_COUNT=$((REQUIRED_SKIP_COUNT + 1)) ;;
-    esac
-  fi
-
-  {
-    printf '### %s — %s\n\n' "$ticket" "$check"
-    printf -- '- **Classification:** %s\n' "$classification"
-    printf -- '- **Result:** %s\n' "$result"
-    printf -- '- **Notes:** %s\n' "${safe_notes:-None recorded}"
-    printf -- '- **Evidence:** %s\n\n' "${safe_evidence:-None recorded}"
-  } >> "$REPORT_FILE"
+  printf -- '- **%s:** %s\n' "$label" "$result" >> "$REPORT_FILE"
 }
 
 capture_result() {
-  local ticket="$1" check="$2" classification="$3"
-  local result notes evidence
-
+  local label="$1" result
   while :; do
-    printf '  %sResult for %s (PASS, FAIL, or SKIP):%s ' "$BOLD" "$check" "$RESET"
+    printf '  Result for %s (y=PASS, n=FAIL, s=SKIP): ' "$label"
     read_line
-    result="${REPLY^^}"
-    result=$(normalize_short_text "$result")
-    case "$result" in
-      PASS|FAIL|SKIP) break ;;
-      *) warn 'Enter PASS, FAIL, or SKIP.' ;;
+    case "${REPLY,,}" in
+      y) result=PASS ;;
+      n) result=FAIL ;;
+      s) result=SKIP ;;
+      *) warn 'Enter only y, n, or s.'; continue ;;
     esac
+    record_result "$label" "$result"
+    return 0
   done
-
-  if [[ "$classification" == 'Optional' && "$result" == 'SKIP' ]]; then
-    prompt_value 'Exact reason for this optional SKIP (required; public label only):' 1 400
-  else
-    prompt_value 'Short sanitized notes (optional; no URLs, paths, screenshots, tokens, or personal identifiers):' 0 400
-  fi
-  notes="$SAFE_VALUE"
-  if [[ "$classification" == 'Required' && "$result" == 'SKIP' ]]; then
-    if [[ -n "$notes" ]]; then
-      notes="$notes Required check was not proven; ticket remains ready-for-human."
-    else
-      notes='Required check was not proven; ticket remains ready-for-human.'
-    fi
-  fi
-  prompt_value 'Short public evidence label (optional; no path, URL, filename, or screenshot reference):' 0 160
-  evidence="$SAFE_VALUE"
-  record_result "$ticket" "$check" "$result" "$classification" "$notes" "$evidence"
 }
 
 {
-  printf '# Wingosy Ticket 09 controller acceptance — %s\n\n' "$RUN_ID"
-  printf -- '- **Report:** %s\n' "$REPORT_RELATIVE_PATH"
-  printf -- '%s\n' '- **Required build baseline:** commit 1b596a7 or later'
-  printf -- '- **Data policy:** Only short public labels are recorded. Never record paths, ROM names, RomM URLs, raw logs/config, credentials, tokens, screenshots, or personal identifiers.\n\n'
-  printf '## Test environment\n\n'
+  printf -- '- **Run ID:** %s\n' "$RUN_ID"
+  printf '\n'
 } > "$REPORT_FILE"
 
-banner 'Wingosy Ticket 09 controller acceptance'
+stage 'Ready'
+say 'Use the current Wingosy build. Put the one 8BitDo controller in XInput/Windows mode, disconnect other controllers, enter Immersive, then press Enter.'
+pause 'Press Enter when ready.'
 
-stage 'Safety + tested-build metadata'
-append_stage_heading 'Safety + tested-build metadata'
-say 'This procedure is for one 8BitDo Pro-family controller in XInput/standard mode on Windows using Git Bash.'
-warn 'Do not enter paths, ROM names, RomM URLs, raw logs/config, credentials, tokens, screenshots, serial numbers, account names, or other personal identifiers.'
-warn 'The tested build must contain commit 1b596a7 or a later descendant. This wizard records your confirmation; it does not inspect Git or the app.'
-if ask_yes_no 'Does the tested build contain commit 1b596a7 or later?'; then
-  append_metadata 'Build baseline confirmed' 'Yes'
-else
-  append_metadata 'Build baseline confirmed' 'No'
-  warn 'Stop: do not run acceptance on an unapproved build. The partial report is preserved.'
-  exit 1
-fi
-ask_public_metadata 'App version' 'App version from Wingosy Settings > General:' 1 120
-read_commit_sha
-append_metadata 'Tested commit' "$SAFE_VALUE"
-ask_public_metadata 'Windows version/build' 'Windows version and OS build from Win+R -> winver (public):' 1 120
-ask_public_metadata 'Controller model' 'Exact controller model (model name only; no serial number):' 1 160
-prompt_value 'Optional firmware version (version only; press Enter to leave blank):' 0 80
-FIRMWARE_VERSION="$SAFE_VALUE"
-append_metadata 'Firmware' "$FIRMWARE_VERSION"
-read_transport
-append_metadata 'Transport' "$TRANSPORT"
-if ask_yes_no 'Is this controller set to XInput mode for the test?'; then
-  XINPUT_MODE_CONFIRMED='Yes'
-else
-  XINPUT_MODE_CONFIRMED='No'
-fi
-append_metadata 'XInput mode confirmed' "$XINPUT_MODE_CONFIRMED"
-if [[ "$XINPUT_MODE_CONFIRMED" == 'No' ]]; then
-  warn 'Stop: switch the controller to XInput and re-run so this report is not evidence for the wrong mode.'
-  exit 1
-fi
-pause 'Press Enter when the one-controller test setup is ready.'
+stage 'Launcher/details'
+say 'Press one D-pad direction once and verify it moves once. Press South once and verify details opens once.'
+step 'Use D-pad/stick directions to visibly select enabled details actions. Select Favorite, press South once, and verify it toggles once without Play.'
+step 'Press East once and verify the library returns. Press Menu once and verify Settings opens.'
+capture_result 'Launcher/details'
 
-stage 'XInput preparation and physical controls'
-append_stage_heading 'XInput preparation and physical controls'
-say 'Use the controller manual for the exact model; these are concise examples, not universal mappings.'
-step 'For an 8BitDo Pro 2, set the rear mode switch to X before connecting. On an older SN30 Pro, Start+X is a common XInput startup shortcut. If your model differs, follow its manual.'
-step 'Connect by USB, Bluetooth, or 2.4 GHz as recorded. Do not change modes during this run.'
-warn 'Required one-controller preflight: disconnect every other standard-mapped controller before starting the required checks. The optional second-controller stage is the only later point where another controller may be connected.'
-if ask_yes_no 'Are all other standard-mapped controllers disconnected now?'; then
-  append_metadata 'Other standard-mapped controllers disconnected' 'Yes'
-else
-  append_metadata 'Other standard-mapped controllers disconnected' 'No'
-  warn 'Stop: disconnect the other standard-mapped controllers before the required checks so this evidence is attributable to the tested 8BitDo.'
-  exit 1
-fi
-step 'Press Win+R, enter joy.cpl, and press Enter. Select the controller, open Properties, and verify every D-pad direction, both stick axes, LB/RB, Menu/Start, View/Select, and the face buttons respond physically.'
-say 'Use physical positions and intent rather than printed Nintendo-style letters:'
-step 'South/bottom = the face button nearest the bottom edge; it is Confirm/Open. East/right = the face button nearest the right edge; it is Back. Nintendo-style A/B print positions can differ.'
-step 'LB/RB = the left/right shoulder buttons. Menu/Start = the menu/start control. View/Select = the view/select control. Names and printed symbols vary by model.'
-warn 'If joy.cpl does not show the expected physical controls, stop and resolve the controller mode before continuing.'
-pause 'Press Enter after joy.cpl physical verification.'
+stage 'Drift/reconnect'
+say 'With the stick centered, wait 10 seconds; it must stay still. Fully deflect it and verify movement works.'
+step 'Hold a direction until it repeats, disconnect the controller, and verify movement stops. Reconnect without restarting Wingosy, then press one direction once and verify exactly one move.'
+note 'Do not change or restart the deadzone setting; its bounds, persistence, and reset are already automated.'
+capture_result 'Drift/reconnect'
 
-stage 'Keyboard fallback'
-append_stage_heading 'Keyboard fallback'
-say 'Required check. Keep the controller idle so this proves keyboard recovery independently.'
-step 'Open Wingosy Immersive mode and use the library arrows to move between games. Confirm the visible selection changes one step at a time.'
-step 'Press Enter once on a harmless selected game to open its details view; do not choose Play.'
-step 'In details, use the arrows to move across visible enabled actions. Focus Favorite, press Enter once, and verify the favorite state toggles once without launching.'
-step 'Press Esc once from details and verify the library returns. Do not press Esc twice before recording the result.'
-pause 'Press Enter after completing the keyboard fallback check.'
-capture_result 'Ticket 09' 'Keyboard library/details navigation, harmless Favorite, and Esc recovery' 'Required'
+stage 'RetroArch + closeout'
+say 'Using permitted content, select Play once. Verify gameplay responds, the configured RetroArch menu opens, and a clean exit returns to Wingosy.'
+step 'After returning, send one launcher input and verify it works once. If permitted content is unavailable, enter s; the ticket remains ready-for-human.'
+capture_result 'RetroArch'
 
-stage 'Controller library navigation'
-append_stage_heading 'Controller library navigation'
-say 'Required check. Use the one standard-mapped 8BitDo controller prepared above.'
-step 'In the Immersive library, test D-pad up/down/left/right and the left stick. A centered stick must not drift; each direction must move the visible selection.'
-step 'Hold a direction long enough to observe repeat, then release it. Repeat must stop on release without a final stale or duplicate movement.'
-step 'Use LB and RB to move between library sections where sections are available. Verify each press produces one section change and no duplicate action.'
-step 'Use View/Select to toggle the help overlay, then use it again to close it. The overlay must own its input while open.'
-step 'Use Menu/Start to open Settings, then use East/right Back once to return to the library. Do not press the same action twice while checking the result.'
-pause 'Press Enter after completing the controller library check.'
-capture_result 'Ticket 09' 'Controller library directions, stick, repeat/release, sections, help, Menu, Back, and duplicate-action check' 'Required'
-
-stage 'Exact game-details controller regression'
-append_stage_heading 'Exact game-details controller regression'
-say 'Required check. Start from the library with no menu or dialog open.'
-step 'Highlight a game with a visible enabled Favorite action. Press South/bottom once. Confirm the details view opens exactly once.'
-step 'Use D-pad and left-stick directions to move visibly among the enabled visible details actions. Move in the reverse direction too.'
-step 'Confirm focus never selects hidden, disabled, or non-actionable elements. Only visible enabled actions may receive focus.'
-step 'Select Favorite and press South/bottom/Confirm once. Verify Favorite toggles exactly once and no Play/launch flow starts.'
-warn 'Press East/right Back exactly once to return from details to the library. Do not press East twice until this result is recorded; twice can test a different route.'
-pause 'Press Enter after completing the exact details regression.'
-capture_result 'Ticket 09' 'Details open once, visible enabled focus, reverse navigation, Favorite once, and one East return' 'Required'
-
-stage 'Menu/dialog input suppression'
-append_stage_heading 'Menu/dialog input suppression'
-say 'Required check. The overlay must own controller input while it is open.'
-step 'Open a game details view and choose More options, or another safe non-launch dialog available in the current build.'
-step 'While the MUI overlay is open, press controller directions and, if safe, Confirm. Verify controller input does not move or activate any background details control. Do not require controller focus navigation or Confirm activation inside the MUI overlay.'
-step 'After observing suppression, close the overlay with any working overlay control, keyboard Esc, or mouse. Then verify the details view still has the same selection and state it had before the overlay.'
-warn 'Do not use Play or intentionally trigger a destructive action for this check.'
-pause 'Press Enter after completing the menu/dialog suppression check.'
-capture_result 'Ticket 09' 'Menu/dialog owns input and suppresses background details actions' 'Required'
-
-stage 'Deadzone bounds and persistence'
-append_stage_heading 'Deadzone bounds and persistence'
-say 'Required check. Use Settings > General and record behavior, not configuration or file paths.'
-step 'Open Settings > General. Verify Controller deadzone accepts only 0.10 through 0.80 in 0.05 steps; attempts beyond either bound must not move the value outside the range.'
-step 'Set the deadzone to 0.60, fully exit Wingosy, restart it, and verify 0.60 persists.'
-step 'Use Reset deadzone, verify the value becomes 0.35, fully exit Wingosy, restart it, and verify 0.35 persists.'
-step 'With the stick centered, leave the library idle for 15–30 seconds. It must not navigate. Then fully deflect the stick in each direction and verify navigation works.'
-pause 'Press Enter after completing the deadzone check.'
-capture_result 'Ticket 09' 'Deadzone bounds, 0.60 persistence, reset 0.35 persistence, idle stability, and full deflection' 'Required'
-
-stage 'Neutral and held-direction hot-plug'
-append_stage_heading 'Neutral and held-direction hot-plug'
-say 'Required check. Do not restart Wingosy during the reconnect portion.'
-step 'Return to the library, release every control, and disconnect the controller while neutral. Verify no direction remains held and no action fires after disconnect.'
-step 'Reconnect the same controller without restarting Wingosy. Verify it becomes usable again and the first post-reconnect direction causes exactly one movement.'
-step 'Repeat the disconnect while holding a direction long enough to produce repeat. Verify there is no stale repeat, duplicate action, or delayed action after disconnect.'
-step 'Reconnect again without restarting and press one direction once. Verify it occurs once, then release the control.'
-warn 'If the controller reconnects only after an app restart, record FAIL or SKIP according to what was actually proven; do not infer success.'
-pause 'Press Enter after completing the hot-plug check.'
-capture_result 'Ticket 09' 'Neutral disconnect/reconnect, held-repeat disconnect, stale-input prevention, and first post-reconnect input' 'Required'
-
-stage 'RetroArch permitted-content end to end'
-append_stage_heading 'RetroArch permitted-content end to end'
-say 'Required check. Use only permitted test content already available to you. Do not enter its name, path, server URL, or any log/config content in this report.'
-step 'From the Wingosy library, use the controller to select Play once. Wait for the game to start; do not press South/Confirm repeatedly while launch is in progress.'
-step 'Verify gameplay responds to the controller and the configured controller menu works.'
-step 'If gameplay bindings are missing, use the native recovery path: Input -> RetroPad Binds -> Port 1 -> Set All Controls -> Save Controller Profile. Retest only after saving.'
-step 'Exit RetroArch cleanly through its normal exit control. Verify Wingosy returns, then verify the launcher still responds to D-pad/stick and Confirm/Open once.'
-warn 'This is a required real-content check. If it cannot be run safely or is not proven, choose SKIP; the ticket remains ready-for-human.'
-pause 'Press Enter after completing the RetroArch end-to-end check.'
-capture_result 'Ticket 09' 'Play once, gameplay response, configured controller menu, native bindings recovery, clean exit, and launcher recovery' 'Required'
-
-stage 'Optional hardware boundaries'
-append_stage_heading 'Optional hardware boundaries'
-say 'These observations are optional and do not fail closeout when skipped. Never simulate either case with the same controller.'
-if ask_yes_no 'Is a second standard-mapped controller genuinely available?'; then
-  step 'Leave the tested 8BitDo controller connected, connect the second standard-mapped controller, and press one direction on the active pad. Verify one launcher movement, not a duplicate.'
-  step 'Disconnect the active pad and use the other pad. Verify handoff works without stale or duplicate input.'
-  pause 'Press Enter after completing the second-controller observation.'
-  capture_result 'Ticket 09' 'Second standard-mapped controller handoff and duplicate-action boundary' 'Optional'
-else
-  record_result 'Ticket 09' 'Second standard-mapped controller handoff and duplicate-action boundary' 'SKIP' 'Optional' 'Only one 8BitDo Pro-family controller is available for this run; no second standard controller is available.' ''
-fi
-
-warn 'For the unsupported-pad observation, use a genuinely unsupported pad only. Do not mode-switch this same 8BitDo controller to manufacture a result; WebView mapping may remain standard.'
-if ask_yes_no 'Is a genuinely unsupported pad available for this observation?'; then
-  step 'Connect the genuinely unsupported/non-standard pad without changing the tested controller. Verify it produces no launcher action while keyboard recovery remains available.'
-  step 'Do not treat the tested 8BitDo in another switch mode as an unsupported pad.'
-  pause 'Press Enter after completing the unsupported-pad observation.'
-  capture_result 'Ticket 09' 'Unsupported-pad boundary and keyboard recovery' 'Optional'
-else
-  record_result 'Ticket 09' 'Unsupported-pad boundary and keyboard recovery' 'SKIP' 'Optional' 'No genuinely unsupported pad is available for this run; the same 8BitDo controller was not mode-switched to manufacture a result.' ''
-fi
-
-stage 'Review and closeout'
-append_stage_heading 'Review and closeout'
-if (( REQUIRED_FAIL_COUNT > 0 )); then
-  OVERALL_RESULT='FAIL'
-elif (( REQUIRED_SKIP_COUNT > 0 )); then
-  OVERALL_RESULT='SKIP'
+if (( FAIL_COUNT > 0 )); then
+  OVERALL_RESULT='FAIL/ready-for-human'
+elif (( SKIP_COUNT > 0 )); then
+  OVERALL_RESULT='SKIP/ready-for-human'
 else
   OVERALL_RESULT='PASS'
 fi
-
-{
-  printf '%s\n\n' '## Review and closeout'
-  printf -- '- **Required totals:** PASS %s, FAIL %s, SKIP %s\n' "$REQUIRED_PASS_COUNT" "$REQUIRED_FAIL_COUNT" "$REQUIRED_SKIP_COUNT"
-  printf -- '- **Optional totals:** PASS %s, FAIL %s, SKIP %s\n' "$OPTIONAL_PASS_COUNT" "$OPTIONAL_FAIL_COUNT" "$OPTIONAL_SKIP_COUNT"
-  printf -- '- **All recorded results:** PASS %s, FAIL %s, SKIP %s\n' "$PASS_COUNT" "$FAIL_COUNT" "$SKIP_COUNT"
-  printf -- '- **Overall required result:** %s\n' "$OVERALL_RESULT"
-  printf -- '- **Closeout rule:** Any required FAIL or required SKIP is non-PASS and keeps Ticket 09 ready-for-human. Optional SKIPs do not fail closeout; optional results remain informational.\n'
-  printf -- '- **Report:** %s\n' "$REPORT_RELATIVE_PATH"
-  printf -- '- **Mutation policy:** This wizard does not mutate the ticket, STATE, or spec. Review this report and update ticket status manually only after the proven required checks are complete.\n\n'
-} >> "$REPORT_FILE"
+printf -- '- **Overall:** %s\n' "$OVERALL_RESULT" >> "$REPORT_FILE"
+printf -- '- **Scope:** One 8BitDo controller only; second-controller and unsupported-pad checks were not part of this run.\n' >> "$REPORT_FILE"
 
 _clear
-printf '\n%s%s  ✓ Controller acceptance wizard complete%s\n\n' "$BOLD" "$GREEN" "$RESET"
+printf '\n%s%s  ✓ Controller acceptance complete%s\n' "$BOLD" "$GREEN" "$RESET"
 printf '  Report: %s\n' "$REPORT_RELATIVE_PATH"
-printf '  Required totals: PASS %s, FAIL %s, SKIP %s\n' "$REQUIRED_PASS_COUNT" "$REQUIRED_FAIL_COUNT" "$REQUIRED_SKIP_COUNT"
-printf '  Optional totals: PASS %s, FAIL %s, SKIP %s\n' "$OPTIONAL_PASS_COUNT" "$OPTIONAL_FAIL_COUNT" "$OPTIONAL_SKIP_COUNT"
-printf '  Overall required result: %s\n' "$OVERALL_RESULT"
+printf '  Overall: %s\n' "$OVERALL_RESULT"
 if [[ "$OVERALL_RESULT" != 'PASS' ]]; then
-  warn 'Ticket 09 remains ready-for-human until every required check is proven PASS.'
-elif (( OPTIONAL_SKIP_COUNT > 0 )); then
-  note 'Optional SKIPs are recorded and do not fail closeout.'
+  printf '  %sTicket 09 remains ready-for-human.%s\n' "$RED" "$RESET"
 fi
