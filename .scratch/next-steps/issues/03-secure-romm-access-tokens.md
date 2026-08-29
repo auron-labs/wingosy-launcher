@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-human
+Status: resolved
 Blocked by: 02
 
 > Follow this plan step by step and update `../spec.md` when done.

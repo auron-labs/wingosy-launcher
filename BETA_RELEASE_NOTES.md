@@ -40,9 +40,3 @@ user data.
 - **Logs:** Use **Settings > General > Open Logs Folder** or open
   `%APPDATA%\wingosy\launcher\data\logs\`. Logs roll daily; Wingosy does not
   automatically delete old logs or collect and upload diagnostics.
-- **Feedback owner:** Auron Labs maintainers monitor the bug report route.
-  Reports are reviewed on a best-effort basis during the one-week first cohort;
-  there is no guaranteed response time.
-- **Cohort gates:** Start with 3-5 technically comfortable testers for one week.
-  Before expanding to 10-20 testers, close all first-cohort P0 setup, launch,
-  update, data-loss, and credential issues. Do not add features during this gate.

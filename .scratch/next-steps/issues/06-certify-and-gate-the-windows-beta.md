@@ -92,3 +92,15 @@ emulator certification, or weakening tests to obtain green results.
 
 The ledger is the support matrix's evidence source. Repeat install/update smoke
 for every beta; repeat full emulator certification when launcher/core behavior changes.
+
+## Comments
+
+### 2026-08-28 — Controller/RetroArch acceptance failed
+
+The one-controller run at
+`../evidence/20260828-225824-controller-acceptance.md` reached and opened a game,
+but the RetroArch gate failed: Wingosy did not show the installed/required core
+list, RetroArch reported that the controller was not configured, and returning
+from the game left the Windows taskbar above Wingosy until the tester clicked
+the app. Keep this ticket `ready-for-human`; these are separate agent blockers
+to diagnose before another hardware run.

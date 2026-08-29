@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-human
+Status: resolved
 Blocked by: 02
 
 > Preserve current user-owned changes. Run `git status --short` before editing;

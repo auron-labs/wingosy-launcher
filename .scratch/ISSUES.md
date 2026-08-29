@@ -1,0 +1,1 @@
+- [ ] check for updates of emulators if managed

@@ -161,3 +161,17 @@ action → Confirm route. The Windows acceptance blocker now has a deterministic
 regression, and all automated checks above are green. Repeat the primary XInput
 details-navigation/hot-plug case on Windows; keep this ticket `ready-for-human`
 until that real-controller run passes.
+
+### 2026-08-28 — One-controller Windows retest
+
+The minimal Git Bash run at
+`../evidence/20260828-225824-controller-acceptance.md` passed launcher/details
+navigation and disconnect/reconnect with one 8BitDo controller. The details fix
+is confirmed on hardware: the controller opened a game page and selected its
+buttons.
+
+Keep the ticket `ready-for-human`: occasional left/right presses moved twice,
+and the three-dot details menu opened from the controller but could not be
+navigated with it. The duplicate movement is not dismissed as hardware without
+further diagnosis; the mapper currently begins held-direction repeat after the
+110 ms repeat interval rather than the documented 240 ms initial delay.
