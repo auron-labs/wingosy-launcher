@@ -146,6 +146,7 @@ fn main() {
             commands::get_missing_cores,
             commands::get_platform_ids_with_installed_retroarch_core,
             commands::get_retroarch_default_core_dlls,
+            commands::get_retroarch_core_inventory,
             commands::apply_detected_paths,
             commands::set_platform_default_emulator,
             commands::get_platform_default_emulators,

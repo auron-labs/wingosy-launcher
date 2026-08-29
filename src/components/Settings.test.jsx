@@ -40,7 +40,10 @@ afterEach(() => {
   open.mockReset();
 });
 
-function renderSettings({ emulators = [], config = {}, initialSection = "general" } = {}) {
+/**
+ * @param {{ emulators?: any[], config?: any, initialSection?: string, inventory?: any[] | (() => any[]) }} options
+ */
+function renderSettings({ emulators = [], config = {}, initialSection = "general", inventory = [] } = {}) {
   invoke.mockImplementation(async (command) => {
     switch (command) {
       case "get_config":
@@ -54,6 +57,8 @@ function renderSettings({ emulators = [], config = {}, initialSection = "general
         };
       case "get_all_emulators":
         return emulators;
+      case "get_retroarch_core_inventory":
+        return typeof inventory === "function" ? inventory() : inventory;
       case "get_missing_cores":
       case "get_platform_ids_with_installed_retroarch_core":
       case "get_platforms_with_games":
@@ -172,5 +177,79 @@ describe("Settings beta support", () => {
 
     expect(screen.queryByRole("button", { name: "Repair Wingosy RetroArch profile" })).not.toBeInTheDocument();
     expect(screen.getByText("Use Wingosy beta profile for this external install")).toBeInTheDocument();
+  });
+
+  it("renders the current managed core inventory with required and validity states", async () => {
+    renderSettings({
+      emulators: [{
+        id: "retroarch",
+        name: "RetroArch",
+        version: "1.19.1",
+        install_type: "managed",
+        installed_path: "C:\\RetroArch\\retroarch.exe",
+        is_installed: true,
+        supported_platforms: ["*"],
+      }],
+      initialSection: "emulators",
+      inventory: [
+        {
+          platform_id: "nes",
+          platform_name: "Nintendo Entertainment System",
+          core_filename: "fceumm_libretro.dll",
+          required: true,
+          status: "installed",
+        },
+        {
+          platform_id: "snes",
+          platform_name: "Super Nintendo",
+          core_filename: "snes9x_libretro.dll",
+          required: true,
+          status: "invalid",
+        },
+      ],
+    });
+
+    fireEvent.click(await screen.findByText("RetroArch", { exact: true }));
+
+    expect(await screen.findByText("Promised beta cores:")).toBeInTheDocument();
+    expect(screen.getByTestId("retroarch-core-status-nes")).toHaveTextContent("Installed");
+    expect(screen.getByTestId("retroarch-core-status-snes")).toHaveTextContent("Invalid");
+    expect(screen.getAllByText("Required")).toHaveLength(2);
+  });
+
+  it("refreshes core status from disk after the managed installation changes", async () => {
+    let currentInventory = [
+      {
+        platform_id: "nes",
+        platform_name: "Nintendo Entertainment System",
+        core_filename: "fceumm_libretro.dll",
+        required: true,
+        status: "missing",
+      },
+    ];
+
+    renderSettings({
+      emulators: [{
+        id: "retroarch",
+        name: "RetroArch",
+        version: "1.19.1",
+        install_type: "managed",
+        installed_path: "C:\\RetroArch\\retroarch.exe",
+        is_installed: true,
+        supported_platforms: ["*"],
+      }],
+      initialSection: "emulators",
+      inventory: () => currentInventory,
+    });
+
+    fireEvent.click(await screen.findByText("RetroArch", { exact: true }));
+    expect(await screen.findByTestId("retroarch-core-status-nes")).toHaveTextContent("Missing");
+
+    currentInventory = [{ ...currentInventory[0], status: "installed" }];
+    fireEvent.click(screen.getByRole("button", { name: "Refresh emulator status" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("retroarch-core-status-nes")).toHaveTextContent("Installed");
+    });
   });
 });

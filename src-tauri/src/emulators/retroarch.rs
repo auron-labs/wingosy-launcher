@@ -34,6 +34,12 @@ pub struct CoreArtifact {
     pub installed_sha256: &'static str,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ManagedCoreManifest<'a> {
+    executable_sha256: &'a str,
+    cores: &'a [CoreArtifact],
+}
+
 pub fn retroarch_artifact() -> Artifact {
     Artifact {
         filename: "RetroArch.7z",
@@ -109,12 +115,30 @@ pub fn core_artifact_for_filename(filename: &str) -> Option<CoreArtifact> {
         .copied()
 }
 
+pub fn core_artifact_for_platform(platform_id: &str) -> Option<CoreArtifact> {
+    core_artifacts()
+        .iter()
+        .find(|core| core.platform_id == platform_id)
+        .copied()
+}
+
+pub(crate) fn certified_managed_core_manifest() -> ManagedCoreManifest<'static> {
+    ManagedCoreManifest {
+        executable_sha256: RETROARCH_EXECUTABLE_SHA256,
+        cores: core_artifacts(),
+    }
+}
+
 pub fn profile_dir() -> Result<PathBuf> {
     Ok(AppConfig::data_dir()?.join("retroarch").join("profile"))
 }
 
 pub fn delta_path() -> Result<PathBuf> {
     Ok(profile_dir()?.join("wingosy-retroarch-v1.cfg"))
+}
+
+pub fn managed_delta_path() -> Result<PathBuf> {
+    Ok(profile_dir()?.join("wingosy-retroarch-managed-v1.cfg"))
 }
 
 pub fn ensure_profile() -> Result<PathBuf> {
@@ -128,7 +152,7 @@ pub fn ensure_profile_at(root: &Path) -> Result<PathBuf> {
 
     let config_path = root.join("wingosy-retroarch-v1.cfg");
     if !config_path.exists() {
-        write_profile_atomically(&config_path)?;
+        write_profile_atomically(&config_path, &profile_contents())?;
     }
 
     Ok(config_path)
@@ -139,7 +163,30 @@ pub fn repair_profile_at(root: &Path) -> Result<Option<PathBuf>> {
         .context("Failed to create Wingosy RetroArch profile directory")?;
     let config_path = root.join("wingosy-retroarch-v1.cfg");
     let backup = backup_profile_at(root, &config_path)?;
-    write_profile_atomically(&config_path)?;
+    write_profile_atomically(&config_path, &profile_contents())?;
+    Ok(backup)
+}
+
+pub fn ensure_managed_profile(retroarch_executable: &Path) -> Result<PathBuf> {
+    let root = profile_dir()?;
+    std::fs::create_dir_all(&root)
+        .context("Failed to create Wingosy RetroArch profile directory")?;
+    let config_path = managed_delta_path()?;
+    let contents = managed_profile_contents(retroarch_executable)?;
+    if std::fs::read_to_string(&config_path).ok().as_deref() != Some(contents.as_str()) {
+        write_profile_atomically(&config_path, &contents)?;
+    }
+    Ok(config_path)
+}
+
+pub fn repair_managed_profile(retroarch_executable: &Path) -> Result<Option<PathBuf>> {
+    let root = profile_dir()?;
+    std::fs::create_dir_all(&root)
+        .context("Failed to create Wingosy RetroArch profile directory")?;
+    let config_path = managed_delta_path()?;
+    let backup = backup_profile_at(&root, &config_path)?;
+    let contents = managed_profile_contents(retroarch_executable)?;
+    write_profile_atomically(&config_path, &contents)?;
     Ok(backup)
 }
 
@@ -177,7 +224,7 @@ fn backup_profile_at(root: &Path, config_path: &Path) -> Result<Option<PathBuf>>
     Ok(Some(backup_path))
 }
 
-fn write_profile_atomically(config_path: &Path) -> Result<()> {
+fn write_profile_atomically(config_path: &Path, contents: &str) -> Result<()> {
     let parent = config_path
         .parent()
         .context("Wingosy RetroArch profile must have a parent directory")?;
@@ -197,7 +244,7 @@ fn write_profile_atomically(config_path: &Path) -> Result<()> {
             .create_new(true)
             .open(&temporary)
             .context("Failed to create temporary Wingosy RetroArch profile")?;
-        file.write_all(profile_contents().as_bytes())
+        file.write_all(contents.as_bytes())
             .context("Failed to write temporary Wingosy RetroArch profile")?;
         file.sync_all()
             .context("Failed to flush temporary Wingosy RetroArch profile")?;
@@ -263,13 +310,34 @@ pub fn managed_install_is_ready(config: &AppConfig, retroarch_executable: &Path)
 }
 
 pub fn validate_managed_install(config: &AppConfig, retroarch_executable: &Path) -> Result<()> {
+    validate_managed_install_identity(config, retroarch_executable)?;
+    validate_managed_artifacts(retroarch_executable)
+}
+
+pub fn validate_managed_install_identity(
+    config: &AppConfig,
+    retroarch_executable: &Path,
+) -> Result<()> {
+    validate_managed_install_identity_with_hash(
+        config,
+        retroarch_executable,
+        RETROARCH_EXECUTABLE_SHA256,
+    )
+}
+
+fn validate_managed_install_identity_with_hash(
+    config: &AppConfig,
+    retroarch_executable: &Path,
+    executable_sha256: &str,
+) -> Result<()> {
     if !manifest_identity_matches(config) {
         anyhow::bail!("RetroArch is not a Wingosy-managed certified install");
     }
     if !managed_manifest_marker_matches(retroarch_executable) {
         anyhow::bail!("Managed RetroArch manifest marker is missing or invalid");
     }
-    validate_managed_artifacts(retroarch_executable)
+    verify_sha256(retroarch_executable, executable_sha256)
+        .context("Certified RetroArch executable retroarch.exe failed validation")
 }
 
 pub fn validate_managed_artifacts(retroarch_executable: &Path) -> Result<()> {
@@ -288,10 +356,98 @@ pub fn validate_managed_artifacts(retroarch_executable: &Path) -> Result<()> {
         verify_sha256(&cores_dir.join(filename), artifact.installed_sha256)
             .with_context(|| format!("Certified RetroArch core {} failed validation", filename))?;
     }
-    verify_sha256(retroarch_executable, RETROARCH_EXECUTABLE_SHA256)
-        .context("Certified RetroArch executable retroarch.exe failed validation")?;
+    if !managed_autoconfig_is_present(retroarch_executable) {
+        anyhow::bail!("Managed RetroArch XInput autoconfiguration assets are missing");
+    }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreAvailability {
+    Installed,
+    Missing,
+    Invalid,
+}
+
+impl CoreAvailability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Installed => "installed",
+            Self::Missing => "missing",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+pub fn core_availability(
+    retroarch_executable: Option<&Path>,
+    artifact: &CoreArtifact,
+    managed: bool,
+) -> CoreAvailability {
+    let Some(executable) = retroarch_executable else {
+        return CoreAvailability::Missing;
+    };
+    if !executable.is_file() {
+        return CoreAvailability::Missing;
+    }
+    let Some(root) = executable.parent() else {
+        return CoreAvailability::Missing;
+    };
+    let path = root.join("cores").join(artifact.filename);
+    if !path.is_file() {
+        return CoreAvailability::Missing;
+    }
+    if managed && verify_sha256(&path, artifact.installed_sha256).is_err() {
+        return CoreAvailability::Invalid;
+    }
+    CoreAvailability::Installed
+}
+
+pub(crate) fn managed_core_path(
+    config: &AppConfig,
+    retroarch_executable: &Path,
+    platform_id: &str,
+    manifest: ManagedCoreManifest<'_>,
+) -> Result<PathBuf> {
+    validate_managed_install_identity_with_hash(
+        config,
+        retroarch_executable,
+        manifest.executable_sha256,
+    )
+    .context("Managed RetroArch install failed integrity validation")?;
+    let artifact = manifest
+        .cores
+        .iter()
+        .find(|core| core.platform_id == platform_id)
+        .copied()
+        .with_context(|| format!("No certified RetroArch core is promised for {platform_id}"))?;
+    let path = retroarch_executable
+        .parent()
+        .context("RetroArch executable must have a parent directory")?
+        .join("cores")
+        .join(artifact.filename);
+    match core_availability(Some(retroarch_executable), &artifact, true) {
+        CoreAvailability::Installed => Ok(path),
+        CoreAvailability::Missing => anyhow::bail!(
+            "Certified RetroArch core {} is missing",
+            artifact.filename
+        ),
+        CoreAvailability::Invalid => anyhow::bail!(
+            "Certified RetroArch core {} failed validation",
+            artifact.filename
+        ),
+    }
+}
+
+pub fn promised_core_path(retroarch_executable: &Path, platform_id: &str) -> Result<PathBuf> {
+    let artifact = core_artifact_for_platform(platform_id)
+        .with_context(|| format!("No certified RetroArch core is promised for {platform_id}"))?;
+    Ok(retroarch_executable
+        .parent()
+        .context("RetroArch executable must have a parent directory")?
+        .join("cores")
+        .join(artifact.filename))
 }
 
 pub fn managed_core_set_is_present(retroarch_executable: &Path) -> bool {
@@ -312,6 +468,41 @@ pub fn certified_core_filenames() -> &'static [&'static str] {
         "mgba_libretro.dll",
         "genesis_plus_gx_libretro.dll",
     ]
+}
+
+pub fn managed_autoconfig_dir(retroarch_executable: &Path) -> Option<PathBuf> {
+    retroarch_executable
+        .parent()
+        .map(|parent| parent.join("autoconfig"))
+}
+
+pub fn managed_autoconfig_is_present(retroarch_executable: &Path) -> bool {
+    if !retroarch_executable.is_file() {
+        return false;
+    }
+    let Some(xinput_dir) = managed_autoconfig_dir(retroarch_executable)
+        .map(|path| path.join("xinput"))
+    else {
+        return false;
+    };
+    std::fs::read_dir(xinput_dir)
+        .map(|entries| {
+            entries.filter_map(|entry| entry.ok()).any(|entry| {
+                let path = entry.path();
+                entry.file_type().map(|kind| kind.is_file()).unwrap_or(false)
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("cfg"))
+                    && std::fs::read_to_string(path)
+                        .map(|contents| {
+                            contents
+                                .lines()
+                                .any(|line| line.trim() == r#"input_driver = "xinput""#)
+                        })
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
 }
 
 pub fn temporary_archive_path(filename: &str) -> PathBuf {
@@ -353,6 +544,18 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
 
 fn profile_contents() -> String {
     "config_save_on_exit = false\ninput_autodetect_enable = true\n".to_string()
+}
+
+fn managed_profile_contents(retroarch_executable: &Path) -> Result<String> {
+    let autoconfig_dir = managed_autoconfig_dir(retroarch_executable)
+        .context("RetroArch executable must have a parent directory")?;
+    let autoconfig_dir = autoconfig_dir
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('"', "\\\"");
+    Ok(format!(
+        "config_save_on_exit = false\ninput_autodetect_enable = true\ninput_joypad_driver = \"xinput\"\njoypad_autoconfig_dir = \"{autoconfig_dir}\"\n"
+    ))
 }
 
 #[cfg(test)]
@@ -558,5 +761,164 @@ mod tests {
         let error = validate_managed_install(&config, &executable).unwrap_err();
 
         assert!(error.to_string().contains("failed validation"));
+    }
+
+    #[test]
+    fn core_availability_distinguishes_missing_installed_and_invalid_managed_cores() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let cores = dir.path().join("cores");
+        std::fs::create_dir_all(&cores).unwrap();
+        std::fs::write(&executable, b"retroarch").unwrap();
+        let artifact = CoreArtifact {
+            platform_id: "test",
+            filename: "test_libretro.dll",
+            archive_url: "https://example.invalid/cores.7z",
+            archive_sha256: "archive",
+            installed_sha256: "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+        };
+
+        assert_eq!(
+            core_availability(Some(&executable), &artifact, true),
+            CoreAvailability::Missing
+        );
+        std::fs::write(cores.join(artifact.filename), b"invalid").unwrap();
+        assert_eq!(
+            core_availability(Some(&executable), &artifact, true),
+            CoreAvailability::Invalid
+        );
+        std::fs::write(cores.join(artifact.filename), b"valid").unwrap();
+        assert_eq!(
+            core_availability(Some(&executable), &artifact, true),
+            CoreAvailability::Installed
+        );
+    }
+
+    #[test]
+    fn managed_profile_points_native_xinput_autoconfiguration_at_the_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("RetroArch").join("retroarch.exe");
+        let profile = managed_profile_contents(&executable).unwrap();
+
+        assert!(profile.contains("input_autodetect_enable = true"));
+        assert!(profile.contains("input_joypad_driver = \"xinput\""));
+        assert!(profile.contains("joypad_autoconfig_dir = \""));
+        assert!(!profile.contains("input_player1_"));
+        assert!(!profile.contains("input_vendor_id"));
+    }
+
+    #[test]
+    fn managed_autoconfig_requires_a_native_xinput_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        std::fs::write(&executable, b"retroarch").unwrap();
+        assert!(!managed_autoconfig_is_present(&executable));
+
+        let xinput = dir.path().join("autoconfig").join("xinput");
+        std::fs::create_dir_all(&xinput).unwrap();
+        std::fs::write(xinput.join("native-controller.cfg"), b"input_driver = \"xinput\"\n")
+            .unwrap();
+
+        assert!(managed_autoconfig_is_present(&executable));
+    }
+
+    #[test]
+    fn promised_core_path_resolves_the_certified_nes_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+
+        assert_eq!(
+            promised_core_path(&executable, "nes").unwrap(),
+            dir.path().join("cores").join("fceumm_libretro.dll")
+        );
+    }
+
+    #[test]
+    fn managed_core_path_accepts_identity_valid_install_with_valid_promised_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        let core = dir.path().join("cores").join("fceumm_libretro.dll");
+        std::fs::create_dir_all(core.parent().unwrap()).unwrap();
+        std::fs::write(&executable, b"valid").unwrap();
+        std::fs::write(&core, b"valid").unwrap();
+        write_manifest_marker(&executable).unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
+        let artifact = CoreArtifact {
+            platform_id: "nes",
+            filename: "fceumm_libretro.dll",
+            archive_url: "https://example.invalid/cores.7z",
+            archive_sha256: "archive",
+            installed_sha256:
+                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+        };
+        let manifest = ManagedCoreManifest {
+            executable_sha256:
+                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            cores: std::slice::from_ref(&artifact),
+        };
+
+        let resolved = managed_core_path(
+            &config,
+            &executable,
+            "nes",
+            manifest,
+        )
+        .unwrap();
+
+        assert_eq!(resolved, core);
+    }
+
+    #[test]
+    fn managed_core_path_rejects_a_missing_promised_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        std::fs::write(&executable, b"valid").unwrap();
+        write_manifest_marker(&executable).unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
+        let artifact = CoreArtifact {
+            platform_id: "nes",
+            filename: "fceumm_libretro.dll",
+            archive_url: "https://example.invalid/cores.7z",
+            archive_sha256: "archive",
+            installed_sha256:
+                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+        };
+        let manifest = ManagedCoreManifest {
+            executable_sha256:
+                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            cores: std::slice::from_ref(&artifact),
+        };
+
+        let error = managed_core_path(&config, &executable, "nes", manifest).unwrap_err();
+
+        assert!(error.to_string().contains("is missing"));
+    }
+
+    #[test]
+    fn managed_core_path_rejects_an_unverified_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("retroarch.exe");
+        std::fs::write(&executable, b"modified executable").unwrap();
+        write_manifest_marker(&executable).unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
+        config.emulators.retroarch_manifest_version = Some(MANIFEST_VERSION.to_string());
+
+        let error = managed_core_path(
+            &config,
+            &executable,
+            "nes",
+            certified_managed_core_manifest(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("integrity validation"));
     }
 }

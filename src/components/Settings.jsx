@@ -155,6 +155,7 @@ export default function Settings({
   const [retroarchCoreDllByPlatform, setRetroarchCoreDllByPlatform] = useState({});
   /** Platforms where the mapped RetroArch core exists on disk (see `retroarch_cores`). */
   const [retroarchCoreReadyPlatformIds, setRetroarchCoreReadyPlatformIds] = useState([]);
+  const [retroarchCoreInventory, setRetroarchCoreInventory] = useState([]);
   /** Per-emulator install progress (`emulator_id` → phase + optional bytes); allows parallel installs. */
   const [emuInstallProgress, setEmuInstallProgress] = useState({});
   const emuDownloadInflightRef = useRef(new Set());
@@ -663,14 +664,12 @@ export default function Settings({
 
   async function loadEmulators() {
     try {
-      const [emus, raCores, coreReady] = await Promise.all([
+      const [emus, raCores] = await Promise.all([
         invoke("get_all_emulators"),
         invoke("get_retroarch_default_core_dlls"),
-        invoke("get_platform_ids_with_installed_retroarch_core"),
       ]);
       setEmulators(emus);
       setRetroarchCoreDllByPlatform(raCores && typeof raCores === "object" ? raCores : {});
-      setRetroarchCoreReadyPlatformIds(Array.isArray(coreReady) ? coreReady : []);
     } catch (err) {
       console.error("Failed to load emulators:", err);
     }
@@ -678,12 +677,14 @@ export default function Settings({
 
   async function loadMissingCores() {
     try {
-      const [cores, coreReady] = await Promise.all([
+      const [cores, coreReady, inventory] = await Promise.all([
         invoke("get_missing_cores"),
         invoke("get_platform_ids_with_installed_retroarch_core"),
+        invoke("get_retroarch_core_inventory"),
       ]);
-      setMissingCores(cores);
+      setMissingCores(Array.isArray(cores) ? cores : []);
       setRetroarchCoreReadyPlatformIds(Array.isArray(coreReady) ? coreReady : []);
+      setRetroarchCoreInventory(Array.isArray(inventory) ? inventory : []);
     } catch {}
   }
 
@@ -1052,6 +1053,8 @@ export default function Settings({
     try {
       const message = await invoke("repair_retroarch_profile");
       setEmuMessage({ type: "success", message: message || "Wingosy RetroArch profile repaired." });
+      await loadEmulators();
+      await loadMissingCores();
     } catch (err) {
       setEmuMessage({ type: "error", message: err.message || String(err) });
     }
@@ -1873,7 +1876,7 @@ export default function Settings({
               </Button>
             </Tooltip>
             <Tooltip title="Re-scan for emulators">
-              <IconButton size="small" onClick={() => { loadEmulators(); loadMissingCores(); }}><RefreshIcon /></IconButton>
+              <IconButton aria-label="Refresh emulator status" size="small" onClick={() => { loadEmulators(); loadMissingCores(); }}><RefreshIcon /></IconButton>
             </Tooltip>
           </Box>
         </Box>
@@ -2072,6 +2075,42 @@ export default function Settings({
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.25, mb: 1 }}>
                             Recovery: Input → RetroPad Binds → Port 1 → Set All Controls → Save Controller Profile.
                           </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                            Promised beta cores:
+                          </Typography>
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 1.5 }}>
+                            {retroarchCoreInventory.map((core) => {
+                              const statusLabel = core.status
+                                ? core.status.charAt(0).toUpperCase() + core.status.slice(1)
+                                : "Unknown";
+                              return (
+                                <Box
+                                  key={core.platform_id}
+                                  data-testid="retroarch-core-inventory-row"
+                                  sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}
+                                >
+                                  <Typography variant="body2" sx={{ minWidth: 180 }}>
+                                    {core.platform_name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                                    {core.core_filename}
+                                  </Typography>
+                                  <Chip
+                                    label={core.required ? "Required" : "Optional"}
+                                    size="small"
+                                    variant="outlined"
+                                    color={core.required ? "primary" : "default"}
+                                  />
+                                  <Chip
+                                    label={statusLabel}
+                                    size="small"
+                                    data-testid={`retroarch-core-status-${core.platform_id}`}
+                                    color={core.status === "installed" ? "success" : "warning"}
+                                  />
+                                </Box>
+                              );
+                            })}
+                          </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                             Missing cores for your game library:
                           </Typography>

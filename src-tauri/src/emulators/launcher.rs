@@ -82,8 +82,16 @@ impl EmulatorLauncher {
             if self.config.emulators.retroarch_install_kind
                 == crate::config::RetroArchInstallKind::Managed
             {
-                crate::emulators::retroarch::validate_managed_install(&self.config, &executable)
-                    .context("Managed RetroArch install failed integrity validation")?;
+                emulator.core_name = Some(
+                    crate::emulators::retroarch::managed_core_path(
+                        &self.config,
+                        &executable,
+                        &game.platform_id,
+                        crate::emulators::retroarch::certified_managed_core_manifest(),
+                    )?
+                    .to_string_lossy()
+                    .into_owned(),
+                );
                 true
             } else {
                 false
@@ -122,24 +130,36 @@ impl EmulatorLauncher {
                 )
                 || (self.config.emulators.retroarch_install_kind
                     == crate::config::RetroArchInstallKind::External
-                    && self.config.emulators.retroarch_use_beta_profile);
+                && self.config.emulators.retroarch_use_beta_profile);
             if use_beta_profile {
-                let profile = crate::emulators::retroarch::ensure_profile()
-                    .context("Failed to prepare Wingosy RetroArch profile")?;
+                let profile = if managed_install_validated {
+                    crate::emulators::retroarch::ensure_managed_profile(executable)
+                } else {
+                    crate::emulators::retroarch::ensure_profile()
+                }
+                .context("Failed to prepare Wingosy RetroArch profile")?;
                 emulator.launch_args.push(format!(
                     "--appendconfig={}",
                     profile.to_string_lossy()
                 ));
             }
-            let core_name = emulator
-                .core_name
-                .as_deref()
-                .context("No RetroArch core is configured")?;
-            emulator.core_name = Some(
-                resolve_core_path(executable, core_name)?
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            if !managed_install_validated {
+                let core_name = emulator
+                    .core_name
+                    .as_deref()
+                    .context("No RetroArch core is configured")?;
+                emulator.core_name = Some(
+                    resolve_core_path(executable, core_name)?
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            } else {
+                emulator.core_name = Some(
+                    crate::emulators::retroarch::promised_core_path(executable, &game.platform_id)?
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
         }
 
         let (exe_path, args) = emulator
@@ -933,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn build_managed_retroarch_appends_wingosy_profile_after_validation() {
+    fn build_managed_retroarch_resolves_promised_core_and_appends_profile() {
         let _profile_lock = PROFILE_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("retroarch.exe");
@@ -963,7 +983,7 @@ mod tests {
         let command = launcher
             .build_command_after_validation(&game, emulator, true)
             .unwrap();
-        let profile = crate::emulators::retroarch::delta_path().unwrap();
+        let profile = crate::emulators::retroarch::managed_delta_path().unwrap();
 
         assert_eq!(
             command.args,
