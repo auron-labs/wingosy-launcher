@@ -1,6 +1,6 @@
 # Local Issue State
 
-Generated: 2026-08-29T03:01:17Z
+Generated: 2026-08-29T03:33:58Z
 
 Tickets: 3 active, 12 resolved
 
@@ -8,7 +8,7 @@ Tickets: 3 active, 12 resolved
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [04-restore-wingosy-after-retroarch-exits](controller-retroarch-acceptance-followups/issues/04-restore-wingosy-after-retroarch-exits.md) | — | — | ready-for-agent | None — can start immediately |
+| [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [04-restore-wingosy-after-retroarch-exits](controller-retroarch-acceptance-followups/issues/04-restore-wingosy-after-retroarch-exits.md) | — | — | ready-for-human | None — can start immediately |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
 | [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-human | 04 |
 

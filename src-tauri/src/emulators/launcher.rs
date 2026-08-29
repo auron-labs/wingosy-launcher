@@ -222,15 +222,32 @@ impl EmulatorLauncher {
     where
         F: FnOnce() + Send + 'static,
     {
+        self.launch_command_with_lifecycle(game, command, on_running, || {})
+            .await
+    }
+
+    pub(crate) async fn launch_command_with_lifecycle<F, G>(
+        &self,
+        game: &Game,
+        command: LaunchCommand,
+        on_running: F,
+        on_complete: G,
+    ) -> Result<LaunchResult>
+    where
+        F: FnOnce() + Send + 'static,
+        G: FnOnce() + Send + 'static,
+    {
         let rom_path = &command.rom_path;
 
         if !Path::new(rom_path).is_file() {
+            on_complete();
             return Ok(LaunchResult::FileNotFound(rom_path.to_string()));
         }
 
         let exe_path = Path::new(&command.executable);
 
         if !exe_path.is_file() {
+            on_complete();
             return Ok(LaunchResult::EmulatorNotInstalled {
                 name: command.emulator_name.clone(),
                 id: command.emulator_id.clone(),
@@ -245,6 +262,7 @@ impl EmulatorLauncher {
                         .and_then(|name| name.to_str())
                         .unwrap_or(core_path)
                         .to_string();
+                    on_complete();
                     return Ok(LaunchResult::CoreNotInstalled {
                         name: core_name,
                         path: core_path.to_string(),
@@ -278,6 +296,7 @@ impl EmulatorLauncher {
                     command.executable,
                     error
                 );
+                on_complete();
                 return Ok(LaunchResult::EmulatorStartFailed {
                     name: command.emulator_name.clone(),
                     id: command.emulator_id.clone(),
@@ -287,7 +306,14 @@ impl EmulatorLauncher {
         };
 
         on_running();
-        let status = child.wait().context("Failed to wait for emulator")?;
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(error) => {
+                on_complete();
+                return Err(error).context("Failed to wait for emulator");
+            }
+        };
+        on_complete();
 
         if !status.success() {
             tracing::error!(
@@ -576,6 +602,7 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     };
+    use std::time::Duration;
 
     static PROFILE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -609,8 +636,12 @@ mod tests {
     }
 
     fn process_test_launcher(dir: &tempfile::TempDir, exit_code: i32) -> EmulatorLauncher {
-        let mut config = AppConfig::default();
         let executable = process_test_executable(dir, exit_code);
+        process_test_launcher_with_executable(executable)
+    }
+
+    fn process_test_launcher_with_executable(executable: std::path::PathBuf) -> EmulatorLauncher {
+        let mut config = AppConfig::default();
         let emulator_id = "melonds";
         config.emulators.melonds = Some(executable);
         config
@@ -618,6 +649,53 @@ mod tests {
             .platform_defaults
             .insert("gba".to_string(), emulator_id.to_string());
         EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+    }
+
+    #[cfg(unix)]
+    fn lifecycle_test_executable(
+        dir: &tempfile::TempDir,
+        exit_code: i32,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let executable = dir.path().join(format!("lifecycle-{exit_code}.sh"));
+        let marker = dir.path().join(format!("lifecycle-{exit_code}.running"));
+        fs::write(
+            &executable,
+            format!("#!/bin/sh\ntouch \"$1\"\nsleep 0.2\nrm -f \"$1\"\nexit {exit_code}\n"),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).unwrap();
+        (executable, marker)
+    }
+
+    #[cfg(windows)]
+    fn lifecycle_test_executable(
+        dir: &tempfile::TempDir,
+        exit_code: i32,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let executable = dir.path().join(format!("lifecycle-{exit_code}.cmd"));
+        let marker = dir.path().join(format!("lifecycle-{exit_code}.running"));
+        fs::write(
+            &executable,
+            format!(
+                "@echo off\r\ntype nul > \"%~1\"\r\nping -n 2 127.0.0.1 > nul\r\ndel \"%~1\"\r\nexit /b {exit_code}\r\n"
+            ),
+        )
+        .unwrap();
+        (executable, marker)
+    }
+
+    fn wait_for_lifecycle_marker(marker: &std::path::Path) {
+        for _ in 0..200 {
+            if marker.is_file() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("lifecycle test process did not create marker: {}", marker.display());
     }
 
     fn persist_game_for_override(db: &Database, game: &mut Game) {
@@ -1505,6 +1583,122 @@ mod tests {
         let error = result.error_message().unwrap();
         assert!(error.contains("exited unsuccessfully"));
         assert!(error.contains("exit code"));
+    }
+
+    #[tokio::test]
+    async fn launch_lifecycle_completes_after_successful_and_failed_process_exit() {
+        for exit_code in [0, 7] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("local.gba");
+            fs::write(&path, b"rom").unwrap();
+            let game = Game::new(
+                "Local Game".to_string(),
+                path.to_string_lossy().into_owned(),
+                "gba".to_string(),
+            );
+            let (executable, marker) = lifecycle_test_executable(&dir, exit_code);
+            let marker_argument = marker.to_string_lossy().into_owned();
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let actions = Arc::new(Mutex::new(Vec::new()));
+            let running_events = Arc::clone(&events);
+            let complete_events = Arc::clone(&events);
+            let running_actions = Arc::clone(&actions);
+            let complete_actions = Arc::clone(&actions);
+            let running_marker = marker.clone();
+            let complete_marker = marker.clone();
+            let launcher = process_test_launcher_with_executable(executable);
+            let mut command = launcher.build_command(&game).unwrap();
+            command.args = vec![marker_argument];
+
+            let result = launcher
+                .launch_command_with_lifecycle(
+                    &game,
+                    command,
+                    move || {
+                        wait_for_lifecycle_marker(&running_marker);
+                        assert!(running_actions.lock().unwrap().is_empty());
+                        running_events.lock().unwrap().push("running");
+                    },
+                    move || {
+                        assert!(!complete_marker.exists());
+                        complete_events.lock().unwrap().push("complete");
+                        crate::commands::for_each_window_restoration_action(
+                            Some(true),
+                            |action| complete_actions.lock().unwrap().push(action),
+                        );
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(*events.lock().unwrap(), vec!["running", "complete"]);
+            assert_eq!(
+                *actions.lock().unwrap(),
+                vec![
+                    crate::commands::WindowRestorationAction::Show,
+                    crate::commands::WindowRestorationAction::Unminimize,
+                    crate::commands::WindowRestorationAction::Focus,
+                    crate::commands::WindowRestorationAction::SetFullscreen(false),
+                    crate::commands::WindowRestorationAction::SetFullscreen(true),
+                    crate::commands::WindowRestorationAction::Focus,
+                ]
+            );
+            assert_eq!(result.is_success(), exit_code == 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn launch_lifecycle_completes_preflight_failure_without_running_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.gba");
+        fs::write(&path, b"rom").unwrap();
+        let game = Game::new(
+            "Local Game".to_string(),
+            path.to_string_lossy().into_owned(),
+            "gba".to_string(),
+        );
+        let launcher = process_test_launcher(&dir, 0);
+        let mut command = launcher.build_command(&game).unwrap();
+        command.executable = dir
+            .path()
+            .join("missing-emulator")
+            .to_string_lossy()
+            .into_owned();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let actions = Arc::new(Mutex::new(Vec::new()));
+        let running_events = Arc::clone(&events);
+        let complete_events = Arc::clone(&events);
+        let complete_actions = Arc::clone(&actions);
+
+        let result = launcher
+            .launch_command_with_lifecycle(
+                &game,
+                command,
+                move || running_events.lock().unwrap().push("running"),
+                move || {
+                    complete_events.lock().unwrap().push("complete");
+                    crate::commands::for_each_window_restoration_action(
+                        Some(true),
+                        |action| complete_actions.lock().unwrap().push(action),
+                    );
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, LaunchResult::EmulatorNotInstalled { .. }));
+        assert_eq!(*events.lock().unwrap(), vec!["complete"]);
+        assert_eq!(
+            *actions.lock().unwrap(),
+            vec![
+                crate::commands::WindowRestorationAction::Show,
+                crate::commands::WindowRestorationAction::Unminimize,
+                crate::commands::WindowRestorationAction::Focus,
+                crate::commands::WindowRestorationAction::SetFullscreen(false),
+                crate::commands::WindowRestorationAction::SetFullscreen(true),
+                crate::commands::WindowRestorationAction::Focus,
+            ]
+        );
     }
 
     #[tokio::test]

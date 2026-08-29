@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::api::{
     download::{DownloadManager, DownloadProgress},
@@ -511,6 +511,103 @@ impl LaunchStage {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowRestorationAction {
+    Show,
+    Unminimize,
+    Focus,
+    SetFullscreen(bool),
+}
+
+pub(crate) fn for_each_window_restoration_action(
+    was_fullscreen: Option<bool>,
+    mut action: impl FnMut(WindowRestorationAction),
+) {
+    action(WindowRestorationAction::Show);
+    action(WindowRestorationAction::Unminimize);
+    action(WindowRestorationAction::Focus);
+
+    match was_fullscreen {
+        Some(true) => {
+            action(WindowRestorationAction::SetFullscreen(false));
+            action(WindowRestorationAction::SetFullscreen(true));
+        }
+        Some(false) => action(WindowRestorationAction::SetFullscreen(false)),
+        None => {}
+    }
+
+    action(WindowRestorationAction::Focus);
+}
+
+struct RetroArchWindowRestoration<R: Runtime> {
+    app: AppHandle<R>,
+    was_fullscreen: Option<bool>,
+    restored: bool,
+}
+
+impl<R: Runtime> RetroArchWindowRestoration<R> {
+    fn capture(app: Option<&AppHandle<R>>) -> Option<Self> {
+        let app = app?.clone();
+        let window = app.get_webview_window("main")?;
+        let was_fullscreen = match window.is_fullscreen() {
+            Ok(value) => Some(value),
+            Err(error) => {
+                tracing::warn!("[Launch] Could not read Wingosy fullscreen state: {error}");
+                None
+            }
+        };
+
+        Some(Self {
+            app,
+            was_fullscreen,
+            restored: false,
+        })
+    }
+
+    fn restore(&mut self) {
+        if self.restored {
+            return;
+        }
+        self.restored = true;
+
+        let Some(window) = self.app.get_webview_window("main") else {
+            tracing::warn!("[Launch] Wingosy main window was unavailable during restoration");
+            return;
+        };
+
+        let was_fullscreen = self.was_fullscreen;
+        for_each_window_restoration_action(was_fullscreen, |action| {
+            match action {
+                WindowRestorationAction::Show => Self::attempt("show", window.show()),
+                WindowRestorationAction::Unminimize => {
+                    Self::attempt("unminimize", window.unminimize())
+                }
+                WindowRestorationAction::Focus => Self::attempt("focus", window.set_focus()),
+                WindowRestorationAction::SetFullscreen(value) => Self::attempt(
+                    if was_fullscreen == Some(true) && !value {
+                        "leave fullscreen"
+                    } else {
+                        "restore fullscreen"
+                    },
+                    window.set_fullscreen(value),
+                ),
+            }
+        });
+    }
+
+    fn attempt(action: &str, result: tauri::Result<()>) {
+        if let Err(error) = result {
+            tracing::warn!("[Launch] Wingosy window {action} failed: {error}");
+        }
+    }
+}
+
+impl<R: Runtime> Drop for RetroArchWindowRestoration<R> {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct LaunchProgressEvent {
     game_id: i64,
@@ -748,8 +845,8 @@ where
 }
 
 #[tauri::command]
-pub async fn launch_game(game_id: i64) -> Result<LaunchGameResult, String> {
-    run_launch_pipeline(game_id, None).await
+pub async fn launch_game(app: AppHandle, game_id: i64) -> Result<LaunchGameResult, String> {
+    run_launch_pipeline(game_id, Some(app)).await
 }
 
 #[tauri::command]
@@ -1066,17 +1163,31 @@ async fn run_launch_pipeline(
     let running_game_id = game.id;
     let running_game_name = game.name.clone();
     let launch_command_for_post_sync = launch_command.clone();
+    let mut window_restoration = if launch_command.emulator_id == "retroarch" {
+        RetroArchWindowRestoration::capture(app.as_ref())
+    } else {
+        None
+    };
     let result = match launcher
-        .launch_command_with_running_stage(&game, launch_command, move || {
-            let _ = emit_launch_progress(
-                running_app.as_ref(),
-                running_game_id,
-                &running_game_name,
-                running_previous_stage,
-                LaunchStage::Running,
-                None,
-            );
-        })
+        .launch_command_with_lifecycle(
+            &game,
+            launch_command,
+            move || {
+                let _ = emit_launch_progress(
+                    running_app.as_ref(),
+                    running_game_id,
+                    &running_game_name,
+                    running_previous_stage,
+                    LaunchStage::Running,
+                    None,
+                );
+            },
+            move || {
+                if let Some(restoration) = window_restoration.as_mut() {
+                    restoration.restore();
+                }
+            },
+        )
         .await
     {
         Ok(result) => result,
@@ -4588,6 +4699,57 @@ mod tests {
         assert!(!result.dry_run);
         assert!(result.duration_minutes.is_none());
         assert!(result.exit_code.is_none());
+    }
+
+    #[test]
+    fn retroarch_window_restoration_reasserts_fullscreen_after_focus() {
+        let mut actions = Vec::new();
+        for_each_window_restoration_action(Some(true), |action| actions.push(action));
+
+        assert_eq!(
+            actions,
+            vec![
+                WindowRestorationAction::Show,
+                WindowRestorationAction::Unminimize,
+                WindowRestorationAction::Focus,
+                WindowRestorationAction::SetFullscreen(false),
+                WindowRestorationAction::SetFullscreen(true),
+                WindowRestorationAction::Focus,
+            ]
+        );
+    }
+
+    #[test]
+    fn window_restoration_keeps_windowed_state_windowed() {
+        let mut actions = Vec::new();
+        for_each_window_restoration_action(Some(false), |action| actions.push(action));
+
+        assert_eq!(
+            actions,
+            vec![
+                WindowRestorationAction::Show,
+                WindowRestorationAction::Unminimize,
+                WindowRestorationAction::Focus,
+                WindowRestorationAction::SetFullscreen(false),
+                WindowRestorationAction::Focus,
+            ]
+        );
+    }
+
+    #[test]
+    fn window_restoration_skips_fullscreen_when_state_is_unknown() {
+        let mut actions = Vec::new();
+        for_each_window_restoration_action(None, |action| actions.push(action));
+
+        assert_eq!(
+            actions,
+            vec![
+                WindowRestorationAction::Show,
+                WindowRestorationAction::Unminimize,
+                WindowRestorationAction::Focus,
+                WindowRestorationAction::Focus,
+            ]
+        );
     }
 
     #[test]
