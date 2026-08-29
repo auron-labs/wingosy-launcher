@@ -135,6 +135,28 @@ describe("useGamepadKeyboardMapper", () => {
     expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
   });
 
+  it("does not replay a held direction when the active pad reconnects", () => {
+    const pad = makeGamepad("standard", 12, 1);
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    pads = [];
+    runFrame();
+    pads = [pad];
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    pad.buttons[12].pressed = false;
+    runFrame();
+    pad.buttons[12].pressed = true;
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
   it("keeps the active pad sticky and takes over after it disconnects", () => {
     const active = makeGamepad("standard", 0, 1);
     const second = makeGamepad("standard", null, 2);
@@ -164,17 +186,65 @@ describe("useGamepadKeyboardMapper", () => {
     expect(keydown).not.toHaveBeenCalled();
   });
 
-  it("keeps directional repeat timing while a pad is held", () => {
+  it.each([
+    ["D-pad", 12, []],
+    ["left stick", null, [0, -1]],
+  ])("emits exactly one navigation event for a quick %s tap", (_label, buttonIndex, axes) => {
+    const pad = makeGamepad("standard", buttonIndex, 1, axes);
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    pad.buttons[12].pressed = false;
+    pad.axes[1] = 0;
+    runFrame();
+
+    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
+  it("stops a held direction immediately when released at the repeat boundary", () => {
+    const pad = makeGamepad("standard", 12, 1);
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    now += 240;
+    pad.buttons[12].pressed = false;
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    now += 110;
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    pad.buttons[12].pressed = true;
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+  });
+
+  it("waits for the initial directional delay before using the repeat interval", () => {
     pads = [makeGamepad("standard", 12, 1)];
     render(<HookProbe />);
 
     runFrame();
-    now += 50;
+    now += 239;
     runFrame();
-    now += 60;
+    expect(keydown).toHaveBeenCalledTimes(1);
+
+    now += 1;
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(2);
+
+    now += 109;
+    runFrame();
+    expect(keydown).toHaveBeenCalledTimes(2);
+
+    now += 1;
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(2);
+    expect(keydown).toHaveBeenCalledTimes(3);
     expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
   });
 

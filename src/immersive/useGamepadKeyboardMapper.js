@@ -122,8 +122,9 @@ export function useGamepadKeyboardMapper({
   deadzone = DEFAULT_GAMEPAD_DEADZONE,
 } = {}) {
   const rafRef = useRef(0);
-  const lastFireAt = useRef(new Map());
+  const repeatState = useRef(new Map());
   const activePadKey = useRef(null);
+  const blockedPadKey = useRef(null);
   const unsupportedGamepadRef = useRef(false);
   const [unsupportedGamepad, setUnsupportedGamepad] = useState(false);
   const lastDigital = useRef(emptyDigital());
@@ -131,8 +132,9 @@ export function useGamepadKeyboardMapper({
   useEffect(() => {
     function resetInputState() {
       activePadKey.current = null;
+      blockedPadKey.current = null;
       lastDigital.current = emptyDigital();
-      lastFireAt.current.clear();
+      repeatState.current.clear();
     }
 
     if (!enabled) {
@@ -150,12 +152,16 @@ export function useGamepadKeyboardMapper({
       setUnsupportedGamepad(value);
     }
 
-    function canFire(key, isHeld) {
+    function canFire(key, wasHeld) {
       const now = Date.now();
-      const last = lastFireAt.current.get(key);
-      const min = isHeld ? repeatRateMs : repeatDelayMs;
-      if (last !== undefined && now - last < min) return false;
-      lastFireAt.current.set(key, now);
+      const previous = repeatState.current.get(key);
+      if (!wasHeld || !previous) {
+        repeatState.current.set(key, { at: now, repeating: false });
+        return true;
+      }
+      const min = previous.repeating ? repeatRateMs : repeatDelayMs;
+      if (now - previous.at < min) return false;
+      repeatState.current.set(key, { at: now, repeating: true });
       return true;
     }
 
@@ -173,10 +179,19 @@ export function useGamepadKeyboardMapper({
       updateUnsupportedGamepad(connectedPads.length > 0 && standardPads.length === 0);
 
       const active = standardPads.find(({ key }) => key === activePadKey.current) || null;
-      if (!active && activePadKey.current !== null) resetInputState();
+      const disconnectedPadKey = activePadKey.current;
+      if (!active && disconnectedPadKey !== null) {
+        resetInputState();
+        blockedPadKey.current = disconnectedPadKey;
+      }
+
+      const blocked = standardPads.find(({ key }) => key === blockedPadKey.current);
+      if (blocked && !blocked.input.hasInput) blockedPadKey.current = null;
 
       // Poll all standard pads, but route one owner's input so two pads cannot duplicate actions.
-      const producing = standardPads.filter(({ input }) => input.hasInput);
+      const producing = standardPads.filter(
+        ({ key, input }) => input.hasInput && key !== blockedPadKey.current,
+      );
       const selected = active || producing.at(-1) || null;
       if (!selected) {
         rafRef.current = requestAnimationFrame(tick);
