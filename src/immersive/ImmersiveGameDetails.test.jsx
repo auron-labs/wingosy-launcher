@@ -5,11 +5,11 @@ import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { RomDownloadsProvider } from "../RomDownloadsContext";
 import { MuiTestProvider } from "../test/muiHarness";
 
-const { listen } = vi.hoisted(() => ({ listen: vi.fn() }));
+const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 
 // These mocks provide deterministic UI/command sequencing evidence, not proof of a real emulator launch.
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
+  invoke,
   convertFileSrc: (path) => path,
 }));
 
@@ -110,6 +110,7 @@ function installControllerTestEnvironment() {
 afterEach(() => {
   cleanup();
   eventListeners.clear();
+  invoke.mockReset();
   listen.mockReset();
   delete window.__TAURI_INTERNALS__;
 });
@@ -148,6 +149,15 @@ function renderDetails(
       </RomDownloadsProvider>
     </MuiTestProvider>
   );
+}
+
+function tapPadButton(controller, pad, buttonIndex) {
+  for (const button of pad.buttons) button.pressed = false;
+  controller.runFrame();
+  pad.buttons[buttonIndex].pressed = true;
+  controller.runFrame();
+  pad.buttons[buttonIndex].pressed = false;
+  controller.runFrame();
 }
 
 describe("ImmersiveGameDetails launch controls", () => {
@@ -259,7 +269,7 @@ describe("ImmersiveGameDetails launch controls", () => {
     }
   });
 
-  it("does not move details focus while a menu owns controller input", () => {
+  it("moves within the menu without moving details focus", () => {
     const controller = installControllerTestEnvironment();
 
     try {
@@ -269,15 +279,72 @@ describe("ImmersiveGameDetails launch controls", () => {
       renderDetails();
       controller.runFrame();
 
-      fireEvent.click(screen.getByRole("button", { name: "More options" }));
+      const moreOptions = screen.getByRole("button", { name: "More options" });
+      fireEvent.click(moreOptions);
       const menuFocus = document.activeElement;
       if (!(menuFocus instanceof HTMLElement)) throw new Error("Expected menu to own focus");
       expect(screen.getByRole("menu")).toContainElement(menuFocus);
 
-      pad.buttons[15].pressed = true;
+      pad.buttons[13].pressed = true;
       controller.runFrame();
 
-      expect(document.activeElement).toBe(menuFocus);
+      expect(screen.getByRole("menuitem", { name: /Ratings & status/ })).toHaveFocus();
+      expect(moreOptions).not.toHaveFocus();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("opens the menu once and activates the selected enabled item once", async () => {
+    const controller = installControllerTestEnvironment();
+    const onLaunch = vi.fn().mockResolvedValue({ success: true });
+
+    try {
+      renderDetails(onLaunch);
+      const moreOptions = screen.getByRole("button", { name: "More options" });
+      const openMenu = vi.spyOn(moreOptions, "click");
+      moreOptions.focus();
+      const pad = makeStandardPad(0);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+
+      controller.runFrame();
+      expect(openMenu).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByRole("menu")).toHaveLength(1);
+      expect(screen.getByRole("menuitem", { name: /Manage cached saves/ })).toHaveFocus();
+
+      for (let index = 0; index < 7; index += 1) tapPadButton(controller, pad, 13);
+      expect(screen.getByRole("menuitem", { name: /Add to collection/ })).toHaveFocus();
+
+      tapPadButton(controller, pad, 0);
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_collections"));
+      expect(invoke.mock.calls.filter(([command]) => command === "get_collections")).toHaveLength(1);
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(onLaunch).not.toHaveBeenCalled();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("closes the menu with controller Back and restores details focus", async () => {
+    const controller = installControllerTestEnvironment();
+    const onBack = vi.fn();
+
+    try {
+      renderDetails(undefined, remoteOnlyGame, { onBack });
+      const moreOptions = screen.getByRole("button", { name: "More options" });
+      moreOptions.focus();
+      const pad = makeStandardPad(0);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+
+      controller.runFrame();
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+
+      tapPadButton(controller, pad, 1);
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      expect(moreOptions).toHaveFocus();
+      expect(onBack).not.toHaveBeenCalled();
     } finally {
       controller.restore();
     }

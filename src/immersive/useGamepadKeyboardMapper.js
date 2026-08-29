@@ -82,6 +82,15 @@ function buildKeydown(key) {
 
 function dispatchKey(key) {
   try {
+    const menu = document.querySelector('[role="menu"]');
+    if (menu) {
+      // MUI's menu keyboard handling is attached to the focused menu item/list, not window.
+      const activeElement = document.activeElement;
+      const target = activeElement && menu.contains(activeElement) ? activeElement : menu;
+      target.dispatchEvent(buildKeydown(key));
+      return;
+    }
+
     const evt = buildKeydown(key);
     // Shell routing (Escape, hints, launch) listens on `window` in `ImmersiveModeApp`.
     window.dispatchEvent(evt);
