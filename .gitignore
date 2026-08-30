@@ -43,3 +43,5 @@ latest.json
 e2e-webdriver/Driver_Notes/
 e2e-webdriver/*.exe
 e2e-webdriver/*.dll
+
+.scratch/references
