@@ -24,3 +24,4 @@ autoconfiguration without asking the player to create global bindings first.
 - 2026-08-29: Final review found successful managed-core resolution and end-to-end repair coverage still partial, plus duplicate managed-install validation. A second focused correction was requested.
 - 2026-08-29: Second correction agent completed single-pass launch validation and production repair/core-resolution seam coverage. Final re-review is pending.
 - 2026-08-29: Final standards and spec re-reviews passed; focused Rust and Settings checks passed. Ticket resolved.
+- 2026-08-30: Hardware follow-up found the Start+Select Quick Menu combo could open Steam or Xbox/Game Bar. Managed launches now use RetroArch's L3+R3 combo instead; the existing ensure path refreshes stale managed profiles before launch, external/user-owned configuration remains untouched, and focused plus full Rust tests pass. Recheck L3+R3 in the next Windows acceptance run.

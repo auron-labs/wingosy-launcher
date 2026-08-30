@@ -80,7 +80,12 @@ function buildKeydown(key) {
   });
 }
 
-function dispatchKey(key) {
+function dispatchKey(key, deferUntilNextFrame = false) {
+  if (deferUntilNextFrame) {
+    requestAnimationFrame(() => dispatchKey(key));
+    return;
+  }
+
   try {
     const menu = document.querySelector('[role="menu"]');
     if (menu) {
@@ -210,9 +215,10 @@ export function useGamepadKeyboardMapper({
       const digital = selected.input.digital;
 
       const prev = lastDigital.current;
+      const confirmPressed = digital.confirmOpen && !prev.confirmOpen;
 
       // Edge-triggered intents
-      if (digital.confirmOpen && !prev.confirmOpen) dispatchKey("Enter");
+      if (confirmPressed) dispatchKey("Enter");
       if (digital.back && !prev.back) dispatchKey("Escape");
       if (digital.previousSection && !prev.previousSection) dispatchKey("PageUp");
       if (digital.nextSection && !prev.nextSection) dispatchKey("PageDown");
@@ -220,10 +226,11 @@ export function useGamepadKeyboardMapper({
       if (digital.view && !prev.view) dispatchKey("h");
 
       // Held navigation (dpad/stick)
-      if (digital.up && canFire("ArrowUp", prev.up)) dispatchKey("ArrowUp");
-      if (digital.down && canFire("ArrowDown", prev.down)) dispatchKey("ArrowDown");
-      if (digital.left && canFire("ArrowLeft", prev.left)) dispatchKey("ArrowLeft");
-      if (digital.right && canFire("ArrowRight", prev.right)) dispatchKey("ArrowRight");
+      // Let a route opened by Confirm mount before delivering same-frame navigation.
+      if (digital.up && canFire("ArrowUp", prev.up)) dispatchKey("ArrowUp", confirmPressed);
+      if (digital.down && canFire("ArrowDown", prev.down)) dispatchKey("ArrowDown", confirmPressed);
+      if (digital.left && canFire("ArrowLeft", prev.left)) dispatchKey("ArrowLeft", confirmPressed);
+      if (digital.right && canFire("ArrowRight", prev.right)) dispatchKey("ArrowRight", confirmPressed);
 
       lastDigital.current = digital;
       rafRef.current = requestAnimationFrame(tick);

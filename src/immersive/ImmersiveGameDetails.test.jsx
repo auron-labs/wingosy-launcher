@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import ImmersiveGameDetails from "./ImmersiveGameDetails";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { RomDownloadsProvider } from "../RomDownloadsContext";
@@ -54,6 +55,35 @@ function dispatchControllerKey(key, { repeat = false } = {}) {
 function ControllerProbe() {
   useGamepadKeyboardMapper();
   return null;
+}
+
+function ControllerDetailsRouteProbe() {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  useGamepadKeyboardMapper();
+
+  if (!detailsOpen) {
+    return (
+      <div
+        data-testid="immersive-library"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") setDetailsOpen(true);
+        }}
+      />
+    );
+  }
+
+  return (
+    <ImmersiveGameDetails
+      game={remoteOnlyGame}
+      platformLabel="Game Boy Advance"
+      onBack={vi.fn()}
+      onLaunch={vi.fn().mockResolvedValue({ success: true })}
+      onToggleFavorite={vi.fn()}
+      onGameUpdate={vi.fn()}
+      rommToken="saved-token"
+      rommUrl="https://romm.example"
+    />
+  );
 }
 
 function makeStandardPad(buttonIndex = null) {
@@ -232,6 +262,30 @@ describe("ImmersiveGameDetails launch controls", () => {
 
       expect(hiddenAction).not.toHaveFocus();
       expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("keeps the opening frame's direction when controller input opens details", () => {
+    const controller = installControllerTestEnvironment();
+    try {
+      const pad = makeStandardPad(0);
+      pad.buttons[15].pressed = true;
+      controller.setPads([pad]);
+
+      render(
+        <MuiTestProvider>
+          <RomDownloadsProvider>
+            <ControllerDetailsRouteProbe />
+          </RomDownloadsProvider>
+        </MuiTestProvider>,
+      );
+
+      controller.runFrame();
+      controller.runFrame();
+
+      expect(screen.getByRole("button", { name: "Download" })).toHaveFocus();
     } finally {
       controller.restore();
     }

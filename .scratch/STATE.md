@@ -2,13 +2,12 @@
 
 Generated: 2026-08-29T03:33:58Z
 
-Tickets: 3 active, 12 resolved
+Tickets: 2 active, 13 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [04-restore-wingosy-after-retroarch-exits](controller-retroarch-acceptance-followups/issues/04-restore-wingosy-after-retroarch-exits.md) | — | — | ready-for-human | None — can start immediately |
 | [next-steps](next-steps/spec.md) | [06-certify-and-gate-the-windows-beta](next-steps/issues/06-certify-and-gate-the-windows-beta.md) | task | human | ready-for-human | 01, 02, 03, 04, 05, 08, 09 |
 | [next-steps](next-steps/spec.md) | [09-harden-immersive-controller-input](next-steps/issues/09-harden-immersive-controller-input.md) | task | agent | ready-for-human | 04 |
 
@@ -21,6 +20,7 @@ Tickets: 3 active, 12 resolved
 | [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [01-honor-the-controller-initial-repeat-delay](controller-retroarch-acceptance-followups/issues/01-honor-the-controller-initial-repeat-delay.md) | — | — | resolved | None — can start immediately |
 | [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [02-make-game-details-menus-controller-operable](controller-retroarch-acceptance-followups/issues/02-make-game-details-menus-controller-operable.md) | — | — | resolved | None — can start immediately |
 | [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [03-make-the-managed-retroarch-install-ready-to-play](controller-retroarch-acceptance-followups/issues/03-make-the-managed-retroarch-install-ready-to-play.md) | — | — | resolved | None — can start immediately |
+| [controller-retroarch-acceptance-followups](controller-retroarch-acceptance-followups/spec.md) | [04-restore-wingosy-after-retroarch-exits](controller-retroarch-acceptance-followups/issues/04-restore-wingosy-after-retroarch-exits.md) | — | — | resolved | None — can start immediately |
 | [next-steps](next-steps/spec.md) | [01-take-ownership-of-releases](next-steps/issues/01-take-ownership-of-releases.md) | task | human | resolved | none |
 | [next-steps](next-steps/spec.md) | [02-preserve-setup-configuration](next-steps/issues/02-preserve-setup-configuration.md) | task | agent | resolved | none |
 | [next-steps](next-steps/spec.md) | [03-secure-romm-access-tokens](next-steps/issues/03-secure-romm-access-tokens.md) | task | agent | resolved | 02 |

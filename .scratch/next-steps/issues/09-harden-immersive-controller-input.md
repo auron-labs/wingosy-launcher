@@ -175,3 +175,14 @@ and the three-dot details menu opened from the controller but could not be
 navigated with it. The duplicate movement is not dismissed as hardware without
 further diagnosis; the mapper currently begins held-direction repeat after the
 110 ms repeat interval rather than the documented 240 ms initial delay.
+
+### 2026-08-30 — Game-details regression fixed, hardware retest pending
+
+A Windows run found that opening details and continuing directional input could
+leave every details action unfocused. A deterministic regression reproduced the
+real Gamepad polling → synthetic event → conditional details mount path: Confirm
+and direction dispatched in the same frame, before details registered its focus
+listener. Same-frame direction is now deferred until the next animation frame.
+The focused regression, all 87 frontend unit tests, typecheck, and frontend lint
+pass; lint retains the same 7 pre-existing warnings. Keep this ticket
+`ready-for-human` until controller navigation on the details page is retested.

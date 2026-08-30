@@ -554,7 +554,7 @@ fn managed_profile_contents(retroarch_executable: &Path) -> Result<String> {
         .replace('\\', "/")
         .replace('"', "\\\"");
     Ok(format!(
-        "config_save_on_exit = false\ninput_autodetect_enable = true\ninput_joypad_driver = \"xinput\"\njoypad_autoconfig_dir = \"{autoconfig_dir}\"\n"
+        "config_save_on_exit = false\ninput_autodetect_enable = true\ninput_joypad_driver = \"xinput\"\njoypad_autoconfig_dir = \"{autoconfig_dir}\"\ninput_menu_toggle_gamepad_combo = \"2\"\n"
     ))
 }
 
@@ -803,6 +803,7 @@ mod tests {
         assert!(profile.contains("input_autodetect_enable = true"));
         assert!(profile.contains("input_joypad_driver = \"xinput\""));
         assert!(profile.contains("joypad_autoconfig_dir = \""));
+        assert!(profile.contains("input_menu_toggle_gamepad_combo = \"2\""));
         assert!(!profile.contains("input_player1_"));
         assert!(!profile.contains("input_vendor_id"));
     }
