@@ -7,6 +7,11 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import { alpha } from "@mui/material/styles";
 import ImmersiveGameTile from "./ImmersiveGameTile";
+import {
+  describeControllerElement,
+  getControllerAction,
+  logControllerOutcome,
+} from "./controllerDebug";
 import LauncherIcon from "../components/LauncherIcon";
 import { useAppTheme } from "../ThemeContext";
 import { useRomDownloads } from "../RomDownloadsContext";
@@ -123,34 +128,56 @@ export default function ImmersiveLibrary({
   }
 
   function handleKeyDown(e) {
+    const action = getControllerAction(e);
     if (e.key === "F11") {
+      logControllerOutcome(action, "library", "ignored", { reason: "handled-by-shell" });
       return;
     }
 
     if (e.key === "Escape") {
+      logControllerOutcome(action, "library", "ignored", { reason: "handled-by-shell" });
       return;
     }
 
     if (e.key === "s" || e.key === "S") {
       e.preventDefault();
       onOpenSettings();
+      logControllerOutcome(action, "library", "handled", { reason: "open-settings" });
       return;
     }
 
     if (e.key === "PageUp") {
+      const beforeFocus = describeControllerElement(document.activeElement);
       e.preventDefault();
       cycleSection(-1);
+      logControllerOutcome(action, "library", "handled", {
+        reason: "cycle-section",
+        beforeFocus,
+        afterFocus: describeControllerElement(document.activeElement),
+      });
       return;
     }
 
     if (e.key === "PageDown") {
+      const beforeFocus = describeControllerElement(document.activeElement);
       e.preventDefault();
       cycleSection(1);
+      logControllerOutcome(action, "library", "handled", {
+        reason: "cycle-section",
+        beforeFocus,
+        afterFocus: describeControllerElement(document.activeElement),
+      });
       return;
     }
 
-    if (loading) return;
-    if (!visibleGames.length) return;
+    if (loading) {
+      logControllerOutcome(action, "library", "ignored", { reason: "library-loading" });
+      return;
+    }
+    if (!visibleGames.length) {
+      logControllerOutcome(action, "library", "ignored", { reason: "no-visible-actions" });
+      return;
+    }
 
     const cols = columns;
     let next = selectedIndex;
@@ -171,23 +198,52 @@ export default function ImmersiveLibrary({
       case "Enter":
         e.preventDefault();
         onSelectGame(visibleGames[selectedIndex]);
+        logControllerOutcome(action, "library", "handled", {
+          reason: "open-selected-game",
+          selectedIndex,
+        });
         return;
       default:
         return;
     }
 
-    if (next !== selectedIndex) {
-      e.preventDefault();
-      onSelectedIndexChange(next);
-      const el = gridRef.current?.querySelector?.(
-        `[data-immersive-index="${next}"]`
-      );
-      el?.focus?.();
-      try {
-        el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-      } catch {
-        // ignore
-      }
+    const beforeFocus = describeControllerElement(document.activeElement);
+    if (next === selectedIndex) {
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "focus-boundary",
+        beforeFocus,
+        afterFocus: beforeFocus,
+      });
+      return;
+    }
+
+    e.preventDefault();
+    onSelectedIndexChange(next);
+    const el = gridRef.current?.querySelector?.(
+      `[data-immersive-index="${next}"]`,
+    );
+    el?.focus?.();
+    try {
+      el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    } catch {
+      // ignore
+    }
+    const afterFocus = describeControllerElement(document.activeElement);
+    if (!el) {
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "focus-target-missing",
+        beforeFocus,
+        afterFocus,
+        targetIndex: next,
+      });
+    } else {
+      const focused = document.activeElement === el;
+      logControllerOutcome(action, "library", focused ? "handled" : "ignored", {
+        reason: focused ? "focus-moved" : "focus-target-not-focused",
+        beforeFocus,
+        afterFocus,
+        targetFocus: describeControllerElement(el),
+      });
     }
   }
 

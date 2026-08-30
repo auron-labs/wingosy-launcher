@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tauri dev",
+    "dev:debug": "bun scripts/dev-debug.mjs",
     "dev:web": "vite",
     "build": "vite build",
     "build:windows": "bun run build && tauri build",

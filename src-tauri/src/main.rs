@@ -95,6 +95,7 @@ fn main() {
             commands::scan_directory,
             commands::get_config,
             commands::save_config,
+            commands::log_frontend,
             storage::get_storage_overview,
             storage::change_roms_directory,
             commands::list_ambient_audio_files,

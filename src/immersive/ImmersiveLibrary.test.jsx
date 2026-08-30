@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import ImmersiveLibrary from "./ImmersiveLibrary";
 import { MuiTestProvider } from "../test/muiHarness";
+import { attachControllerAction } from "./controllerDebug";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -56,6 +57,8 @@ function setViewportWidth(width) {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   setViewportWidth(1280);
 });
 
@@ -107,6 +110,23 @@ function keyDown(container, key) {
   act(() => {
     fireEvent.keyDown(container, { key });
   });
+}
+
+function controllerKeyDown(container, key) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+  });
+  attachControllerAction(event, {
+    actionId: 21,
+    key,
+    controllerIndex: 4,
+    phase: "edge",
+    elapsedSincePreviousMs: null,
+    deferred: false,
+  });
+  act(() => container.dispatchEvent(event));
 }
 
 describe("ImmersiveLibrary responsive grid", () => {
@@ -180,6 +200,30 @@ describe("ImmersiveLibrary keyboard navigation", () => {
     keyDown(root, "ArrowRight");
     expect(onSelectedIndexChange).not.toHaveBeenCalled();
   });
+
+  it("logs correlated focus descriptors when a navigation target cannot take focus", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    renderLibrary(makeGames(3));
+    const root = screen.getByTestId("immersive-library");
+    root.focus();
+
+    controllerKeyDown(root, "ArrowRight");
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] receiver ignored",
+      expect.objectContaining({
+        actionId: 21,
+        receiver: "library",
+        key: "ArrowRight",
+        outcome: "ignored",
+        reason: "focus-target-not-focused",
+        beforeFocus: expect.objectContaining({ testId: "immersive-library" }),
+        afterFocus: expect.objectContaining({ testId: "immersive-library" }),
+        targetFocus: expect.objectContaining({ tag: "div", index: "1" }),
+      }),
+    );
+  });
 });
 
 describe("ImmersiveLibrary sections switching", () => {
@@ -222,4 +266,3 @@ describe("ImmersiveLibrary game selection", () => {
     expect(onSelectGame).toHaveBeenCalledWith(games[2]);
   });
 });
-

@@ -33,6 +33,36 @@ cargo -v
 | Only the browser / `localhost:5173` | You ran **`bun run dev:web`** instead of the full app | Use **`bun run tauri dev`** (or **`bun run dev`**, which is the same) so the **native** window opens. |
 | Can’t drag the frameless window / title bar feels “dead” | Vite **HMR** doesn’t reload **`tauri.conf.json`** or the **Rust** shell; `-webkit-app-region` can also lag until a full reload | **Stop** `tauri dev` (Ctrl+C), start it again. After changing **`src-tauri/tauri.conf.json`** or **`src-tauri/capabilities/`**, restart so the native binary picks up the new config. |
 
+### Controller troubleshooting logs
+
+Verbose frontend debug logging is **off by default**. Start the full Tauri app
+with the cross-platform debug script:
+
+```bash
+bun run dev:debug
+```
+
+This sets a Vite-only debug flag without POSIX-specific inline environment
+syntax. In this mode, frontend `console.log/info/debug/warn/error` output and
+the `[Wingosy][debug]` startup/controller diagnostics are also sent through
+Tauri's existing `tracing` pipeline. They appear in the dev terminal and in
+the current daily native log file:
+
+```text
+%APPDATA%\wingosy\launcher\data\logs\wingosy.log.YYYY-MM-DD
+```
+
+The actual date replaces `YYYY-MM-DD`; rotated files remain in that same
+`logs` directory. Browser/WebView
+console output is preserved as well, but opening DevTools is not required to
+capture the native diagnostics.
+
+The logs report startup/configuration context without credentials, plus
+controller discovery, connection/disconnection, unsupported mappings, and
+recognized actions. Idle animation-frame polls are not logged. Normal `bun run
+dev` and production builds do not enable this mode. See
+[README.md](README.md#storage-locations) for the native storage locations.
+
 Install if missing:
 
 ```powershell

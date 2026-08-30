@@ -7,6 +7,11 @@ function HookProbe({ deadzone = 0.35, enabled = true } = {}) {
   return <span data-testid="unsupported">{String(unsupportedGamepad)}</span>;
 }
 
+function RoutingProbe() {
+  useGamepadKeyboardMapper();
+  return <div data-testid="immersive-library" />;
+}
+
 function makeGamepad(mapping, buttonIndex = 0, index = 0, axes = []) {
   const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
   if (buttonIndex !== null) buttons[buttonIndex].pressed = true;
@@ -46,6 +51,7 @@ describe("useGamepadKeyboardMapper", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllEnvs();
     window.removeEventListener("keydown", keydown);
     if (originalGetGamepadsDescriptor) {
       Object.defineProperty(navigator, "getGamepads", originalGetGamepadsDescriptor);
@@ -74,6 +80,204 @@ describe("useGamepadKeyboardMapper", () => {
     expect(keydown).toHaveBeenCalledTimes(1);
     expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
     expect(screen.getByTestId("unsupported")).toHaveTextContent("false");
+  });
+
+  it("logs controller lifecycle and recognized actions without logging idle frames", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const pad = makeGamepad("standard", 0, 1);
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    runFrame();
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] controller connected",
+      expect.objectContaining({ index: 1, mapping: "standard" }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] recognized input/action",
+      expect.objectContaining({ key: "Enter", deferred: false }),
+    );
+    expect(
+      info.mock.calls.filter(
+        ([message]) => message === "[Wingosy][debug][controller] recognized input/action",
+      ),
+    ).toHaveLength(1);
+
+    pads = [];
+    runFrame();
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] controller disconnected",
+      expect.objectContaining({ index: 1 }),
+    );
+    expect(info).toHaveBeenCalledWith("[Wingosy][debug][controller] no controller detected");
+  });
+
+  it("logs a deferred recognized action once", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const pad = makeGamepad("standard", 0, 1);
+    pad.buttons[15].pressed = true;
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    runFrame();
+
+    const actionLogs = info.mock.calls.filter(
+      ([message]) => message === "[Wingosy][debug][controller] recognized input/action",
+    );
+    expect(actionLogs).toEqual([
+      [
+        "[Wingosy][debug][controller] recognized input/action",
+        expect.objectContaining({ key: "Enter", deferred: false }),
+      ],
+      [
+        "[Wingosy][debug][controller] recognized input/action",
+        expect.objectContaining({ key: "ArrowRight", deferred: true }),
+      ],
+    ]);
+  });
+
+  it("logs a controller replacement that reuses the same gamepad index", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const first = makeGamepad("standard", null, 1);
+    first.id = "Controller A";
+    const replacement = makeGamepad("standard", null, 1);
+    replacement.id = "Controller B";
+    pads = [first];
+    render(<HookProbe />);
+
+    runFrame();
+    pads = [replacement];
+    runFrame();
+    runFrame();
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] controller changed at same index",
+      {
+        index: 1,
+        previous: expect.objectContaining({ index: 1, id: "Controller A" }),
+        current: expect.objectContaining({ index: 1, id: "Controller B" }),
+      },
+    );
+    expect(
+      info.mock.calls.filter(
+        ([message]) => message === "[Wingosy][debug][controller] controller changed at same index",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("correlates an emitted action with its actual routing destinations", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    pads = [makeGamepad("standard", 0, 3)];
+    render(<RoutingProbe />);
+
+    runFrame();
+
+    const routed = info.mock.calls.find(
+      ([message]) => message === "[Wingosy][debug][controller] action routed",
+    );
+    expect(routed?.[1]).toMatchObject({
+      actionId: expect.any(Number),
+      key: "Enter",
+      controllerIndex: 3,
+      phase: "edge",
+      elapsedSincePreviousMs: null,
+      expectedTarget: "library-root",
+      expectedTargetMissing: false,
+      destinations: expect.arrayContaining([
+        expect.objectContaining({ type: "window" }),
+        expect.objectContaining({ type: "library-root" }),
+      ]),
+    });
+  });
+
+  it("reports a missing immersive target instead of hiding an unrouted action", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    pads = [makeGamepad("standard", 0, 3)];
+    render(<HookProbe />);
+
+    runFrame();
+
+    const routed = info.mock.calls.find(
+      ([message]) => message === "[Wingosy][debug][controller] action routed",
+    );
+    expect(routed?.[1]).toMatchObject({
+      key: "Enter",
+      expectedTarget: "library-root",
+      expectedTargetMissing: true,
+      destinations: [expect.objectContaining({ type: "window" })],
+    });
+  });
+
+  it("reports the initial edge and held repeat timing without polling logs", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    pads = [makeGamepad("standard", 12, 3)];
+    render(<HookProbe />);
+
+    runFrame();
+    now += 239;
+    runFrame();
+    now += 1;
+    runFrame();
+
+    const actions = info.mock.calls
+      .filter(([message]) => message === "[Wingosy][debug][controller] recognized input/action")
+      .map(([, details]) => details);
+    expect(actions).toEqual([
+      expect.objectContaining({
+        actionId: 1,
+        key: "ArrowUp",
+        controllerIndex: 3,
+        phase: "edge",
+        elapsedSincePreviousMs: null,
+      }),
+      expect.objectContaining({
+        actionId: 2,
+        key: "ArrowUp",
+        controllerIndex: 3,
+        phase: "repeat",
+        elapsedSincePreviousMs: 240,
+      }),
+    ]);
+    expect(info.mock.calls.some(([message]) => message.includes("poll"))).toBe(false);
+  });
+
+  it("logs unsupported mappings and unmapped input only when their state changes", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const pad = makeGamepad("", 0, 1);
+    pads = [pad];
+    render(<HookProbe />);
+
+    runFrame();
+    runFrame();
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] unsupported/unmapped controller: no standard mapping available",
+      { unsupported: true },
+    );
+    expect(info).toHaveBeenCalledTimes(2);
+
+    pad.mapping = "standard";
+    pad.buttons[0].pressed = false;
+    pad.buttons[2].pressed = true;
+    runFrame();
+    runFrame();
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] unsupported/unmapped input",
+      { pads: [{ index: 1, pressedButtons: [2], activeAxes: [] }] },
+    );
+    expect(info).toHaveBeenCalledTimes(5);
   });
 
   it("skips a nonstandard first pad and uses the standard second pad", () => {

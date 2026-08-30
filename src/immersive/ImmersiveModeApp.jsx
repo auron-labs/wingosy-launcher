@@ -9,6 +9,7 @@ import RomDownloadsView from "../components/RomDownloadsView";
 import { invoke } from "@tauri-apps/api/core";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
+import { getControllerAction, logControllerOutcome } from "./controllerDebug";
 
 const GAMES_PER_PAGE = 60;
 const LOAD_AHEAD = 12;
@@ -254,18 +255,25 @@ export default function ImmersiveModeApp({
   }, [loadData]);
 
   useEffect(() => {
-    function shouldDeferImmersiveHotkey(e) {
+    function getHotkeySuppressionReason(e) {
       const selector = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-      if (document.querySelector(selector)) return true;
+      const overlay = document.querySelector(selector);
+      if (overlay) return `${overlay.getAttribute("role") || "overlay"} open`;
       const t = e.target;
       if (t && typeof t.closest === "function") {
-        return Boolean(t.closest(selector));
+        const targetOverlay = t.closest(selector);
+        if (targetOverlay) return `${targetOverlay.getAttribute("role") || "overlay"} open`;
       }
-      return false;
+      return null;
     }
 
     function onKeyDown(e) {
-      if (shouldDeferImmersiveHotkey(e)) return;
+      const action = getControllerAction(e);
+      const suppressionReason = getHotkeySuppressionReason(e);
+      if (suppressionReason) {
+        logControllerOutcome(action, "shell", "suppressed", { reason: suppressionReason });
+        return;
+      }
       if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
@@ -274,23 +282,35 @@ export default function ImmersiveModeApp({
       if (e.key === "h" || e.key === "H") {
         e.preventDefault();
         setShowHints((v) => !v);
+        logControllerOutcome(action, "shell", "handled", { reason: "toggle-hints" });
         return;
       }
       if (e.key === "Escape") {
-        if (e.repeat) return;
+        if (e.repeat) {
+          logControllerOutcome(action, "shell", "suppressed", { reason: "keyboard-repeat" });
+          return;
+        }
         e.preventDefault();
         if (view === "details") {
           setView("library");
           selectedGameIdRef.current = null;
           setSelectedGame(null);
+          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
         } else if (view === "settings") {
           setView("library");
           loadData();
+          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
         } else if (view === "downloads") {
           setView("library");
+          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
         } else {
           handleExit();
+          logControllerOutcome(action, "shell", "handled", { reason: "exit-immersive" });
         }
+        return;
+      }
+      if (action) {
+        logControllerOutcome(action, "shell", "ignored", { reason: "not-shell-action" });
       }
     }
     window.addEventListener("keydown", onKeyDown);

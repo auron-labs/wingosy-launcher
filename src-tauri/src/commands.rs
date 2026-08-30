@@ -1358,6 +1358,17 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
     config.save().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn log_frontend(level: String, message: String) {
+    let message: String = message.chars().take(8_000).collect();
+    match level.as_str() {
+        "error" => tracing::error!("[Frontend] {message}"),
+        "warn" => tracing::warn!("[Frontend] {message}"),
+        "debug" => tracing::debug!("[Frontend] {message}"),
+        _ => tracing::info!("[Frontend] {message}"),
+    }
+}
+
 /// Sorted paths to playable audio files in a folder (for Immersive ambient BGM).
 #[tauri::command]
 pub fn list_ambient_audio_files(dir: String) -> Result<Vec<String>, String> {

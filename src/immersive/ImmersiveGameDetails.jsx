@@ -45,8 +45,14 @@ import { useAppTheme } from "../ThemeContext";
 import GameScreenshotsSection from "../components/game/GameScreenshotsSection";
 import GameAchievementsSection from "../components/game/GameAchievementsSection";
 import CollectionPickerDialog from "../components/game/CollectionPickerDialog";
+import {
+  describeControllerElement,
+  getControllerAction,
+  logControllerOutcome,
+} from "./controllerDebug";
 
 const DETAILS_ACTION_SELECTOR = "button:not(:disabled)";
+const INPUT_OVERLAY_SELECTOR = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 
 function getVisibleDetailsActions(root) {
   return Array.from(root?.querySelectorAll(DETAILS_ACTION_SELECTOR) || []).filter((element) => {
@@ -175,13 +181,29 @@ export default function ImmersiveGameDetails({
 
   useEffect(() => {
     function onWindowKeyDown(e) {
+      const action = getControllerAction(e);
       const targetIsWindow = e.target === window || e.target?.window === e.target;
-      if (!targetIsWindow) return;
-      if (e.repeat) return;
+      if (!targetIsWindow) {
+        logControllerOutcome(action, "details", "ignored", { reason: "event-target-not-window" });
+        return;
+      }
+      if (e.repeat) {
+        logControllerOutcome(action, "details", "suppressed", { reason: "keyboard-repeat" });
+        return;
+      }
       if (e.key.startsWith("Arrow")) {
-        if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+        const overlay = document.querySelector(INPUT_OVERLAY_SELECTOR);
+        if (overlay) {
+          logControllerOutcome(action, "details", "suppressed", {
+            reason: `${overlay.getAttribute("role") || "overlay"} open`,
+          });
+          return;
+        }
         const actions = getVisibleDetailsActions(detailsRef.current);
-        if (!actions.length) return;
+        if (!actions.length) {
+          logControllerOutcome(action, "details", "ignored", { reason: "no-visible-actions" });
+          return;
+        }
 
         const direction = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
         const focusedIndex = actions.indexOf(document.activeElement);
@@ -194,16 +216,44 @@ export default function ImmersiveGameDetails({
               ? -1
               : actions.length;
         const nextIndex = Math.max(0, Math.min(actions.length - 1, startIndex + direction));
+        const beforeFocus = describeControllerElement(document.activeElement);
+        const target = actions[nextIndex];
         e.preventDefault();
-        actions[nextIndex]?.focus();
+        target?.focus();
+        const afterFocus = describeControllerElement(document.activeElement);
+        if (!target) {
+          logControllerOutcome(action, "details", "ignored", {
+            reason: "focus-target-missing",
+            beforeFocus,
+            afterFocus,
+            targetIndex: nextIndex,
+          });
+        } else {
+          const focused = document.activeElement === target;
+          logControllerOutcome(action, "details", focused ? "handled" : "ignored", {
+            reason: !focused
+              ? "focus-target-not-focused"
+              : nextIndex === startIndex
+                ? "focus-boundary"
+                : "focus-moved",
+            beforeFocus,
+            afterFocus,
+            targetFocus: describeControllerElement(target),
+          });
+        }
         return;
       }
       if (e.key === "Enter") {
-        const hasInputOverlay = document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]');
+        const hasInputOverlay = document.querySelector(INPUT_OVERLAY_SELECTOR);
         if (hasInputOverlay) {
           if (launchFailure && !launching) {
             e.preventDefault();
             handleLaunchGame();
+            logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
+          } else {
+            logControllerOutcome(action, "details", "suppressed", {
+              reason: `${hasInputOverlay.getAttribute("role") || "overlay"} open`,
+            });
           }
           return;
         }
@@ -213,20 +263,33 @@ export default function ImmersiveGameDetails({
         if (focusedAction && !launching) {
           e.preventDefault();
           focusedAction.click();
+          logControllerOutcome(action, "details", "handled", {
+            reason: "activate-focused-action",
+            targetFocus: describeControllerElement(focusedAction),
+          });
           return;
         }
         if (launchFailure && !launching) {
           e.preventDefault();
           handleLaunchGame();
+          logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
           return;
         }
-        if (launching) return;
+        if (launching) {
+          logControllerOutcome(action, "details", "suppressed", { reason: "launch-in-progress" });
+          return;
+        }
         e.preventDefault();
         handleLaunchGame();
+        logControllerOutcome(action, "details", "handled", { reason: "launch-default" });
       } else if (e.key === "Escape") {
-        if (!launchFailure) return;
+        if (!launchFailure) {
+          logControllerOutcome(action, "details", "ignored", { reason: "no-launch-failure" });
+          return;
+        }
         e.preventDefault();
         onBack();
+        logControllerOutcome(action, "details", "handled", { reason: "return-from-launch-failure" });
       }
     }
 

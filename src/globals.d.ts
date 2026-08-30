@@ -6,3 +6,12 @@ interface Window {
 }
 
 declare var isTauri: boolean | undefined;
+
+interface ImportMetaEnv {
+  readonly DEV: boolean;
+  readonly VITE_WINGOSY_DEBUG?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

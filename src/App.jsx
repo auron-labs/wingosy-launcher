@@ -17,6 +17,7 @@ import { setFullscreenReliable } from "./windowFullscreen";
 import WindowChrome from "./components/WindowChrome";
 import { isTauri, mousedownTargetElement } from "./utils/isTauri";
 import { UiSoundsProvider } from "./UiSoundsContext";
+import { debugLog } from "./utils/debugLog";
 
 const appWindow = isTauri() ? getCurrentWindow() : null;
 const getCurrent = getCurrentWindow;
@@ -104,6 +105,7 @@ function App() {
     try {
       const firstRun = await invoke("is_first_run");
       setShowSetup(firstRun);
+      debugLog("startup", "first-run check complete", { firstRun });
     } catch {
       setShowSetup(false);
     }
@@ -130,6 +132,19 @@ function App() {
         if (cfg.romm?.auth_token) {
           setRommToken(cfg.romm.auth_token);
         }
+        debugLog("startup", "configuration loaded", {
+          rommConfigured: Boolean(cfg.romm?.server_url),
+          romsDirectoryConfigured: Boolean(cfg.library?.roms_directory),
+          immersiveMode: Boolean(cfg.display?.big_picture),
+          fullscreen: Boolean(cfg.display?.fullscreen),
+          controllerDeadzone: cfg.display?.controller_deadzone ?? null,
+          theme: cfg.display?.theme ?? null,
+          updater: {
+            checkOnStartup: cfg.updater?.check_on_startup !== false,
+            autoUpdateEnabled: Boolean(cfg.updater?.auto_update_enabled),
+            channel: cfg.updater?.channel || "stable",
+          },
+        });
         if (cfg.romm?.server_url && !rommSessionRestoreStarted.current) {
           rommSessionRestoreStarted.current = true;
           invoke("restore_romm_session")

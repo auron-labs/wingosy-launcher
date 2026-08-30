@@ -3,20 +3,21 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useState } from "react";
 import ImmersiveModeApp from "./ImmersiveModeApp";
 import { MuiTestProvider } from "../test/muiHarness";
+import { attachControllerAction } from "./controllerDebug";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
-function dispatchControllerKey(key, { repeat = false } = {}) {
+function dispatchControllerKey(key, { repeat = false, action = null } = {}) {
   const code = { h: "KeyH", H: "KeyH" }[key] || "";
-  act(() => {
-    window.dispatchEvent(new KeyboardEvent("keydown", {
-      key,
-      code,
-      repeat,
-      bubbles: true,
-      cancelable: true,
-    }));
+  const event = new KeyboardEvent("keydown", {
+    key,
+    code,
+    repeat,
+    bubbles: true,
+    cancelable: true,
   });
+  attachControllerAction(event, action);
+  act(() => window.dispatchEvent(event));
 }
 
 // These mocks provide deterministic UI/command sequencing evidence, not proof of a real emulator launch.
@@ -89,6 +90,8 @@ vi.mock("./ImmersiveGameDetails", () => {
 afterEach(() => {
   cleanup();
   invoke.mockReset();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 const initialGames = [
@@ -183,6 +186,55 @@ describe("ImmersiveModeApp launch context", () => {
     expect(invoke.mock.calls.filter(([command]) => command === "prepare_and_launch_game")).toHaveLength(1);
 
     await act(async () => finishLaunch({ success: true }));
+  });
+
+  it("logs shell suppression for a correlated controller action while a menu is open", async () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games: initialGames, total: initialGames.length });
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("game-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    dispatchControllerKey("h", {
+      action: {
+        actionId: 44,
+        key: "h",
+        controllerIndex: 2,
+        phase: "edge",
+        elapsedSincePreviousMs: null,
+        deferred: false,
+      },
+    });
+
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] receiver suppressed",
+      expect.objectContaining({
+        actionId: 44,
+        receiver: "shell",
+        key: "h",
+        outcome: "suppressed",
+        reason: "menu open",
+      }),
+    );
   });
 
   it("loads bounded pages as controller selection reaches the end without duplicates or overfetching", async () => {

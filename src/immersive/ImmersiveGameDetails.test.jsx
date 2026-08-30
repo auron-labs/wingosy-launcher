@@ -142,6 +142,8 @@ afterEach(() => {
   eventListeners.clear();
   invoke.mockReset();
   listen.mockReset();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   delete window.__TAURI_INTERNALS__;
 });
 
@@ -262,6 +264,42 @@ describe("ImmersiveGameDetails launch controls", () => {
 
       expect(hiddenAction).not.toHaveFocus();
       expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("correlates a controller action with the details receiver and focus result", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const controller = installControllerTestEnvironment();
+
+    try {
+      renderDetails();
+      const pad = makeStandardPad(15);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+
+      controller.runFrame();
+
+      const recognized = info.mock.calls.find(
+        ([message]) => message === "[Wingosy][debug][controller] recognized input/action",
+      )?.[1];
+      const handled = info.mock.calls.find(
+        ([message, details]) =>
+          message === "[Wingosy][debug][controller] receiver handled" &&
+          details?.receiver === "details",
+      )?.[1];
+
+      expect(handled).toMatchObject({
+        actionId: recognized.actionId,
+        key: "ArrowRight",
+        controllerIndex: 1,
+        outcome: "handled",
+        reason: "focus-moved",
+        beforeFocus: expect.any(Object),
+        afterFocus: expect.objectContaining({ tag: "button", role: "button" }),
+      });
     } finally {
       controller.restore();
     }
@@ -421,6 +459,36 @@ describe("ImmersiveGameDetails launch controls", () => {
       controller.runFrame();
 
       expect(retry).toHaveFocus();
+    } finally {
+      controller.restore();
+    }
+  });
+
+  it("logs a concise controller suppression reason for an open details dialog", async () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const onLaunch = vi.fn().mockRejectedValue(new Error("network unavailable"));
+    const controller = installControllerTestEnvironment();
+
+    try {
+      renderDetails(onLaunch);
+      fireEvent.click(screen.getByRole("button", { name: "Play" }));
+      await waitFor(() => expect(screen.getByText("network unavailable")).toBeInTheDocument());
+
+      const pad = makeStandardPad(15);
+      controller.setPads([pad]);
+      render(<ControllerProbe />);
+      controller.runFrame();
+
+      expect(info).toHaveBeenCalledWith(
+        "[Wingosy][debug][controller] receiver suppressed",
+        expect.objectContaining({
+          receiver: "details",
+          key: "ArrowRight",
+          outcome: "suppressed",
+          reason: "dialog open",
+        }),
+      );
     } finally {
       controller.restore();
     }
