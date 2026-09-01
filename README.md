@@ -6,17 +6,6 @@
 
 A Windows game launcher with RomM integration. Inspired by [Argosy Launcher](https://github.com/rommapp/argosy-launcher), with the goal of closely following Argosy's feature implementations.
 
-## Private Beta
-
-The planned private beta is for **Windows 11** and one narrow path: **RetroArch
-for NES, SNES, GB, GBC, GBA, and Genesis**, with RomM pair, library sync, ROM
-download, and one-Play. Save management in this beta means **manual save
-upload/download**. Automatic save sync is experimental until a real round trip
-passes. Standalone mGBA and every other emulator/platform combination are
-experimental. The six planned beta paths are still pending real Windows certification;
-see the [certification ledger](.scratch/transparent-romm-launching/emulator-certification.md)
-and [beta release notes](BETA_RELEASE_NOTES.md).
-
 ### Controller Support
 
 Immersive navigation supports standard-mapped/XInput controllers and keyboard
