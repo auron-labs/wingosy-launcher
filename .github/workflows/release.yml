@@ -16,7 +16,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing git tag to build (e.g. v0.2.0). Create and push the tag first.'
+        description: 'Existing git tag to build (e.g. v0.2.0). Create and push the tag
+          first.'
         required: true
         type: string
 
@@ -49,7 +50,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -80,7 +81,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
