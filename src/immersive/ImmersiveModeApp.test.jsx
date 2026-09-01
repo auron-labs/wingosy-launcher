@@ -42,7 +42,15 @@ vi.mock("../components/Settings", () => ({ default: () => null }));
 vi.mock("../components/RomDownloadsView", () => ({ default: () => null }));
 
 vi.mock("./ImmersiveLibrary", () => ({
-  default: ({ games, selectedIndex, onSelectedIndexChange, onSelectGame }) => (
+  default: ({
+    games,
+    platforms = [],
+    selectedPlatform,
+    onSelectedPlatformChange,
+    selectedIndex,
+    onSelectedIndexChange,
+    onSelectGame,
+  }) => (
     <div
       data-testid="immersive-library"
       tabIndex={0}
@@ -52,6 +60,16 @@ vi.mock("./ImmersiveLibrary", () => ({
         onSelectedIndexChange(Math.min(games.length - 1, selectedIndex + 1));
       }}
     >
+      <button onClick={() => onSelectedPlatformChange(null)}>All platforms</button>
+      {platforms.map(([platform]) => (
+        <button
+          key={platform.id}
+          aria-pressed={selectedPlatform === platform.id}
+          onClick={() => onSelectedPlatformChange(platform.id)}
+        >
+          {platform.name}
+        </button>
+      ))}
       <span data-testid="selected-index">{selectedIndex}</span>
       {games.map((game, index) => (
         <button
@@ -97,6 +115,11 @@ afterEach(() => {
 const initialGames = [
   { id: 1, name: "First Game", platform_id: "gba" },
   { id: 2, name: "Second Game", platform_id: "gba" },
+];
+
+const immersivePlatforms = [
+  [{ id: "gba", name: "Game Boy Advance" }, 61],
+  [{ id: "snes", name: "Super Nintendo" }, 2],
 ];
 
 describe("ImmersiveModeApp launch context", () => {
@@ -519,5 +542,131 @@ describe("ImmersiveModeApp launch context", () => {
     expect(screen.getAllByTestId("game-61")).toHaveLength(1);
     expect(screen.queryByTestId("game-999")).not.toBeInTheDocument();
     expect(invoke.mock.calls.some(([, request]) => request?.page === 3)).toBe(false);
+  });
+
+  it("queries the selected platform for every page and clears back to all platforms", async () => {
+    const allGames = Array.from({ length: 60 }, (_, index) => ({
+      id: index + 1,
+      name: `All Game ${index + 1}`,
+      platform_id: index % 2 === 0 ? "gba" : "snes",
+    }));
+    const gbaFirstPage = Array.from({ length: 60 }, (_, index) => ({
+      id: index + 101,
+      name: `GBA Game ${index + 1}`,
+      platform_id: "gba",
+    }));
+    const gbaSecondPage = [{ id: 161, name: "GBA Game 61", platform_id: "gba" }];
+    let finishGbaSecondPage;
+
+    invoke.mockImplementation((command, args) => {
+      if (command === "get_games_page") {
+        if (args.platformId === "gba" && args.page === 1) {
+          return Promise.resolve({ games: gbaFirstPage, total: 61 });
+        }
+        if (args.platformId === "gba" && args.page === 2) {
+          return new Promise((resolve) => {
+            finishGbaSecondPage = resolve;
+          });
+        }
+        if (args.platformId === null && args.page === 1) {
+          return Promise.resolve({ games: allGames, total: 60 });
+        }
+        return Promise.reject(new Error(`unexpected request ${JSON.stringify(args)}`));
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve(immersivePlatforms);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("All Game 1")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
+    await waitFor(() => expect(screen.getByText("GBA Game 60")).toBeInTheDocument());
+
+    const library = screen.getByTestId("immersive-library");
+    for (let index = 0; index < 59; index += 1) {
+      fireEvent.keyDown(library, { key: "ArrowRight" });
+    }
+    await waitFor(() => expect(finishGbaSecondPage).toEqual(expect.any(Function)));
+    expect(invoke).toHaveBeenCalledWith("get_games_page", {
+      platformId: "gba",
+      searchQuery: null,
+      page: 2,
+      pageSize: 60,
+    });
+
+    await act(async () => finishGbaSecondPage({ games: gbaSecondPage, total: 61 }));
+    await waitFor(() => expect(screen.getByTestId("game-161")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "All platforms" }));
+    await waitFor(() => expect(screen.getByText("All Game 1")).toBeInTheDocument());
+    expect(invoke).toHaveBeenCalledWith("get_games_page", {
+      platformId: null,
+      searchQuery: null,
+      page: 1,
+      pageSize: 60,
+    });
+  });
+
+  it("ignores a stale platform response after a newer selection", async () => {
+    let finishGba;
+    let finishSnes;
+    invoke.mockImplementation((command, args) => {
+      if (command === "get_games_page") {
+        if (args.platformId === null) {
+          return Promise.resolve({
+            games: [{ id: 1, name: "All Game", platform_id: "gba" }],
+            total: 1,
+          });
+        }
+        if (args.platformId === "gba") {
+          return new Promise((resolve) => {
+            finishGba = resolve;
+          });
+        }
+        if (args.platformId === "snes") {
+          return new Promise((resolve) => {
+            finishSnes = resolve;
+          });
+        }
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve(immersivePlatforms);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
+    await waitFor(() => expect(finishGba).toEqual(expect.any(Function)));
+    fireEvent.click(screen.getByRole("button", { name: "Super Nintendo" }));
+    await waitFor(() => expect(finishSnes).toEqual(expect.any(Function)));
+
+    await act(async () => finishGba({ games: [{ id: 2, name: "Stale GBA", platform_id: "gba" }], total: 1 }));
+    await act(async () => finishSnes({ games: [{ id: 3, name: "Current SNES", platform_id: "snes" }], total: 1 }));
+
+    await waitFor(() => expect(screen.getByTestId("game-3")).toBeInTheDocument());
+    expect(screen.queryByTestId("game-2")).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
   });
 });

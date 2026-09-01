@@ -33,6 +33,13 @@ function getColumnsForWidth(width) {
   return 2;
 }
 
+function focusFirstGame(grid) {
+  const firstGame =
+    grid?.querySelector?.('[data-immersive-index="0"] button') ||
+    grid?.querySelector?.('[data-immersive-index="0"]');
+  firstGame?.focus?.();
+}
+
 function useColumnCount() {
   const [columns, setColumns] = useState(() =>
     typeof window === "undefined" ? 6 : getColumnsForWidth(window.innerWidth)
@@ -54,6 +61,9 @@ export default function ImmersiveLibrary({
   loading,
   error,
   games,
+  platforms = [],
+  selectedPlatform = null,
+  onSelectedPlatformChange = (_platformId) => {},
   selectedIndex,
   onSelectedIndexChange,
   onSelectGame,
@@ -65,26 +75,46 @@ export default function ImmersiveLibrary({
   const gridRef = useRef(null);
   const rootRef = useRef(null);
   const scrollRef = useRef(null);
+  const platformButtonRefs = useRef([]);
   const { colors } = useAppTheme();
   const { getProgress, activeCount } = useRomDownloads();
   const columns = useColumnCount();
 
+  const platformOptions = useMemo(
+    () => [
+      { id: null, label: "All platforms" },
+      ...platforms.map(([platform]) => ({
+        id: platform.id,
+        label: platform.name || platform.id,
+      })),
+    ],
+    [platforms],
+  );
+
+  const platformGames = useMemo(
+    () =>
+      selectedPlatform
+        ? games.filter((game) => game.platform_id === selectedPlatform)
+        : games,
+    [games, selectedPlatform],
+  );
+
   const favorites = useMemo(
-    () => games.filter((g) => g.is_favorite),
-    [games]
+    () => platformGames.filter((g) => g.is_favorite),
+    [platformGames],
   );
 
   const recent = useMemo(() => {
-    const played = games.filter((g) => g.last_played_at);
+    const played = platformGames.filter((g) => g.last_played_at);
     played.sort(byLastPlayedDesc);
     return played.slice(0, 24);
-  }, [games]);
+  }, [platformGames]);
 
   const visibleGames = useMemo(() => {
     if (section === "favorites") return favorites;
     if (section === "recent") return recent;
-    return games;
-  }, [section, games, favorites, recent]);
+    return platformGames;
+  }, [section, platformGames, favorites, recent]);
 
   useEffect(() => {
     if (selectedIndex >= visibleGames.length) {
@@ -95,6 +125,19 @@ export default function ImmersiveLibrary({
   useEffect(() => {
     rootRef.current?.focus?.();
   }, [section]);
+
+  useEffect(() => {
+    if (loading) return undefined;
+
+    const id = window.requestAnimationFrame(() => {
+      if (!visibleGames.length) {
+        rootRef.current?.focus?.();
+        return;
+      }
+      focusFirstGame(gridRef.current);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [loading, section, selectedPlatform, visibleGames.length]);
 
   useEffect(() => {
     if (loading) return;
@@ -117,8 +160,7 @@ export default function ImmersiveLibrary({
     setSection(next);
     onSelectedIndexChange(0);
     rootRef.current?.focus?.();
-    const el = gridRef.current?.querySelector?.(`[data-immersive-index="0"]`);
-    el?.focus?.();
+    focusFirstGame(gridRef.current);
   }
 
   function setSectionAndReset(next) {
@@ -127,8 +169,48 @@ export default function ImmersiveLibrary({
     rootRef.current?.focus?.();
   }
 
+  function focusPlatform(index) {
+    const nextIndex = Math.max(0, Math.min(platformOptions.length - 1, index));
+    platformButtonRefs.current[nextIndex]?.focus?.();
+  }
+
+  function handlePlatformKeyDown(e, platformButton) {
+    const platformIndex = platformButtonRefs.current.indexOf(platformButton);
+    if (platformIndex < 0) return false;
+
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      platformButton.click();
+      return true;
+    }
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      focusPlatform(platformIndex + (e.key === "ArrowRight" ? 1 : -1));
+      return true;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (visibleGames.length) {
+        onSelectedIndexChange(0, visibleGames[0]);
+        focusFirstGame(gridRef.current);
+      } else {
+        rootRef.current?.focus?.();
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   function handleKeyDown(e) {
     const action = getControllerAction(e);
+    const platformTarget =
+      e.target?.closest?.("[data-immersive-platform-filter]") ||
+      document.activeElement?.closest?.("[data-immersive-platform-filter]");
+    if (platformTarget && handlePlatformKeyDown(e, platformTarget)) return;
+
     if (e.key === "F11") {
       logControllerOutcome(action, "library", "ignored", { reason: "handled-by-shell" });
       return;
@@ -179,6 +261,12 @@ export default function ImmersiveLibrary({
       return;
     }
 
+    if (e.key === "ArrowUp" && selectedIndex === 0 && platformOptions.length) {
+      e.preventDefault();
+      focusPlatform(0);
+      return;
+    }
+
     const cols = columns;
     let next = selectedIndex;
 
@@ -218,7 +306,7 @@ export default function ImmersiveLibrary({
     }
 
     e.preventDefault();
-    onSelectedIndexChange(next);
+    onSelectedIndexChange(next, visibleGames[next]);
     const el = gridRef.current?.querySelector?.(
       `[data-immersive-index="${next}"]`,
     );
@@ -295,6 +383,65 @@ export default function ImmersiveLibrary({
         );
       })}
     </Stack>
+  );
+
+  const platformFilterButtons = (
+    <Box sx={{ mt: 1.5 }}>
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        sx={{ display: "block", mb: 0.5, fontWeight: 700, letterSpacing: "0.08em" }}
+      >
+        Platforms
+      </Typography>
+      <Stack
+        direction="row"
+        spacing={0.75}
+        sx={{
+          overflowX: "auto",
+          pb: 0.5,
+          scrollbarWidth: "thin",
+        }}
+      >
+        {platformOptions.map((platform, index) => {
+          const active = selectedPlatform === platform.id;
+          return (
+            <Button
+              key={platform.id || "all-platforms"}
+              ref={(element) => {
+                platformButtonRefs.current[index] = element;
+              }}
+              data-immersive-platform-filter={platform.id || "all"}
+              aria-pressed={active}
+              onClick={() => onSelectedPlatformChange?.(platform.id)}
+              sx={{
+                flexShrink: 0,
+                minWidth: 0,
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1.5,
+                textTransform: "none",
+                fontWeight: active ? 800 : 600,
+                color: active ? "#fff" : "text.secondary",
+                bgcolor: active ? "primary.main" : "transparent",
+                border: (t) =>
+                  active
+                    ? "none"
+                    : `1px solid ${alpha(t.palette.divider, 0.5)}`,
+                boxShadow: active ? `0 0 12px ${alpha(colors.primary, 0.4)}` : "none",
+                lineHeight: 1.2,
+                "&:hover": {
+                  bgcolor: active ? "primary.dark" : alpha(colors.primary, 0.12),
+                  color: active ? "#fff" : "text.primary",
+                },
+              }}
+            >
+              {platform.label}
+            </Button>
+          );
+        })}
+      </Stack>
+    </Box>
   );
 
   const utilityButtons = (
@@ -441,6 +588,7 @@ export default function ImmersiveLibrary({
           {headerSectionButtons}
           {utilityButtons}
         </Stack>
+        {platformFilterButtons}
       </Box>
 
       <Box
@@ -479,9 +627,14 @@ export default function ImmersiveLibrary({
           </Box>
         ) : visibleGames.length === 0 ? (
           <Box sx={{ height: "60vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Typography variant="h5" color="text.secondary">
-              No games found.
-            </Typography>
+            <Stack spacing={1} sx={{ alignItems: "center", textAlign: "center" }}>
+              <Typography variant="h5" color="text.secondary">
+                No games found.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Try another platform or section.
+              </Typography>
+            </Stack>
           </Box>
         ) : (
           <Box
@@ -498,7 +651,7 @@ export default function ImmersiveLibrary({
                 <ImmersiveGameTile
                   game={g}
                   focused={idx === selectedIndex}
-                  onFocus={() => onSelectedIndexChange(idx)}
+                  onFocus={() => onSelectedIndexChange(idx, g)}
                   onSelect={() => onSelectGame(g)}
                   downloadProgress={getProgress(g.id)}
                 />

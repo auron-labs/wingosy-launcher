@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ImmersiveLibrary from "./ImmersiveLibrary";
 import { MuiTestProvider } from "../test/muiHarness";
 import { attachControllerAction } from "./controllerDebug";
@@ -64,21 +64,34 @@ afterEach(() => {
 
 function LibraryWrapper({
   initialIndex = 0,
+  initialPlatform = null,
   onSelectGame,
   onSelectedIndexChange,
+  onSelectedPlatformChange,
   games,
+  platforms = [],
   ...rest
 }) {
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
+  const [selectedPlatform, setSelectedPlatform] = useState(initialPlatform);
   const handleChange = (next) => {
     setSelectedIndex(next);
     onSelectedIndexChange?.(next);
+  };
+  const handlePlatformChange = (next) => {
+    setSelectedPlatform(next);
+    setSelectedIndex(0);
+    onSelectedIndexChange?.(0);
+    onSelectedPlatformChange?.(next);
   };
   return (
     <ImmersiveLibrary
       loading={false}
       error={null}
       games={games}
+      platforms={platforms}
+      selectedPlatform={selectedPlatform}
+      onSelectedPlatformChange={handlePlatformChange}
       selectedIndex={selectedIndex}
       onSelectedIndexChange={handleChange}
       onSelectGame={onSelectGame}
@@ -93,17 +106,24 @@ function LibraryWrapper({
 function renderLibrary(games = makeGames(12), props = {}) {
   const onSelectGame = vi.fn();
   const onSelectedIndexChange = vi.fn();
+  const onSelectedPlatformChange = vi.fn();
   const utils = render(
     <MuiTestProvider>
       <LibraryWrapper
         games={games}
         onSelectGame={onSelectGame}
         onSelectedIndexChange={onSelectedIndexChange}
+        onSelectedPlatformChange={onSelectedPlatformChange}
         {...props}
       />
     </MuiTestProvider>
   );
-  return { ...utils, onSelectGame, onSelectedIndexChange };
+  return {
+    ...utils,
+    onSelectGame,
+    onSelectedIndexChange,
+    onSelectedPlatformChange,
+  };
 }
 
 function keyDown(container, key) {
@@ -253,6 +273,99 @@ describe("ImmersiveLibrary sections switching", () => {
 
     keyDown(root, "PageUp");
     expect(screen.getByRole("button", { name: "Favorites" })).toBeInTheDocument();
+  });
+});
+
+describe("ImmersiveLibrary platform filtering", () => {
+  const platforms = [
+    [{ id: "snes", name: "Super Nintendo", short_name: "SNES" }, 1],
+    [{ id: "gba", name: "Game Boy Advance", short_name: "GBA" }, 2],
+  ];
+  const games = [
+    {
+      id: 1,
+      name: "SNES Game",
+      platform_id: "snes",
+      is_favorite: false,
+      sync_state: "synced",
+    },
+    {
+      id: 2,
+      name: "GBA Favorite",
+      platform_id: "gba",
+      is_favorite: true,
+      sync_state: "synced",
+    },
+    {
+      id: 3,
+      name: "GBA Recent",
+      platform_id: "gba",
+      is_favorite: false,
+      sync_state: "synced",
+      last_played_at: "2026-09-01",
+    },
+  ];
+
+  it("offers display-named platform controls and selects or clears them", () => {
+    const { onSelectedPlatformChange } = renderLibrary(games, { platforms });
+
+    expect(screen.getByRole("button", { name: "All platforms" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Super Nintendo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Game Boy Advance" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
+    expect(onSelectedPlatformChange).toHaveBeenCalledWith("gba");
+    expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
+    expect(screen.getByText("GBA Favorite")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All platforms" }));
+    expect(onSelectedPlatformChange).toHaveBeenLastCalledWith(null);
+    expect(screen.getByText("SNES Game")).toBeInTheDocument();
+  });
+
+  it("keeps platform filtering composed with favorites and recent sections", () => {
+    renderLibrary(games, { platforms, initialPlatform: "gba" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    expect(screen.getByText("GBA Favorite")).toBeInTheDocument();
+    expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Recent" }));
+    expect(screen.getByText("GBA Recent")).toBeInTheDocument();
+    expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
+  });
+
+  it("moves between platform controls with arrows and activates one with Enter", () => {
+    const { onSelectedPlatformChange } = renderLibrary(games, { platforms });
+    const allPlatforms = screen.getByRole("button", { name: "All platforms" });
+    const superNintendo = screen.getByRole("button", { name: "Super Nintendo" });
+
+    allPlatforms.focus();
+    keyDown(allPlatforms, "ArrowRight");
+    expect(document.activeElement).toBe(superNintendo);
+
+    keyDown(superNintendo, "Enter");
+    expect(onSelectedPlatformChange).toHaveBeenCalledWith("snes");
+  });
+
+  it("resets focus to the first result and focuses the library for an empty result", async () => {
+    const { onSelectedIndexChange } = renderLibrary(games, { platforms, initialIndex: 2 });
+    const gba = screen.getByRole("button", { name: "Game Boy Advance" });
+
+    fireEvent.click(gba);
+    await waitFor(() => {
+      expect(onSelectedIndexChange).toHaveBeenCalledWith(0);
+      expect(document.activeElement).toBe(
+        screen.getByTestId("immersive-grid").querySelector("button"),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Super Nintendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    await waitFor(() => {
+      expect(screen.getByText("No games found.")).toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByTestId("immersive-library"));
+    });
   });
 });
 

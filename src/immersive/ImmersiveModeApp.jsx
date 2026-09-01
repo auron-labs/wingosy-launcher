@@ -35,6 +35,7 @@ export default function ImmersiveModeApp({
   const [games, setGames] = useState([]);
   const [gameTotal, setGameTotal] = useState(0);
   const [platforms, setPlatforms] = useState([]);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -89,7 +90,7 @@ export default function ImmersiveModeApp({
     deadzone: controllerDeadzone,
   });
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (platformId = selectedPlatform) => {
     const requestId = ++libraryRequestId.current;
     nextPageInFlightRef.current = null;
     try {
@@ -97,7 +98,7 @@ export default function ImmersiveModeApp({
       setError(null);
       const [gamesPage, platformsData, cfg] = await Promise.all([
         invoke("get_games_page", {
-          platformId: null,
+          platformId: platformId || null,
           searchQuery: null,
           page: 1,
           pageSize: GAMES_PER_PAGE,
@@ -153,7 +154,7 @@ export default function ImmersiveModeApp({
         setLoading(false);
       }
     }
-  }, []);
+  }, [selectedPlatform]);
 
   const loadNextPage = useCallback(() => {
     if (nextPageInFlightRef.current || gamesRef.current.length >= gameTotal) return;
@@ -165,7 +166,7 @@ export default function ImmersiveModeApp({
     void (async () => {
       try {
         const result = await invoke("get_games_page", {
-          platformId: null,
+          platformId: selectedPlatform || null,
           searchQuery: null,
           page,
           pageSize: GAMES_PER_PAGE,
@@ -193,7 +194,7 @@ export default function ImmersiveModeApp({
         }
       }
     })();
-  }, [gameTotal]);
+  }, [gameTotal, selectedPlatform]);
 
   useEffect(() => {
     loadData();
@@ -340,8 +341,26 @@ export default function ImmersiveModeApp({
     setView("details");
   }
 
-  const handleSelectedIndexChange = useCallback((nextIndex) => {
-    focusedGameIdRef.current = gamesRef.current[nextIndex]?.id ?? null;
+  const handleSelectedPlatformChange = useCallback((platformId) => {
+    const nextPlatform = platformId || null;
+    if (nextPlatform === selectedPlatform) return;
+
+    // Invalidate page-one and lazy-page responses before the new selection is rendered.
+    libraryRequestId.current += 1;
+    nextPageInFlightRef.current = null;
+    gamesRef.current = [];
+    focusedGameIdRef.current = null;
+    selectedGameIdRef.current = null;
+    setGames([]);
+    setGameTotal(0);
+    setSelectedIndex(0);
+    setLoading(true);
+    setError(null);
+    setSelectedPlatform(nextPlatform);
+  }, [selectedPlatform]);
+
+  const handleSelectedIndexChange = useCallback((nextIndex, game) => {
+    focusedGameIdRef.current = game?.id ?? gamesRef.current[nextIndex]?.id ?? null;
     setSelectedIndex(nextIndex);
   }, []);
 
@@ -426,6 +445,9 @@ export default function ImmersiveModeApp({
         loading={loading}
         error={error}
         games={games}
+        platforms={platforms}
+        selectedPlatform={selectedPlatform}
+        onSelectedPlatformChange={handleSelectedPlatformChange}
         selectedIndex={selectedIndex}
         onSelectedIndexChange={handleSelectedIndexChange}
         onSelectGame={handleSelectGame}
