@@ -137,6 +137,18 @@ export default function ImmersiveGameDetails({
   const [ratingsDialogOpen, setRatingsDialogOpen] = useState(false);
   const savesSectionRef = useRef(null);
 
+  function markDetailsActionFocus(event) {
+    if (event.target?.matches?.(DETAILS_ACTION_SELECTOR)) {
+      event.target.setAttribute("data-controller-focused", "true");
+    }
+  }
+
+  function clearDetailsActionFocus(event) {
+    if (event.target?.matches?.(DETAILS_ACTION_SELECTOR)) {
+      event.target.removeAttribute("data-controller-focused");
+    }
+  }
+
   const hasLocalFile = (game.local_file_path && game.local_file_path.length > 0) || justDownloaded;
   const isSynced = game.sync_state === "synced" || game.sync_state === "Synced";
   const isLocalGame = !game.romm_id && game.source !== "RomM";
@@ -411,7 +423,14 @@ export default function ImmersiveGameDetails({
         bgcolor: "background.default",
         backgroundImage: `radial-gradient(1000px 380px at 10% -5%, ${alpha(colors.primary, 0.12)} 0%, transparent 52%),
           radial-gradient(800px 320px at 92% 5%, ${alpha(colors.primaryLight, 0.07)} 0%, transparent 48%)`,
+        '& button[data-controller-focused="true"]': {
+          outline: `3px solid ${colors.primary}`,
+          outlineOffset: 2,
+          boxShadow: `0 0 0 5px ${alpha(colors.primary, 0.28)}`,
+        },
       }}
+      onFocus={markDetailsActionFocus}
+      onBlur={clearDetailsActionFocus}
     >
       <Button
         data-argosy-sound="back"

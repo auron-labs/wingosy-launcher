@@ -2,7 +2,7 @@
 
 Type: task
 Mode: agent
-Status: ready-for-human
+Status: resolved
 Blocked by: 04
 
 > Follow this plan step by step and update `../spec.md` when done.
@@ -186,3 +186,40 @@ listener. Same-frame direction is now deferred until the next animation frame.
 The focused regression, all 87 frontend unit tests, typecheck, and frontend lint
 pass; lint retains the same 7 pre-existing warnings. Keep this ticket
 `ready-for-human` until controller navigation on the details page is retested.
+
+### 2026-08-31 — Windows acceptance diagnosis and visual details focus fix
+
+The captured Windows run recognized a standard-mapped controller and routed
+immersive library input (log lines 303-374), but its library diagnostics reported
+`focus-target-not-focused` while the user still saw library movement. On details,
+Arrow events were logged as handled and B returned successfully (lines 375-451),
+so mapper polling, synthetic event routing, and Back were not the cause. Ranked
+remaining hypotheses were the same-frame mount race, an invalid actionable target,
+and missing visible focus; the first two were already covered by the existing
+deferred-mount and visible-enabled-action checks. The confirmed gap was that
+details only called `.focus()`: MUI suppresses its default outline and a
+controller-generated synthetic key event does not establish `:focus-visible`
+modality, leaving the selected action visually indistinguishable.
+
+The details view now marks its focused enabled action and applies an immersive
+focus outline/glow, while preserving directional selection, selected-action
+Confirm, modal/menu suppression, keyboard recovery, and B return. The regression
+now drives the real Gamepad polling → synthetic event → ImmersiveLibrary →
+ImmersiveGameDetails route and verifies the focused action marker; a focused shell
+check covers B returning to the library. Normal windowed/fullscreen controller
+navigation remains intentionally unsupported because ticket 09 promises the
+immersive flow only; no new navigation framework was added. Focused immersive
+checks passed (63 tests), the full frontend suite passed (102 tests), typecheck
+passed, and frontend lint passed with the same 7 pre-existing warnings. The
+changed-file diff check passed; the whole-worktree check still reports the
+pre-existing trailing whitespace in `run-dev.sh`. Final Windows hardware retest
+remains required. Keep status `ready-for-human`.
+
+## Comments
+
+### 2026-08-31 — Windows immersive details-navigation retest passed
+
+The user confirmed that the real Windows immersive-mode controller retest passed
+after the visual focus fix: library → details navigation worked, and the focused
+details action was visibly indicated. This closes the pending details-navigation
+hardware gate.

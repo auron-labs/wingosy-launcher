@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import ImmersiveGameDetails from "./ImmersiveGameDetails";
+import ImmersiveLibrary from "./ImmersiveLibrary";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { RomDownloadsProvider } from "../RomDownloadsContext";
 import { MuiTestProvider } from "../test/muiHarness";
@@ -59,15 +60,21 @@ function ControllerProbe() {
 
 function ControllerDetailsRouteProbe() {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   useGamepadKeyboardMapper();
 
   if (!detailsOpen) {
     return (
-      <div
-        data-testid="immersive-library"
-        onKeyDown={(event) => {
-          if (event.key === "Enter") setDetailsOpen(true);
-        }}
+      <ImmersiveLibrary
+        loading={false}
+        error={null}
+        games={[remoteOnlyGame]}
+        selectedIndex={selectedIndex}
+        onSelectedIndexChange={setSelectedIndex}
+        onSelectGame={() => setDetailsOpen(true)}
+        onExitImmersive={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenDownloads={vi.fn()}
       />
     );
   }
@@ -246,7 +253,9 @@ describe("ImmersiveGameDetails launch controls", () => {
       details.append(hiddenAncestor);
 
       controller.runFrame();
-      expect(screen.getByRole("button", { name: "Download" })).toHaveFocus();
+      const download = screen.getByRole("button", { name: "Download" });
+      expect(download).toHaveFocus();
+      expect(download).toHaveAttribute("data-controller-focused", "true");
 
       pad.buttons[15].pressed = false;
       controller.runFrame();
@@ -254,7 +263,10 @@ describe("ImmersiveGameDetails launch controls", () => {
       pad.buttons[15].pressed = true;
       controller.runFrame();
 
-      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+      const favorite = screen.getByRole("button", { name: "Favorite" });
+      expect(favorite).toHaveFocus();
+      expect(favorite).toHaveAttribute("data-controller-focused", "true");
+      expect(download).not.toHaveAttribute("data-controller-focused");
 
       pad.buttons[15].pressed = false;
       controller.runFrame();
@@ -263,7 +275,7 @@ describe("ImmersiveGameDetails launch controls", () => {
       controller.runFrame();
 
       expect(hiddenAction).not.toHaveFocus();
-      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+      expect(favorite).toHaveFocus();
     } finally {
       controller.restore();
     }
@@ -320,10 +332,11 @@ describe("ImmersiveGameDetails launch controls", () => {
         </MuiTestProvider>,
       );
 
-      controller.runFrame();
-      controller.runFrame();
+      for (let frame = 0; frame < 6; frame += 1) controller.runFrame();
 
-      expect(screen.getByRole("button", { name: "Download" })).toHaveFocus();
+      const download = screen.getByRole("button", { name: "Download" });
+      expect(download).toHaveFocus();
+      expect(download).toHaveAttribute("data-controller-focused", "true");
     } finally {
       controller.restore();
     }
@@ -347,7 +360,9 @@ describe("ImmersiveGameDetails launch controls", () => {
       controller.advanceRepeatDelay();
       pad.buttons[15].pressed = true;
       controller.runFrame();
-      expect(screen.getByRole("button", { name: "Favorite" })).toHaveFocus();
+      const favorite = screen.getByRole("button", { name: "Favorite" });
+      expect(favorite).toHaveFocus();
+      expect(favorite).toHaveAttribute("data-controller-focused", "true");
 
       pad.buttons[15].pressed = false;
       controller.runFrame();

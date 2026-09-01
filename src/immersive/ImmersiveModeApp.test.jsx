@@ -139,6 +139,46 @@ describe("ImmersiveModeApp launch context", () => {
     expect(screen.getByTestId("selected-index")).toHaveTextContent("1");
   });
 
+  it("returns from details to the immersive library on controller Back", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games: initialGames, total: initialGames.length });
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("game-1"));
+    expect(screen.getByTestId("details-game")).toHaveTextContent("First Game");
+
+    dispatchControllerKey("Escape", {
+      action: {
+        actionId: 1,
+        key: "Escape",
+        controllerIndex: 0,
+        phase: "edge",
+        elapsedSincePreviousMs: null,
+        deferred: false,
+      },
+    });
+
+    expect(screen.getByTestId("immersive-library")).toBeInTheDocument();
+    expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
+  });
+
   it("defers window hotkeys to open menus and suppresses repeated or cross-game launches", async () => {
     let finishLaunch;
     invoke.mockImplementation((command) => {
