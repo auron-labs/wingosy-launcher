@@ -65,15 +65,19 @@ afterEach(() => {
 function LibraryWrapper({
   initialIndex = 0,
   initialPlatform = null,
+  initialSearch = "",
   onSelectGame,
   onSelectedIndexChange,
   onSelectedPlatformChange,
+  onSearchChange,
+  onOpenSettings,
   games,
   platforms = [],
   ...rest
 }) {
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const [selectedPlatform, setSelectedPlatform] = useState(initialPlatform);
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
   const handleChange = (next) => {
     setSelectedIndex(next);
     onSelectedIndexChange?.(next);
@@ -84,6 +88,10 @@ function LibraryWrapper({
     onSelectedIndexChange?.(0);
     onSelectedPlatformChange?.(next);
   };
+  const handleSearchChange = (next) => {
+    setSearchQuery(next);
+    onSearchChange?.(next);
+  };
   return (
     <ImmersiveLibrary
       loading={false}
@@ -92,11 +100,13 @@ function LibraryWrapper({
       platforms={platforms}
       selectedPlatform={selectedPlatform}
       onSelectedPlatformChange={handlePlatformChange}
+      searchQuery={searchQuery}
+      onSearchChange={handleSearchChange}
       selectedIndex={selectedIndex}
       onSelectedIndexChange={handleChange}
       onSelectGame={onSelectGame}
       onExitImmersive={vi.fn()}
-      onOpenSettings={vi.fn()}
+      onOpenSettings={onOpenSettings || vi.fn()}
       onOpenDownloads={vi.fn()}
       {...rest}
     />
@@ -107,6 +117,8 @@ function renderLibrary(games = makeGames(12), props = {}) {
   const onSelectGame = vi.fn();
   const onSelectedIndexChange = vi.fn();
   const onSelectedPlatformChange = vi.fn();
+  const onSearchChange = vi.fn();
+  const onOpenSettings = vi.fn();
   const utils = render(
     <MuiTestProvider>
       <LibraryWrapper
@@ -114,6 +126,8 @@ function renderLibrary(games = makeGames(12), props = {}) {
         onSelectGame={onSelectGame}
         onSelectedIndexChange={onSelectedIndexChange}
         onSelectedPlatformChange={onSelectedPlatformChange}
+        onSearchChange={onSearchChange}
+        onOpenSettings={onOpenSettings}
         {...props}
       />
     </MuiTestProvider>
@@ -123,6 +137,8 @@ function renderLibrary(games = makeGames(12), props = {}) {
     onSelectGame,
     onSelectedIndexChange,
     onSelectedPlatformChange,
+    onSearchChange,
+    onOpenSettings,
   };
 }
 
@@ -377,5 +393,162 @@ describe("ImmersiveLibrary game selection", () => {
 
     keyDown(root, "Enter");
     expect(onSelectGame).toHaveBeenCalledWith(games[2]);
+  });
+});
+
+describe("ImmersiveLibrary game-name search", () => {
+  it("provides an editable search control with a clear action", () => {
+    const { onSearchChange } = renderLibrary();
+    const search = screen.getByRole("textbox", { name: "Search games by name" });
+
+    fireEvent.change(search, { target: { value: "mArIo" } });
+
+    expect(search).toHaveValue("mArIo");
+    expect(onSearchChange).toHaveBeenLastCalledWith("mArIo");
+    expect(screen.getByRole("button", { name: "Clear game search" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
+
+    expect(search).toHaveValue("");
+    expect(onSearchChange).toHaveBeenLastCalledWith("");
+    expect(document.activeElement).toBe(search);
+  });
+
+  it("isolates typing and editing from controller library shortcuts", async () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { onSelectedIndexChange, onSelectGame, onOpenSettings } = renderLibrary(
+      makeGames(6),
+      { initialIndex: 2 },
+    );
+    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    search.focus();
+
+    for (const key of ["ArrowRight", "Enter", "PageDown", "PageUp", "s", "Escape", "F11"]) {
+      controllerKeyDown(search, key);
+    }
+    fireEvent.change(search, { target: { value: "game" } });
+
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(onSelectedIndexChange).not.toHaveBeenCalled();
+    expect(onSelectGame).not.toHaveBeenCalled();
+    expect(onOpenSettings).not.toHaveBeenCalled();
+    expect(screen.getByText("Game 1")).toBeInTheDocument();
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] receiver suppressed",
+      expect.objectContaining({
+        actionId: 21,
+        receiver: "library",
+        outcome: "suppressed",
+        reason: "text-input-focused",
+      }),
+    );
+
+    const root = screen.getByTestId("immersive-library");
+    root.focus();
+    controllerKeyDown(root, "ArrowRight");
+    expect(onSelectedIndexChange).toHaveBeenLastCalledWith(3);
+  });
+
+  it("shows a search-specific empty state and restores the normal empty state when cleared", () => {
+    renderLibrary([], { initialSearch: "missing" });
+
+    expect(screen.getByText("No games match your search.")).toBeInTheDocument();
+    expect(screen.getByText("Try a different game name or clear your search.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
+
+    expect(screen.getByText("No games found.")).toBeInTheDocument();
+    expect(screen.queryByText("No games match your search.")).not.toBeInTheDocument();
+  });
+
+  it("keeps name search composed with platform and library sections", () => {
+    const games = [
+      {
+        id: 1,
+        name: "Mario Favorite",
+        platform_id: "gba",
+        is_favorite: true,
+        last_played_at: null,
+        sync_state: "synced",
+      },
+      {
+        id: 2,
+        name: "Mario Recent",
+        platform_id: "gba",
+        is_favorite: false,
+        last_played_at: "2026-09-01",
+        sync_state: "synced",
+      },
+      {
+        id: 3,
+        name: "Mario Other",
+        platform_id: "gba",
+        is_favorite: false,
+        last_played_at: null,
+        sync_state: "synced",
+      },
+      {
+        id: 5,
+        name: "Zelda Favorite",
+        platform_id: "gba",
+        is_favorite: true,
+        last_played_at: null,
+        sync_state: "synced",
+      },
+      {
+        id: 6,
+        name: "Zelda Recent",
+        platform_id: "gba",
+        is_favorite: false,
+        last_played_at: "2026-09-03",
+        sync_state: "synced",
+      },
+      {
+        id: 4,
+        name: "Mario SNES",
+        platform_id: "snes",
+        is_favorite: true,
+        last_played_at: "2026-09-02",
+        sync_state: "synced",
+      },
+    ];
+    const platforms = [
+      [{ id: "gba", name: "Game Boy Advance" }, 3],
+      [{ id: "snes", name: "Super Nintendo" }, 1],
+    ];
+
+    renderLibrary(games, { platforms, initialPlatform: "gba", initialSearch: "mArIo" });
+
+    expect(screen.getByRole("textbox", { name: "Search games by name" })).toHaveValue("mArIo");
+    expect(screen.getByText("Mario Favorite")).toBeInTheDocument();
+    expect(screen.getByText("Mario Recent")).toBeInTheDocument();
+    expect(screen.getByText("Mario Other")).toBeInTheDocument();
+    expect(screen.queryByText("Mario SNES")).not.toBeInTheDocument();
+    expect(screen.queryByText("Zelda Favorite")).not.toBeInTheDocument();
+    expect(screen.queryByText("Zelda Recent")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    expect(screen.getByText("Mario Favorite")).toBeInTheDocument();
+    expect(screen.queryByText("Mario Recent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mario Other")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Recent" }));
+    expect(screen.getByText("Mario Recent")).toBeInTheDocument();
+    expect(screen.queryByText("Mario Favorite")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mario Other")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mario SNES")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
+
+    expect(screen.getByRole("textbox", { name: "Search games by name" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Game Boy Advance" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Zelda Recent")).toBeInTheDocument();
+    expect(screen.getByText("Mario Recent")).toBeInTheDocument();
+    expect(screen.queryByText("Mario Other")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mario SNES")).not.toBeInTheDocument();
   });
 });

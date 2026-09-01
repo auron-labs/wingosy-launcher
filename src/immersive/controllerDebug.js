@@ -23,6 +23,12 @@ export function getControllerAction(event) {
   return event?.[CONTROLLER_ACTION_PROPERTY] || event?.nativeEvent?.[CONTROLLER_ACTION_PROPERTY] || null;
 }
 
+export function isTextInputTarget(target) {
+  return Boolean(
+    target?.closest?.('input, textarea, select, [contenteditable="true"], [role="textbox"]'),
+  );
+}
+
 export function logControllerOutcome(action, receiver, outcome, details = {}) {
   if (!action) return;
 

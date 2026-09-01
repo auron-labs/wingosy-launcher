@@ -9,7 +9,7 @@ import RomDownloadsView from "../components/RomDownloadsView";
 import { invoke } from "@tauri-apps/api/core";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
-import { getControllerAction, logControllerOutcome } from "./controllerDebug";
+import { getControllerAction, isTextInputTarget, logControllerOutcome } from "./controllerDebug";
 
 const GAMES_PER_PAGE = 60;
 const LOAD_AHEAD = 12;
@@ -36,6 +36,7 @@ export default function ImmersiveModeApp({
   const [gameTotal, setGameTotal] = useState(0);
   const [platforms, setPlatforms] = useState([]);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedGame, setSelectedGame] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -90,7 +91,7 @@ export default function ImmersiveModeApp({
     deadzone: controllerDeadzone,
   });
 
-  const loadData = useCallback(async (platformId = selectedPlatform) => {
+  const loadData = useCallback(async (platformId = selectedPlatform, query = searchQuery) => {
     const requestId = ++libraryRequestId.current;
     nextPageInFlightRef.current = null;
     try {
@@ -99,7 +100,7 @@ export default function ImmersiveModeApp({
       const [gamesPage, platformsData, cfg] = await Promise.all([
         invoke("get_games_page", {
           platformId: platformId || null,
-          searchQuery: null,
+          searchQuery: query?.trim() || null,
           page: 1,
           pageSize: GAMES_PER_PAGE,
         }),
@@ -154,7 +155,7 @@ export default function ImmersiveModeApp({
         setLoading(false);
       }
     }
-  }, [selectedPlatform]);
+  }, [searchQuery, selectedPlatform]);
 
   const loadNextPage = useCallback(() => {
     if (nextPageInFlightRef.current || gamesRef.current.length >= gameTotal) return;
@@ -167,7 +168,7 @@ export default function ImmersiveModeApp({
       try {
         const result = await invoke("get_games_page", {
           platformId: selectedPlatform || null,
-          searchQuery: null,
+          searchQuery: searchQuery?.trim() || null,
           page,
           pageSize: GAMES_PER_PAGE,
         });
@@ -194,7 +195,7 @@ export default function ImmersiveModeApp({
         }
       }
     })();
-  }, [gameTotal, selectedPlatform]);
+  }, [gameTotal, searchQuery, selectedPlatform]);
 
   useEffect(() => {
     loadData();
@@ -270,6 +271,10 @@ export default function ImmersiveModeApp({
 
     function onKeyDown(e) {
       const action = getControllerAction(e);
+      if (isTextInputTarget(e.target)) {
+        logControllerOutcome(action, "shell", "suppressed", { reason: "text-input-focused" });
+        return;
+      }
       const suppressionReason = getHotkeySuppressionReason(e);
       if (suppressionReason) {
         logControllerOutcome(action, "shell", "suppressed", { reason: suppressionReason });
@@ -358,6 +363,24 @@ export default function ImmersiveModeApp({
     setError(null);
     setSelectedPlatform(nextPlatform);
   }, [selectedPlatform]);
+
+  const handleSearchChange = useCallback((query) => {
+    if (query === searchQuery) return;
+
+    // Invalidate page-one and lazy-page responses before the new query is rendered.
+    libraryRequestId.current += 1;
+    nextPageInFlightRef.current = null;
+    nextPageRef.current = 2;
+    gamesRef.current = [];
+    focusedGameIdRef.current = null;
+    selectedGameIdRef.current = null;
+    setGames([]);
+    setGameTotal(0);
+    setSelectedIndex(0);
+    setLoading(true);
+    setError(null);
+    setSearchQuery(query);
+  }, [searchQuery]);
 
   const handleSelectedIndexChange = useCallback((nextIndex, game) => {
     focusedGameIdRef.current = game?.id ?? gamesRef.current[nextIndex]?.id ?? null;
@@ -448,6 +471,8 @@ export default function ImmersiveModeApp({
         platforms={platforms}
         selectedPlatform={selectedPlatform}
         onSelectedPlatformChange={handleSelectedPlatformChange}
+        searchQuery={searchQuery}
+        onSearchChange={handleSearchChange}
         selectedIndex={selectedIndex}
         onSelectedIndexChange={handleSelectedIndexChange}
         onSelectGame={handleSelectGame}

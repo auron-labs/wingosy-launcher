@@ -5,17 +5,24 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
+import TextField from "@mui/material/TextField";
+import InputAdornment from "@mui/material/InputAdornment";
+import IconButton from "@mui/material/IconButton";
 import { alpha } from "@mui/material/styles";
 import ImmersiveGameTile from "./ImmersiveGameTile";
 import {
   describeControllerElement,
   getControllerAction,
+  isTextInputTarget,
   logControllerOutcome,
 } from "./controllerDebug";
 import LauncherIcon from "../components/LauncherIcon";
 import { useAppTheme } from "../ThemeContext";
 import { useRomDownloads } from "../RomDownloadsContext";
+import { filterVisibleGames } from "../utils/gameFilters";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import Badge from "@mui/material/Badge";
 
 const SECTIONS = ["all", "favorites", "recent"];
@@ -64,6 +71,8 @@ export default function ImmersiveLibrary({
   platforms = [],
   selectedPlatform = null,
   onSelectedPlatformChange = (_platformId) => {},
+  searchQuery = "",
+  onSearchChange = (_query) => {},
   selectedIndex,
   onSelectedIndexChange,
   onSelectGame,
@@ -75,6 +84,7 @@ export default function ImmersiveLibrary({
   const gridRef = useRef(null);
   const rootRef = useRef(null);
   const scrollRef = useRef(null);
+  const searchInputRef = useRef(null);
   const platformButtonRefs = useRef([]);
   const { colors } = useAppTheme();
   const { getProgress, activeCount } = useRomDownloads();
@@ -91,30 +101,27 @@ export default function ImmersiveLibrary({
     [platforms],
   );
 
-  const platformGames = useMemo(
-    () =>
-      selectedPlatform
-        ? games.filter((game) => game.platform_id === selectedPlatform)
-        : games,
-    [games, selectedPlatform],
+  const filteredGames = useMemo(
+    () => filterVisibleGames(games, selectedPlatform, searchQuery),
+    [games, searchQuery, selectedPlatform],
   );
 
   const favorites = useMemo(
-    () => platformGames.filter((g) => g.is_favorite),
-    [platformGames],
+    () => filteredGames.filter((g) => g.is_favorite),
+    [filteredGames],
   );
 
   const recent = useMemo(() => {
-    const played = platformGames.filter((g) => g.last_played_at);
+    const played = filteredGames.filter((g) => g.last_played_at);
     played.sort(byLastPlayedDesc);
     return played.slice(0, 24);
-  }, [platformGames]);
+  }, [filteredGames]);
 
   const visibleGames = useMemo(() => {
     if (section === "favorites") return favorites;
     if (section === "recent") return recent;
-    return platformGames;
-  }, [section, platformGames, favorites, recent]);
+    return filteredGames;
+  }, [section, filteredGames, favorites, recent]);
 
   useEffect(() => {
     if (selectedIndex >= visibleGames.length) {
@@ -130,6 +137,7 @@ export default function ImmersiveLibrary({
     if (loading) return undefined;
 
     const id = window.requestAnimationFrame(() => {
+      if (searchInputRef.current === document.activeElement) return;
       if (!visibleGames.length) {
         rootRef.current?.focus?.();
         return;
@@ -137,7 +145,7 @@ export default function ImmersiveLibrary({
       focusFirstGame(gridRef.current);
     });
     return () => window.cancelAnimationFrame(id);
-  }, [loading, section, selectedPlatform, visibleGames.length]);
+  }, [loading, searchQuery, section, selectedPlatform, visibleGames.length]);
 
   useEffect(() => {
     if (loading) return;
@@ -206,6 +214,10 @@ export default function ImmersiveLibrary({
 
   function handleKeyDown(e) {
     const action = getControllerAction(e);
+    if (isTextInputTarget(e.target)) {
+      logControllerOutcome(action, "library", "suppressed", { reason: "text-input-focused" });
+      return;
+    }
     const platformTarget =
       e.target?.closest?.("[data-immersive-platform-filter]") ||
       document.activeElement?.closest?.("[data-immersive-platform-filter]");
@@ -525,8 +537,8 @@ export default function ImmersiveLibrary({
       tabIndex={0}
       ref={rootRef}
       onKeyDown={handleKeyDown}
-      onPointerDown={() => {
-        rootRef.current?.focus?.();
+      onPointerDown={(event) => {
+        if (!isTextInputTarget(event.target)) rootRef.current?.focus?.();
       }}
       sx={{
         flex: 1,
@@ -588,6 +600,42 @@ export default function ImmersiveLibrary({
           {headerSectionButtons}
           {utilityButtons}
         </Stack>
+        <TextField
+          inputRef={searchInputRef}
+          data-testid="immersive-game-search"
+          label="Search games by name"
+          placeholder="Search by game name"
+          size="small"
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          sx={{ width: "100%", maxWidth: 420, mt: 1.5 }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label="Clear game search"
+                    edge="end"
+                    size="small"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onSearchChange("");
+                      searchInputRef.current?.focus?.();
+                    }}
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            },
+          }}
+        />
         {platformFilterButtons}
       </Box>
 
@@ -629,10 +677,12 @@ export default function ImmersiveLibrary({
           <Box sx={{ height: "60vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Stack spacing={1} sx={{ alignItems: "center", textAlign: "center" }}>
               <Typography variant="h5" color="text.secondary">
-                No games found.
+                {searchQuery.trim() ? "No games match your search." : "No games found."}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Try another platform or section.
+                {searchQuery.trim()
+                  ? "Try a different game name or clear your search."
+                  : "Try another platform or section."}
               </Typography>
             </Stack>
           </Box>

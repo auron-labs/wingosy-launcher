@@ -694,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_games_page_bounds_results_and_filters_count() {
+    fn test_get_games_page_bounds_results_and_applies_case_insensitive_partial_search() {
         let db = Database::open_in_memory().unwrap();
         db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
             .unwrap();
@@ -713,7 +713,7 @@ mod tests {
 
         let filter = GameFilter {
             platform_id: Some("gba".to_string()),
-            search_query: Some("Alpha".to_string()),
+            search_query: Some("LPHA".to_string()),
             ..GameFilter::default()
         };
 
