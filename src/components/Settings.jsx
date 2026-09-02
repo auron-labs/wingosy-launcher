@@ -125,7 +125,6 @@ function normalizeSettingsSection(section) {
 }
 
 export default function Settings({
-  onBack,
   rommToken,
   rommUrl: rommUrlProp,
   onRommConnect,

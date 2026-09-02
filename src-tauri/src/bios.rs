@@ -453,7 +453,9 @@ fn switch_records(
 ) -> Result<Option<(&FirmwareRecord, &FirmwareRecord)>> {
     let switch_records: Vec<_> = records
         .iter()
-        .filter(|record| map_romm_slug(&record.platform_slug) == "switch")
+        .filter(|record| {
+            map_romm_slug(&record.platform_slug) == "switch" && !record.firmware.missing_from_fs
+        })
         .collect();
     let prod_keys =
         select_switch_record(&switch_records, "prod.keys", is_prod_keys_name, "prod.keys")?;
@@ -1122,6 +1124,20 @@ mod tests {
         let error = switch_records(&records).unwrap_err().to_string();
 
         assert!(error.contains("Multiple Switch firmware archive fallback records"));
+    }
+
+    #[test]
+    fn switch_records_ignore_firmware_missing_from_romm_filesystem() {
+        let prod_keys = switch_firmware_record("prod.keys", 1);
+        let mut missing_firmware = switch_firmware_record("Firmware.18.0.1.zip", 2);
+        missing_firmware.firmware.missing_from_fs = true;
+        let current_firmware = switch_firmware_record("Firmware.22.5.0.zip", 3);
+        let records = vec![prod_keys, missing_firmware, current_firmware];
+
+        let selected = switch_records(&records).unwrap().unwrap();
+
+        assert_eq!(selected.0.firmware.id, 1);
+        assert_eq!(selected.1.firmware.id, 3);
     }
 
     #[test]

@@ -1,0 +1,2 @@
+- [ ] bios download doesnt live update, navigating away stops it
+- [ ] bios/firmware should auto distribute to emulators
