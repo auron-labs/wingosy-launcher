@@ -12,3 +12,13 @@ export const ARGOSY_SOUND_URLS = {
   open: "/sounds/argosy/chime_open.ogg",
   close: "/sounds/argosy/pop_close.ogg",
 };
+
+export const ARGOSY_SOUND_ENTRIES = [
+  { id: "tap", label: "Tap" },
+  { id: "click", label: "Click" },
+  { id: "success", label: "Success" },
+  { id: "error", label: "Error" },
+  { id: "back", label: "Back" },
+  { id: "open", label: "Open" },
+  { id: "close", label: "Close" },
+];

@@ -16,6 +16,8 @@ describe("ImmersiveHintBar controller recovery hints", () => {
     expect(screen.getByText("Confirm / Open")).toBeInTheDocument();
     expect(screen.getByText("Back")).toBeInTheDocument();
     expect(screen.getByText("Menu")).toBeInTheDocument();
+    expect(screen.getByText("F11")).toBeInTheDocument();
+    expect(screen.getByText("Fullscreen")).toBeInTheDocument();
     expect(screen.getByText(/standard\/XInput controller or keyboard/)).toBeInTheDocument();
     expect(screen.queryByText(/^A$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^B$/)).not.toBeInTheDocument();

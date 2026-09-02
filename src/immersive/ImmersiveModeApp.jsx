@@ -10,6 +10,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { getControllerAction, isTextInputTarget, logControllerOutcome } from "./controllerDebug";
+import { getControllerAction, logControllerOutcome } from "./controllerDebug";
+import { dedupeGames } from "./gameList";
+import { getLaunchErrorPresentation } from "./launchError";
 
 const GAMES_PER_PAGE = 60;
 const LOAD_AHEAD = 12;
@@ -41,6 +44,7 @@ export default function ImmersiveModeApp({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [loadedGameCount, setLoadedGameCount] = useState(0);
   const [displayCfg, setDisplayCfg] = useState(() => ({
     big_picture: true,
     fullscreen: requestedFullscreen,
@@ -48,6 +52,7 @@ export default function ImmersiveModeApp({
   const [controllerDeadzone, setControllerDeadzone] = useState(DEFAULT_GAMEPAD_DEADZONE);
   const [audioCfg, setAudioCfg] = useState(null);
   const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState("general");
   const hasLoadedOnce = useRef(false);
   const launchInFlightRef = useRef(false);
   const libraryRequestId = useRef(0);
@@ -56,6 +61,7 @@ export default function ImmersiveModeApp({
   const selectedGameIdRef = useRef(null);
   const focusedGameIdRef = useRef(null);
   const gamesRef = useRef([]);
+  const loadedGameCountRef = useRef(0);
   const [showHints, setShowHints] = useState(true);
 
   // Match desktop `GameDetails` Chip: platform?.name || game.platform_id (not short_name-first / uppercase).
@@ -108,18 +114,22 @@ export default function ImmersiveModeApp({
         invoke("get_config"),
       ]);
       if (requestId !== libraryRequestId.current) return [];
-      const gamesData = gamesPage?.games || [];
-      const total = gamesPage?.total ?? gamesData.length;
-      const pageGameIds = new Set(gamesData.map((game) => game.id));
+      const pageGames = gamesPage?.games || [];
+      const gamesData = dedupeGames(pageGames);
+      const total = gamesPage?.total ?? pageGames.length;
+      const pageGameIds = new Set(pageGames.map((game) => game.id));
       // Refresh page one without dropping bounded pages already in memory.
-      const refreshedGames = [
+      const refreshedGames = dedupeGames([
         ...gamesData,
         ...gamesRef.current.filter((game) => !pageGameIds.has(game.id)),
-      ].slice(0, Math.max(total, gamesData.length));
+      ]).slice(0, Math.max(total, gamesData.length));
+      const loadedCount = Math.max(loadedGameCountRef.current, pageGames.length);
+      loadedGameCountRef.current = loadedCount;
+      setLoadedGameCount(loadedCount);
       gamesRef.current = refreshedGames;
       setGames(refreshedGames);
       setGameTotal(total);
-      nextPageRef.current = Math.ceil(refreshedGames.length / GAMES_PER_PAGE) + 1;
+      nextPageRef.current = Math.floor(Math.max(0, loadedCount - 1) / GAMES_PER_PAGE) + 2;
       const preservedGameId = selectedGameIdRef.current ?? focusedGameIdRef.current;
       const selectedIndexInGames = refreshedGames.findIndex(
         (game) => game.id === preservedGameId,
@@ -158,7 +168,7 @@ export default function ImmersiveModeApp({
   }, [searchQuery, selectedPlatform]);
 
   const loadNextPage = useCallback(() => {
-    if (nextPageInFlightRef.current || gamesRef.current.length >= gameTotal) return;
+    if (nextPageInFlightRef.current || loadedGameCountRef.current >= gameTotal) return;
 
     const requestId = libraryRequestId.current;
     const page = nextPageRef.current;
@@ -174,16 +184,16 @@ export default function ImmersiveModeApp({
         });
         if (requestId !== libraryRequestId.current) return;
 
+        const pageGames = result?.games || [];
+        const loadedCount = loadedGameCountRef.current + pageGames.length;
+        loadedGameCountRef.current = loadedCount;
+        setLoadedGameCount(loadedCount);
         setGames((current) => {
-          const ids = new Set(current.map((game) => game.id));
-          const nextGames = [
-            ...current,
-            ...result.games.filter((game) => !ids.has(game.id)),
-          ];
+          const nextGames = dedupeGames([...current, ...pageGames]);
           gamesRef.current = nextGames;
           return nextGames;
         });
-        setGameTotal(result.total);
+        setGameTotal(result.total ?? loadedCount);
         nextPageRef.current = page + 1;
       } catch (err) {
         if (requestId === libraryRequestId.current) {
@@ -202,10 +212,10 @@ export default function ImmersiveModeApp({
   }, [loadData]);
 
   useEffect(() => {
-    if (view !== "library" || loading || games.length >= gameTotal) return;
+    if (view !== "library" || loading || loadedGameCount >= gameTotal) return;
     if (selectedIndex < games.length - LOAD_AHEAD) return;
     loadNextPage();
-  }, [gameTotal, games.length, loadNextPage, loading, selectedIndex, view]);
+  }, [gameTotal, games.length, loadNextPage, loadedGameCount, loading, selectedIndex, view]);
 
   useEffect(() => {
     if (!hasLoadedOnce.current) {
@@ -238,23 +248,34 @@ export default function ImmersiveModeApp({
     if (onExit) onExit();
   }, [onExit, persistDisplay, setFullscreen]);
 
+  function openSettings(section = "general") {
+    setSettingsInitialSection(section);
+    setView("settings");
+  }
+
   const handleLaunchGame = useCallback(async (gameId) => {
     if (launchInFlightRef.current) return null;
     launchInFlightRef.current = true;
     try {
       const result = await invoke("prepare_and_launch_game", { gameId });
-      if (!result.success && result.error) setError(result.error);
-      else if (result.save_sync_warnings?.length) setError(result.save_sync_warnings.join("\n"));
+      if (!result.success && result.error) {
+        const game = games.find((item) => item.id === gameId);
+        const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
+        const presentation = getLaunchErrorPresentation(result.error, platformLabel);
+        setError(`${presentation.message} ${presentation.guidance}`);
+      } else if (result.save_sync_warnings?.length) setError(result.save_sync_warnings.join("\n"));
       await loadData();
       return result;
     } catch (err) {
-      const message = err?.message || String(err);
-      setError(message);
-      return { success: false, error: message };
+      const game = games.find((item) => item.id === gameId);
+      const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
+      const presentation = getLaunchErrorPresentation(err, platformLabel);
+      setError(`${presentation.message} ${presentation.guidance}`);
+      return { success: false, error: err?.message || String(err) };
     } finally {
       launchInFlightRef.current = false;
     }
-  }, [loadData]);
+  }, [games, loadData, platforms]);
 
   useEffect(() => {
     function getHotkeySuppressionReason(e) {
@@ -401,7 +422,12 @@ export default function ImmersiveModeApp({
           bgcolor: "background.default",
         }}
       >
-        <RomDownloadsView immersive onBack={() => setView("library")} />
+        <RomDownloadsView
+          immersive
+          onBack={() => setView("library")}
+          onOpenGameDetails={() => setView("library")}
+          onOpenCloudLibrary={() => setView("library")}
+        />
       </Box>
     );
   } else if (view === "settings") {
@@ -418,10 +444,7 @@ export default function ImmersiveModeApp({
         }}
       >
         <Settings
-          onBack={() => {
-            setView("library");
-            loadData();
-          }}
+          initialSection={settingsInitialSection}
           rommToken={rommToken}
           rommUrl={rommUrl}
           onRommConnect={onRommConnect}
@@ -452,6 +475,8 @@ export default function ImmersiveModeApp({
         }}
         onLaunch={handleLaunchGame}
         onToggleFavorite={handleToggleFavorite}
+        onOpenSettings={() => openSettings("emulators")}
+        onOpenIntegrations={() => openSettings("integrations")}
         onGameUpdate={async (gameId) => {
           const refreshedGames = await loadData();
           const updated = refreshedGames?.find((g) => g.id === gameId);
@@ -477,7 +502,7 @@ export default function ImmersiveModeApp({
         onSelectedIndexChange={handleSelectedIndexChange}
         onSelectGame={handleSelectGame}
         onExitImmersive={handleExit}
-        onOpenSettings={() => setView("settings")}
+        onOpenSettings={() => openSettings()}
         onOpenDownloads={() => setView("downloads")}
       />
     );

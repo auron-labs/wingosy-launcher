@@ -12,19 +12,17 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemButton from "@mui/material/ListItemButton";
 import LinearProgress from "@mui/material/LinearProgress";
 import Chip from "@mui/material/Chip";
-import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
-import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
 import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloudIcon from "@mui/icons-material/Cloud";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import MemoryIcon from "@mui/icons-material/Memory";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -42,12 +40,10 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Select from "@mui/material/Select";
-import Slider from "@mui/material/Slider";
 import FormControl from "@mui/material/FormControl";
 import FormLabel from "@mui/material/FormLabel";
 import RadioGroup from "@mui/material/RadioGroup";
 import Radio from "@mui/material/Radio";
-import InputLabel from "@mui/material/InputLabel";
 import TuneIcon from "@mui/icons-material/Tune";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -65,11 +61,23 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { useAppTheme } from "../ThemeContext";
 import { useUiSounds } from "../UiSoundsContext";
 import AccentHueSlider from "./AccentHueSlider";
+import SettingSlider from "./SettingSlider";
+import AppVersionField from "./AppVersionField";
+import {
+  UPDATE_PREFERENCE,
+  applyUpdatePreference,
+  getUpdatePreference,
+} from "./updatePreferences";
 import BiosSettings from "./BiosSettings";
+import ConfirmDestructiveDialog from "./ConfirmDestructiveDialog";
+import SyncStatusChip from "./SyncStatusChip";
+import KeyboardHint from "./KeyboardHint";
 import { open } from "@tauri-apps/plugin-dialog";
 import normalizeUrl from "../utils/normalizeUrl";
 import { tauriDragRegionProps, tauriDragRegionSx, tauriNoDragProps, tauriNoDragSx } from "../utils/isTauri";
 import { formatDownloadLabel, useRomDownloads } from "../RomDownloadsContext";
+import { formatOptionalStorageBytes, formatStorageBytes } from "./settingsPresentation";
+import { ARGOSY_SOUND_ENTRIES } from "../argosySounds";
 import {
   DEFAULT_GAMEPAD_DEADZONE,
   GAMEPAD_DEADZONE_MAX,
@@ -99,12 +107,21 @@ function formatLibretroDllLabel(dll) {
   return dll.replace(/_libretro\.dll$/i, "").replace(/_/g, " ");
 }
 
-function formatStorageBytes(bytes) {
-  const value = Number(bytes || 0);
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
-  return `${(value / 1024 ** 3).toFixed(2)} GB`;
+const EMPTY_ROMM_SYNC_METADATA = {
+  lastSyncedAt: null,
+  libraryCount: null,
+  autoSync: false,
+};
+
+function formatSyncTimestamp(value) {
+  if (!value) return "Not reported";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not reported";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatSyncLibraryCount(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString()} games` : "Not reported";
 }
 
 const SETTINGS_SECTIONS = [
@@ -147,7 +164,9 @@ export default function Settings({
   const [rommConnectionStatus, setRommConnectionStatus] = useState(
     rommUrlProp && rommToken ? "checking" : "not-configured"
   );
+  const [rommSyncMetadata, setRommSyncMetadata] = useState(EMPTY_ROMM_SYNC_METADATA);
   const [rommStatus, setRommStatus] = useState(null);
+  const [rommDisconnectDialogOpen, setRommDisconnectDialogOpen] = useState(false);
   const [scanMessage, setScanMessage] = useState(null);
   const [emulators, setEmulators] = useState([]);
   /** platform_id → default libretro DLL from backend (for RetroArch menu labels). */
@@ -186,7 +205,6 @@ export default function Settings({
   const [immersiveModeEnabled, setImmersiveModeEnabled] = useState(false);
   const [fullscreenEnabled, setFullscreenEnabled] = useState(false);
   const [controllerDeadzone, setControllerDeadzone] = useState(DEFAULT_GAMEPAD_DEADZONE);
-  const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
   
   // Theme/Appearance settings from context
   const { themeMode, setThemeMode, accentHue, setAccentHue } = useAppTheme();
@@ -196,6 +214,7 @@ export default function Settings({
     setUiSoundsEnabled,
     setUiSoundsVolume,
     refreshUiSoundsFromConfig,
+    previewArgosySound,
   } = useUiSounds();
   const [ambientEnabled, setAmbientEnabled] = useState(false);
   const [ambientVolume, setAmbientVolume] = useState(35);
@@ -207,8 +226,9 @@ export default function Settings({
   );
   const [appVersion, setAppVersion] = useState("");
   const [supportMessage, setSupportMessage] = useState(null);
-  const [checkOnStartup, setCheckOnStartup] = useState(true);
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+  const [updatePreference, setUpdatePreference] = useState(
+    /** @type {string} */ (UPDATE_PREFERENCE.OFF)
+  );
   const [updateChannel, setUpdateChannel] = useState("stable");
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState(null);
@@ -358,6 +378,7 @@ export default function Settings({
           if (cancelled) return;
           setRommSessionSaved(false);
           setRommConnectionStatus("not-configured");
+          setRommSyncMetadata(EMPTY_ROMM_SYNC_METADATA);
           setRommDirectToken("");
           onRommDisconnect?.();
           setRommStatus({
@@ -384,6 +405,7 @@ export default function Settings({
     try {
       const cfg = await invoke("get_config");
       setConfig(cfg);
+      setRommSyncMetadata((previous) => ({ ...previous, autoSync: Boolean(cfg.romm?.auto_sync) }));
       setRommUrl(cfg.romm?.server_url || rommUrlProp || "");
       if (cfg.romm?.auth_method === "token" || cfg.romm?.auth_method === "pairing") {
         setRommAuthMode(cfg.romm.auth_method);
@@ -397,10 +419,7 @@ export default function Settings({
       setControllerDeadzone(
         normalizeGamepadDeadzone(cfg.display?.controller_deadzone ?? DEFAULT_GAMEPAD_DEADZONE),
       );
-      setRetroachievementsEnabled(Boolean(cfg.display?.retroachievements_enabled));
-      setCheckOnStartup(cfg.updater?.check_on_startup !== false);
-      const auto = Boolean(cfg.updater?.auto_update_enabled);
-      setAutoUpdateEnabled(auto);
+      setUpdatePreference(getUpdatePreference(cfg.updater));
       let ch = cfg.updater?.channel;
       if (ch !== "nightly" && ch !== "beta") ch = "stable";
       setUpdateChannel(ch);
@@ -446,6 +465,15 @@ export default function Settings({
     }
   }
 
+  async function handleOpenStorageLocation(location) {
+    if (!location.exists) return;
+    try {
+      await shellOpen(location.path);
+    } catch (err) {
+      setScanMessage({ type: "error", message: `Could not open ${location.label}: ${err.message || String(err)}` });
+    }
+  }
+
   async function applyUpdateChannel(nextChannel) {
     try {
       const cfg = config || (await invoke("get_config"));
@@ -488,14 +516,13 @@ export default function Settings({
     setPendingChannel("stable");
   }
 
-  async function persistAutoUpdate(nextAuto) {
+  async function persistUpdatePreference(nextPreference) {
     try {
       const cfg = config || (await invoke("get_config"));
-      cfg.updater = cfg.updater || {};
-      cfg.updater.auto_update_enabled = nextAuto;
-      await invoke("save_config", { config: cfg });
-      setConfig(cfg);
-      setAutoUpdateEnabled(nextAuto);
+      const nextConfig = applyUpdatePreference(cfg, nextPreference);
+      await invoke("save_config", { config: nextConfig });
+      setConfig(nextConfig);
+      setUpdatePreference(nextPreference);
     } catch {}
   }
 
@@ -569,18 +596,6 @@ export default function Settings({
     onControllerDeadzoneChange?.(bounded);
   }
 
-  async function persistRetroachievements(next) {
-    try {
-      const cfg = config || (await invoke("get_config"));
-      cfg.display = cfg.display || {};
-      cfg.display.retroachievements_enabled = Boolean(next);
-      await invoke("save_config", { config: cfg });
-      setConfig(cfg);
-      setRetroachievementsEnabled(Boolean(next));
-    } catch (err) {
-      console.error("Failed to save RetroAchievements preference:", err);
-    }
-  }
 
   async function persistUiSounds(next) {
     try {
@@ -723,7 +738,7 @@ export default function Settings({
   }
 
   async function handleConnectRomM() {
-    if (rommSessionSaved) {
+    if (rommSessionSaved || rommConnectionStatus === "online") {
       setRommStatus({ type: "info", message: "Disconnect the current RomM session before changing authentication methods." });
       return;
     }
@@ -761,6 +776,7 @@ export default function Settings({
       await invoke("disconnect_romm");
       setRommSessionSaved(false);
       setRommConnectionStatus("not-configured");
+      setRommSyncMetadata(EMPTY_ROMM_SYNC_METADATA);
       setRommDirectToken("");
       onRommDisconnect?.();
       setRommStatus({ type: "success", message: "Disconnected from RomM and removed the saved credential." });
@@ -850,6 +866,11 @@ export default function Settings({
       const games = await invoke("sync_romm_library", {
         serverUrl: normalizedUrl, token: rommToken,
       });
+      setRommSyncMetadata((previous) => ({
+        ...previous,
+        lastSyncedAt: new Date().toISOString(),
+        libraryCount: Array.isArray(games) ? games.length : null,
+      }));
       setRommStatus({ type: "success", message: `Synced ${games.length} games from RomM!` });
       // Refresh sidebar platform counts
       if (onLibraryChange) {
@@ -908,6 +929,42 @@ export default function Settings({
       await applyRomsDirectoryChange(selected, false);
     } catch (err) {
       setScanMessage({ type: "error", message: err.message || String(err) });
+    }
+  }
+
+  async function handleResetRomsDirectory() {
+    if (storageOverview?.using_default_roms_directory) return;
+    if (activeRomDownloadCount > 0) {
+      setScanMessage({
+        type: "warning",
+        message: "Wait for active ROM downloads to finish before changing storage.",
+      });
+      return;
+    }
+    if ((storageOverview?.migratable_rom_count || 0) > 0) {
+      setScanMessage({
+        type: "info",
+        message: "Use Change to choose whether tracked ROMs should move before returning to the default folder.",
+      });
+      return;
+    }
+
+    setStorageChangeBusy(true);
+    try {
+      const currentConfig = config || (await invoke("get_config"));
+      const nextConfig = {
+        ...currentConfig,
+        library: { ...(currentConfig.library || {}), roms_directory: null },
+      };
+      await invoke("save_config", { config: nextConfig });
+      setConfig(nextConfig);
+      await loadStorageOverview();
+      onLibraryChange?.();
+      setScanMessage({ type: "success", message: "Using the default ROM folder." });
+    } catch (err) {
+      setScanMessage({ type: "error", message: err.message || String(err) });
+    } finally {
+      setStorageChangeBusy(false);
     }
   }
 
@@ -983,9 +1040,9 @@ export default function Settings({
   async function handleDownloadCore(coreFilename) {
     try {
       setDownloadingCore(coreFilename);
-      setEmuMessage({ type: "info", message: `Downloading core ${coreFilename}...` });
+      setEmuMessage({ type: "info", message: `Downloading RetroArch support file ${coreFilename}...` });
       await invoke("download_retroarch_core", { coreName: coreFilename });
-      setEmuMessage({ type: "success", message: `Installed core ${coreFilename}` });
+      setEmuMessage({ type: "success", message: `Installed RetroArch support file ${coreFilename}` });
       await loadMissingCores();
     } catch (err) {
       setEmuMessage({ type: "error", message: err.message || String(err) });
@@ -1025,6 +1082,19 @@ export default function Settings({
     handleEmuMenuClose();
   }
 
+  async function handleCopyEmulatorPath(path) {
+    if (!path) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access is unavailable");
+      }
+      await navigator.clipboard.writeText(path);
+      setEmuMessage({ type: "success", message: "Emulator path copied." });
+    } catch (err) {
+      setEmuMessage({ type: "error", message: `Could not copy path: ${err.message || String(err)}` });
+    }
+  }
+
   async function handleOpenRetroarchInputSetup() {
     try {
       await invoke("open_retroarch_input_setup");
@@ -1051,7 +1121,7 @@ export default function Settings({
   async function handleRepairRetroarchProfile() {
     try {
       const message = await invoke("repair_retroarch_profile");
-      setEmuMessage({ type: "success", message: message || "Wingosy RetroArch profile repaired." });
+      setEmuMessage({ type: "success", message: message || "Wingosy RetroArch controller setup repaired." });
       await loadEmulators();
       await loadMissingCores();
     } catch (err) {
@@ -1069,7 +1139,7 @@ export default function Settings({
       }));
       setEmuMessage({
         type: "success",
-        message: enabled ? "Wingosy beta profile enabled for RetroArch." : "Wingosy beta profile disabled.",
+        message: enabled ? "Wingosy controller settings enabled for RetroArch." : "Wingosy controller settings disabled.",
       });
     } catch (err) {
       setEmuMessage({ type: "error", message: err.message || String(err) });
@@ -1151,12 +1221,14 @@ export default function Settings({
   const installedEmus = emulators.filter((e) => e.is_installed);
   const availableEmus = emulators.filter((e) => !e.is_installed && e.has_download);
   const unavailableEmus = emulators.filter((e) => !e.is_installed && !e.has_download);
+  const rommSessionActive = rommSessionSaved || rommConnectionStatus === "online";
+  const rommUrlLocked = rommSessionActive;
 
   return (
     <Box
       sx={{
         p: { xs: 2, sm: 3 },
-        maxWidth: 1120,
+        maxWidth: 1760,
         width: "100%",
         mx: "auto",
         boxSizing: "border-box",
@@ -1175,16 +1247,6 @@ export default function Settings({
           mb: 2,
         }}
       >
-        <Button
-          {...tauriNoDragProps()}
-          data-argosy-sound="back"
-          startIcon={<ArrowBackIcon />}
-          onClick={onBack}
-          color="inherit"
-          sx={{ ...tauriNoDragSx, flexShrink: 0 }}
-        >
-          Back
-        </Button>
         <Box
           {...tauriDragRegionProps()}
           sx={{
@@ -1200,38 +1262,13 @@ export default function Settings({
             Settings
           </Typography>
         </Box>
-        <Tooltip
-          title={{
-            online: `Connected to RomM${rommUrl ? ` (${rommUrl})` : ""}`,
-            offline: `RomM is offline or rejected the session${rommUrl ? ` (${rommUrl})` : ""}`,
-            checking: "Checking RomM connection...",
-            "not-configured": "RomM is not configured",
-          }[rommConnectionStatus]}
-        >
-          <Box
-            role="status"
-            aria-label={`RomM connection: ${rommConnectionStatus}`}
-            sx={{
-              ...tauriNoDragSx,
-              width: 36,
-              height: 36,
-              flexShrink: 0,
-              display: "grid",
-              placeItems: "center",
-              borderRadius: "50%",
-              bgcolor: "action.hover",
-            }}
-          >
-            {rommConnectionStatus === "checking" ? (
-              <CircularProgress size={20} thickness={5} />
-            ) : (
-              <CloudIcon
-                fontSize="small"
-                color={rommConnectionStatus === "online" ? "success" : "disabled"}
-              />
-            )}
-          </Box>
-        </Tooltip>
+        <Box {...tauriNoDragProps()} sx={{ ...tauriNoDragSx, flexShrink: 0 }}>
+          <SyncStatusChip
+            status={rommConnectionStatus}
+            serverUrl={rommUrl}
+            data-testid="settings-sync-status"
+          />
+        </Box>
       </Box>
 
       <Box
@@ -1290,21 +1327,43 @@ export default function Settings({
             overflowY: "auto",
             overflowX: "hidden",
             overscrollBehavior: "contain",
+            // Negative right margin reclaims the shell padding so the scrollbar
+            // hugs the panel column instead of floating 24px away from it.
+            mr: { xs: -2, sm: -3 },
           }}
         >
       {settingsSection === "general" && (
       <>
        <Paper sx={SETTINGS_CARD_SX}>
-         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-           <DesktopWindowsIcon color="primary" />
-           <Typography variant="h6">Private Beta</Typography>
-         </Box>
-         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-           Planned private-beta path for Windows 11: RetroArch for NES, SNES, GB, GBC, GBA, and Genesis, with RomM pair, library sync, ROM download, and one-Play. Save behavior is manual save upload/download. Automatic save sync is experimental until a real round trip passes; standalone mGBA and every other emulator/platform are experimental. These six planned paths are pending Windows certification.
-         </Typography>
-         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-           Current app version: <Box component="span" sx={{ fontFamily: "monospace" }}>{appVersion || "—"}</Box>. For a report, include this version, your Windows version, reproduction steps, expected and actual behavior, and relevant redacted logs. Never share credentials, user data, configuration, database files, ROM names, or ROM paths.
-         </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <DesktopWindowsIcon color="primary" />
+            <Typography variant="h6">Private Beta</Typography>
+          </Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Private beta scope</Typography>
+          <List dense disablePadding sx={{ mb: 2 }}>
+            <ListItem disableGutters alignItems="flex-start">
+              <ListItemIcon sx={{ minWidth: 32, mt: 0.25 }}>
+                <CheckCircleIcon color="primary" fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Windows 11 with RetroArch for NES, SNES, GB, GBC, GBA, and Genesis." />
+            </ListItem>
+            <ListItem disableGutters alignItems="flex-start">
+              <ListItemIcon sx={{ minWidth: 32, mt: 0.25 }}>
+                <CheckCircleIcon color="primary" fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="RomM connection, library sync, ROM downloads, and one-step Play are included." />
+            </ListItem>
+            <ListItem disableGutters alignItems="flex-start">
+              <ListItemIcon sx={{ minWidth: 32, mt: 0.25 }}>
+                <CheckCircleIcon color="primary" fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Save transfers are manual; automatic save sync and other emulator/platform combinations remain experimental." />
+            </ListItem>
+          </List>
+          <AppVersionField value={appVersion} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            For a report, include the app version above, your Windows version, reproduction steps, expected and actual behavior, and relevant redacted logs. Never share credentials, user data, configuration, database files, ROM names, or ROM paths.
+          </Typography>
          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
            <Button
              variant="outlined"
@@ -1313,10 +1372,10 @@ export default function Settings({
            >
              Open Logs Folder
            </Button>
-           <Button
-             variant="outlined"
-             startIcon={<OpenInNewIcon />}
-             onClick={handleReportProblem}
+            <Button
+              variant="contained"
+              startIcon={<OpenInNewIcon />}
+              onClick={handleReportProblem}
            >
              Report a Problem
            </Button>
@@ -1326,13 +1385,16 @@ export default function Settings({
              {supportMessage.message}
            </Alert>
          )}
-         <Button
-           variant="outlined"
-           startIcon={<OpenInNewIcon />}
-           onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md")}
-         >
-           Open certification ledger
-         </Button>
+          <Button
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            onClick={() => shellOpen("https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md")}
+          >
+            View supported emulator paths
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            See the emulator and platform combinations included in this preview.
+          </Typography>
        </Paper>
       <Paper sx={SETTINGS_CARD_SX}>
         <Typography variant="h6" gutterBottom>UI</Typography>
@@ -1381,30 +1443,37 @@ export default function Settings({
                 }}
               />
             }
-            label="Fullscreen (Immersive)"
+           label="Fullscreen (Immersive)"
           />
+          {!immersiveModeEnabled && (
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 4.5 }}>
+              Enable Immersive mode to use fullscreen.
+            </Typography>
+          )}
           <Typography variant="caption" color="text.secondary">
-            Tip: F11 toggles fullscreen. From the Immersive library, Esc exits to desktop.
+            Tip: <KeyboardHint>F11</KeyboardHint> toggles fullscreen. From the Immersive library, <KeyboardHint>Esc</KeyboardHint> exits to desktop.
           </Typography>
           <Box sx={{ mt: 2, maxWidth: 420 }}>
-            <Typography variant="subtitle2">Controller deadzone</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-              Raise this only when the stick drifts. It applies to Immersive directional navigation.
-            </Typography>
-            <Slider
-              aria-label="Controller deadzone"
-              value={controllerDeadzone}
-              min={GAMEPAD_DEADZONE_MIN}
-              max={GAMEPAD_DEADZONE_MAX}
-              step={0.05}
-              valueLabelDisplay="auto"
-              onChange={(_, value) => setControllerDeadzone(normalizeGamepadDeadzone(value))}
-              onChangeCommitted={(_, value) => persistControllerDeadzone(value)}
-            />
-            <Button
-              size="small"
-              color="inherit"
-              onClick={() => persistControllerDeadzone(DEFAULT_GAMEPAD_DEADZONE)}
+             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+               Raise this only when the stick drifts. It applies to Immersive directional navigation.
+             </Typography>
+             <SettingSlider
+               label="Controller deadzone"
+               value={controllerDeadzone}
+               formatValue={(value) => `${Math.round(value * 100)}%`}
+               valueTestId="controller-deadzone-value"
+               min={GAMEPAD_DEADZONE_MIN}
+               max={GAMEPAD_DEADZONE_MAX}
+               step={0.05}
+               valueLabelDisplay="auto"
+               onChange={(_, value) => setControllerDeadzone(normalizeGamepadDeadzone(value))}
+               onChangeCommitted={(_, value) => persistControllerDeadzone(value)}
+             />
+             <Button
+               size="small"
+               variant="outlined"
+               color="inherit"
+               onClick={() => persistControllerDeadzone(DEFAULT_GAMEPAD_DEADZONE)}
             >
               Reset deadzone
             </Button>
@@ -1422,9 +1491,9 @@ export default function Settings({
         </Box>
         
         {/* Theme Mode */}
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Theme
-        </Typography>
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+           Theme
+         </Typography>
         <ToggleButtonGroup
           value={themeMode}
           exclusive
@@ -1445,8 +1514,48 @@ export default function Settings({
         >
           <ToggleButton value="system" sx={{ px: 2 }}>System</ToggleButton>
           <ToggleButton value="light" sx={{ px: 2 }}>Light</ToggleButton>
-          <ToggleButton value="dark" sx={{ px: 2 }}>Dark</ToggleButton>
-        </ToggleButtonGroup>
+           <ToggleButton value="dark" sx={{ px: 2 }}>Dark</ToggleButton>
+         </ToggleButtonGroup>
+
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+           Theme preview
+         </Typography>
+         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1.5, mb: 3 }}>
+           {[
+             { mode: "light", label: "Light", background: "#fffbfe", surface: "#f5f5f5", text: "#1c1b1f", muted: "#5f5f5f" },
+             { mode: "system", label: "System", background: "#202124", surface: "#303134", text: "#f1f3f4", muted: "#bdc1c6" },
+             { mode: "dark", label: "Dark", background: "#121212", surface: "#1e1e1e", text: "#e1e1e1", muted: "#b3b3b3" },
+           ].map((preview) => (
+             <Box
+               key={preview.mode}
+               data-testid={`theme-preview-${preview.mode}`}
+               aria-label={`${preview.label} theme preview`}
+               sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 2, bgcolor: preview.background }}
+             >
+               <Typography variant="caption" sx={{ color: preview.text, fontWeight: 600 }}>
+                 {preview.label}
+               </Typography>
+               <Box sx={{ mt: 0.75, p: 1, borderRadius: 1, bgcolor: preview.surface }}>
+                 <Typography variant="caption" sx={{ display: "block", color: preview.text }}>
+                   Wingosy Library
+                 </Typography>
+                 <Box sx={{ display: "flex", gap: 0.5, mt: 0.75 }}>
+                   <Box sx={{ width: 18, height: 24, borderRadius: 0.5, bgcolor: "primary.main" }} />
+                   <Box sx={{ width: 18, height: 24, borderRadius: 0.5, bgcolor: preview.muted }} />
+                   <Box sx={{ flex: 1, height: 24, borderRadius: 0.5, bgcolor: preview.background }} />
+                 </Box>
+               </Box>
+               {preview.mode === "system" && (
+                 <Typography variant="caption" sx={{ display: "block", color: preview.muted, mt: 0.5 }}>
+                   Follows your OS preference
+                 </Typography>
+               )}
+             </Box>
+           ))}
+         </Box>
+         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+           These previews are examples only; choosing a theme above applies it to Wingosy.
+         </Typography>
         
         {/* Accent Color */}
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1460,18 +1569,18 @@ export default function Settings({
       <Paper sx={SETTINGS_CARD_SX}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
           <VolumeUpIcon color="primary" />
-          <Typography variant="h6">Sound (Immersive)</Typography>
-        </Box>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          UI feedback and background music apply only while Immersive mode is active (not on the desktop shell).
-        </Typography>
+           <Typography variant="h6">Sound</Typography>
+         </Box>
+         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+           UI feedback and background music are used while Immersive mode is active; desktop mode remains silent.
+         </Typography>
 
-        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-          UI sounds
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-          Argosy-style taps and navigation (bundled clips).
-        </Typography>
+         <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+           UI sounds
+         </Typography>
+         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+           Argosy-style feedback sounds (bundled clips). Preview each sound below.
+         </Typography>
         <FormControlLabel
           control={
             <Switch
@@ -1483,23 +1592,44 @@ export default function Settings({
           }
           label="Enable UI sounds"
         />
-        <Box sx={{ px: 1, mt: 1, mb: 2, maxWidth: 400 }}>
-          <Typography variant="caption" color="text.secondary">
-            Volume
-          </Typography>
-          <Slider
-            size="small"
-            disabled={!uiSoundsEnabled}
-            value={uiSoundsVolume}
-            min={0}
-            max={100}
-            valueLabelDisplay="auto"
+         <Box sx={{ px: 1, mt: 1, mb: 2, maxWidth: 400 }}>
+           <SettingSlider
+             label="UI sounds volume"
+             value={uiSoundsVolume}
+             valueTestId="ui-sounds-value"
+             formatValue={(value) => `${Math.round(value)}%`}
+             size="small"
+             disabled={!uiSoundsEnabled}
+             min={0}
+             max={100}
+             valueLabelDisplay="auto"
             onChange={(_, v) => setUiSoundsVolume(v)}
             onChangeCommitted={(_, v) => persistUiSoundsVolume(v)}
-          />
-        </Box>
+           />
+         </Box>
+         <List dense sx={{ maxWidth: 520, mb: 2 }}>
+           {ARGOSY_SOUND_ENTRIES.map(({ id, label }) => (
+             <ListItem
+               key={id}
+               secondaryAction={
+                 <Button
+                   size="small"
+                   variant="outlined"
+                   startIcon={<PlayArrowIcon />}
+                   disabled={!uiSoundsEnabled}
+                   onClick={() => previewArgosySound?.(id)}
+                   data-testid={`ui-sound-preview-${id}`}
+                 >
+                   Preview
+                 </Button>
+               }
+             >
+               <ListItemText primary={label} />
+             </ListItem>
+           ))}
+         </List>
 
-        <Typography variant="subtitle2" sx={{ mb: 0.5, mt: 1 }}>
+         <Typography variant="subtitle2" sx={{ mb: 0.5, mt: 1 }}>
           Background music
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
@@ -1509,25 +1639,26 @@ export default function Settings({
           control={
             <Switch
               checked={ambientEnabled}
-              onChange={async (e) => {
-                await persistAmbient({ ambient_enabled: e.target.checked });
-              }}
-              disabled={!ambientPath}
-            />
+               onChange={async (e) => {
+                 await persistAmbient({ ambient_enabled: e.target.checked });
+               }}
+             />
           }
           label="Play background music"
         />
-        {!ambientPath ? (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1, ml: 4.5 }}>
-            Choose an audio file or folder below to enable.
-          </Typography>
+         {!ambientPath ? (
+           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1, ml: 4.5 }}>
+             {ambientEnabled
+               ? "Choose an audio file or folder below to start playback."
+               : "Turn on background music to choose an audio source."}
+           </Typography>
         ) : null}
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={pickAmbientFile}>
-            Audio file…
-          </Button>
-          <Button size="small" variant="outlined" onClick={pickAmbientFolder}>
-            Folder…
+         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
+          <Button size="small" variant="outlined" onClick={pickAmbientFile} disabled={!ambientEnabled}>
+             Audio file…
+           </Button>
+          <Button size="small" variant="outlined" onClick={pickAmbientFolder} disabled={!ambientEnabled}>
+             Folder…
           </Button>
           {ambientPath ? (
             <Button size="small" color="inherit" onClick={clearAmbientSource}>
@@ -1536,13 +1667,13 @@ export default function Settings({
           ) : null}
         </Box>
         {ambientPath ? (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontFamily: "monospace", fontSize: "0.75rem", wordBreak: "break-all" }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontFamily: "monospace", fontSize: "0.8125rem", wordBreak: "break-all" }}>
             {ambientIsFolder ? "[Folder] " : "[File] "}
             {ambientPath}
           </Typography>
         ) : null}
-        {ambientIsFolder ? (
-          <FormControlLabel
+         {ambientIsFolder ? (
+           <FormControlLabel
             sx={{ mb: 2 }}
             control={
               <Switch
@@ -1550,22 +1681,22 @@ export default function Settings({
                 onChange={async (e) => {
                   await persistAmbient({ ambient_shuffle: e.target.checked });
                 }}
-                disabled={!ambientPath}
+                disabled={!ambientEnabled || !ambientPath}
               />
             }
             label="Shuffle tracks"
           />
         ) : null}
-        <Box sx={{ px: 1, maxWidth: 400 }}>
-          <Typography variant="caption" color="text.secondary">
-            Music volume
-          </Typography>
-          <Slider
-            size="small"
-            disabled={!ambientEnabled || !ambientPath}
-            value={ambientVolume}
-            min={0}
-            max={100}
+         <Box sx={{ px: 1, maxWidth: 400 }}>
+           <SettingSlider
+             label="Background music volume"
+             value={ambientVolume}
+             valueTestId="ambient-volume-value"
+             formatValue={(value) => `${Math.round(value)}%`}
+             size="small"
+             disabled={!ambientEnabled || !ambientPath}
+             min={0}
+             max={100}
             valueLabelDisplay="auto"
             onChange={(_, v) =>
               setAmbientVolume(Array.isArray(v) ? v[0] : v)
@@ -1582,30 +1713,35 @@ export default function Settings({
       )}
 
       {settingsSection === "romm" && (
-      <Paper sx={SETTINGS_CARD_SX}>
+      <Paper sx={SETTINGS_CARD_SX} data-testid="romm-settings-card">
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
           <CloudIcon color="primary" />
           <Typography variant="h6">RomM Server</Typography>
-          {rommSessionSaved && (
-            <Chip
-              size="small"
-              color="success"
-              icon={<CheckCircleIcon />}
-              label="Session saved"
-            />
-          )}
         </Box>
-        <TextField fullWidth label="Server URL" placeholder="romm.example.com or 192.168.1.2:3000"
-          value={rommUrl} onChange={(e) => setRommUrl(e.target.value)} sx={{ mb: 2 }} size="small" />
+        <TextField
+          fullWidth
+          label="Server URL"
+          placeholder="romm.example.com or 192.168.1.2:3000"
+          value={rommUrl}
+          onChange={(e) => setRommUrl(e.target.value)}
+          disabled={rommUrlLocked}
+          helperText={
+            rommUrlLocked
+              ? "Connected. Disconnect before changing the server URL."
+              : "Choose the RomM server Wingosy should connect to."
+          }
+          sx={{ mb: 2 }}
+          size="small"
+        />
         
         {/* Auth mode toggle */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Authentication Method
+            Authentication method
           </Typography>
           <ToggleButtonGroup
             value={rommAuthMode}
-            disabled={rommSessionSaved}
+            disabled={rommSessionActive}
             exclusive
             onChange={(e, newMode) => {
               if (!newMode) return;
@@ -1617,13 +1753,18 @@ export default function Settings({
           >
             <ToggleButton value="pairing" sx={{ px: 2 }}>
               <OpenInNewIcon sx={{ mr: 1, fontSize: 18 }} />
-              Device Pairing
+              Device pairing
             </ToggleButton>
             <ToggleButton value="token" sx={{ px: 2 }}>
               <VpnKeyIcon sx={{ mr: 1, fontSize: 18 }} />
-              Access Token
+              Access token
             </ToggleButton>
           </ToggleButtonGroup>
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 640 }}>
+            {rommAuthMode === "pairing"
+              ? "Secure device pairing opens RomM in your browser. Wingosy never receives or stores your password."
+              : "Use a RomM access token for this device. The token is stored securely and never shown again after connecting."}
+          </Typography>
         </Box>
         
         {rommAuthMode === "token" && (
@@ -1639,7 +1780,7 @@ export default function Settings({
             />
             <TextField 
               fullWidth 
-              label="Access Token" 
+              label="Access token"
               placeholder="Paste your RomM access token here"
               value={rommDirectToken} 
               onChange={(e) => setRommDirectToken(e.target.value)} 
@@ -1650,38 +1791,85 @@ export default function Settings({
         )}
         
         <Box sx={{ display: "flex", gap: 2 }}>
-          <Button
-            variant="contained"
-            onClick={handleConnectRomM}
-            disabled={
-              rommSessionSaved ||
-              !rommUrl ||
-              (rommAuthMode === "token"
-                ? !rommDirectToken.trim()
-                : Boolean(rommPairing))
-            }
-          >
-            {rommPairing
-              ? "Waiting for approval..."
-              : rommSessionSaved
-                ? "Connected"
-                : rommAuthMode === "pairing"
-                ? "Pair with RomM"
-                : "Connect"}
-          </Button>
+          {!rommSessionActive && (
+            <Button
+              variant="contained"
+              onClick={handleConnectRomM}
+              disabled={
+                !rommUrl ||
+                (rommAuthMode === "token"
+                  ? !rommDirectToken.trim()
+                  : Boolean(rommPairing))
+              }
+            >
+              {rommPairing ? "Waiting for approval..." : rommAuthMode === "pairing" ? "Pair with RomM" : "Connect"}
+            </Button>
+          )}
           {rommPairing && (
             <Button variant="text" onClick={cancelDevicePairing}>Cancel</Button>
           )}
           <Button variant="outlined" onClick={handleSyncRomM} disabled={!rommUrl}>Sync Library</Button>
-          {rommSessionSaved && (
-            <Button color="error" variant="text" onClick={handleDisconnectRomM}>
+          {rommSessionActive && (
+            <Button color="error" variant="outlined" onClick={() => setRommDisconnectDialogOpen(true)}>
               Disconnect
             </Button>
           )}
         </Box>
+        <Box data-testid="romm-sync-metadata" sx={{ mt: 3 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Sync metadata
+          </Typography>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" },
+              gap: 1.5,
+            }}
+          >
+            <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                Last synced
+              </Typography>
+              <Typography variant="body2" data-testid="romm-last-synced-value">
+                {formatSyncTimestamp(rommSyncMetadata.lastSyncedAt)}
+              </Typography>
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                RomM library
+              </Typography>
+              <Typography variant="body2" data-testid="romm-library-count-value">
+                {formatSyncLibraryCount(rommSyncMetadata.libraryCount)}
+              </Typography>
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                Next scheduled sync
+              </Typography>
+              <Typography variant="body2" data-testid="romm-next-sync-value">
+                {rommSyncMetadata.autoSync ? "Automatic (next run not reported)" : "Not scheduled"}
+              </Typography>
+            </Paper>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            Values are shown from existing RomM configuration or the most recent manual sync in this session.
+          </Typography>
+        </Box>
         {rommStatus && <Alert severity={rommStatus.type} sx={{ mt: 2 }}>{rommStatus.message}</Alert>}
       </Paper>
       )}
+
+      <ConfirmDestructiveDialog
+        open={rommDisconnectDialogOpen}
+        title="Disconnect from RomM?"
+        message="Wingosy removes the saved RomM session from this device. Your library stays locally, and you can pair or connect again at any time."
+        confirmLabel="Disconnect"
+        onCancel={() => setRommDisconnectDialogOpen(false)}
+        onConfirm={() => {
+          setRommDisconnectDialogOpen(false);
+          handleDisconnectRomM();
+        }}
+      />
 
       {settingsSection === "library" && (
       <>
@@ -1699,7 +1887,7 @@ export default function Settings({
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" },
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(4, minmax(0, 1fr))" },
               gap: 1.5,
               mb: 3,
             }}
@@ -1716,7 +1904,18 @@ export default function Settings({
               <Typography variant="caption" color="text.secondary">Active downloads</Typography>
               <Typography variant="h6">{storageOverview.active_rom_downloads}</Typography>
             </Paper>
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}>
+              <Typography variant="caption" color="text.secondary">Free disk space</Typography>
+              <Typography variant="h6" data-testid="storage-free-space-value">
+                {formatOptionalStorageBytes(storageOverview.free_disk_bytes)}
+              </Typography>
+            </Paper>
           </Box>
+        )}
+        {storageOverview && storageOverview.free_disk_bytes == null && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -2, mb: 2 }}>
+            Free disk space is not reported by the current backend.
+          </Typography>
         )}
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1753,10 +1952,22 @@ export default function Settings({
           >
             Change
           </Button>
+          <Button
+            size="small"
+            onClick={handleResetRomsDirectory}
+            disabled={
+              storageOverview?.using_default_roms_directory ||
+              storageChangeBusy ||
+              activeRomDownloadCount > 0
+            }
+            title="Reset to Wingosy's default ROM folder"
+          >
+            Reset to default
+          </Button>
         </Box>
 
         <Alert severity="info" sx={{ mb: 2 }}>
-          A folder change never silently moves files. Wingosy will offer to migrate tracked ROMs or use the new folder only for future downloads. Folder changes are blocked while a ROM is downloading.
+          Changing folders never moves files silently. Choose whether to move tracked ROMs or use the new folder for future downloads; active downloads must finish first.
         </Alert>
 
         {storageOverview?.locations?.length > 0 && (
@@ -1768,12 +1979,20 @@ export default function Settings({
                 disableGutters
                 secondaryAction={<Typography variant="caption">{formatStorageBytes(location.bytes)}</Typography>}
               >
-                <ListItemIcon sx={{ minWidth: 40 }}><FolderOpenIcon fontSize="small" /></ListItemIcon>
-                <ListItemText
-                  primary={location.label}
-                  secondary={location.path}
-                   slotProps={{ secondary: { sx: { fontFamily: "monospace", overflowWrap: "anywhere", pr: 8 } } }}
-                />
+                <ListItemButton
+                  onClick={() => handleOpenStorageLocation(location)}
+                  disabled={!location.exists}
+                  aria-label={location.exists ? `Open ${location.label} folder` : `${location.label} folder is not created`}
+                  sx={{ borderRadius: 1.5 }}
+                >
+                  <ListItemIcon sx={{ minWidth: 40 }}><FolderOpenIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText
+                    primary={location.label}
+                    secondary={location.path}
+                    slotProps={{ secondary: { sx: { fontFamily: "monospace", overflowWrap: "anywhere", pr: 8 } } }}
+                  />
+                  <OpenInNewIcon fontSize="small" color="action" sx={{ ml: 1 }} />
+                </ListItemButton>
               </ListItem>
             ))}
           </List>
@@ -1817,7 +2036,7 @@ export default function Settings({
       </>
       )}
 
-      {settingsSection === "bios" && <BiosSettings />}
+      {settingsSection === "bios" && <BiosSettings libraryPlatforms={platforms} />}
 
       {settingsSection === "emulators" && (
       <Box
@@ -1869,14 +2088,19 @@ export default function Settings({
             </Box>
           </Box>
           <Box sx={{ display: "flex", gap: 1, flexShrink: 0, alignItems: "center", alignSelf: { xs: "stretch", sm: "center" } }}>
-            <Tooltip title="Auto-apply detected paths to config">
+            <Tooltip title="Use newly detected emulator paths without changing existing configured paths">
               <Button size="small" variant="outlined" onClick={handleApplyPaths} sx={{ whiteSpace: "nowrap" }}>
-                Apply Paths
+                Apply detected paths
               </Button>
             </Tooltip>
-            <Tooltip title="Re-scan for emulators">
-              <IconButton aria-label="Refresh emulator status" size="small" onClick={() => { loadEmulators(); loadMissingCores(); }}><RefreshIcon /></IconButton>
-            </Tooltip>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => { loadEmulators(); loadMissingCores(); }}
+            >
+              Refresh
+            </Button>
           </Box>
         </Box>
 
@@ -1926,7 +2150,7 @@ export default function Settings({
                             </Box>
                             {emu.version && (
                               <Box component="span" sx={{ typography: "caption", color: "text.secondary" }}>
-                                v{emu.version}
+                                {/^\d/.test(emu.version) ? `v${emu.version}` : emu.version}
                               </Box>
                             )}
                             <Chip 
@@ -1934,7 +2158,7 @@ export default function Settings({
                               size="small" 
                               color={emu.install_type === "steam" ? "primary" : "default"}
                               variant="outlined"
-                              sx={{ fontSize: "0.65rem", height: 22 }}
+                              sx={{ fontSize: "0.75rem", height: 22 }}
                             />
                             {isRetroArch && emuCores.length > 0 && (
                               <Chip 
@@ -1942,22 +2166,33 @@ export default function Settings({
                                 size="small" 
                                 color="warning"
                                 variant="filled"
-                                sx={{ fontSize: "0.65rem", height: 22 }}
+                                sx={{ fontSize: "0.75rem", height: 22 }}
                               />
                             )}
                           </Box>
                         }
-                        secondary={emu.installed_path}
+                        secondary={(
+                          <Tooltip title={emu.installed_path || "Install path unavailable"} placement="top-start">
+                            <Box
+                              component="span"
+                              sx={{
+                                display: "block",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                maxWidth: "100%",
+                                mt: 0.5,
+                              }}
+                            >
+                              {emu.installed_path || "Install path unavailable"}
+                            </Box>
+                          </Tooltip>
+                        )}
                         slotProps={{
                           secondary: {
                             sx: {
-                              fontSize: "0.7rem",
                               display: "block",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
                               maxWidth: "100%",
-                              mt: 0.5,
                             },
                           },
                         }}
@@ -1984,46 +2219,64 @@ export default function Settings({
                             size="small" 
                             variant="outlined"
                             sx={{ 
-                              fontSize: "0.65rem", 
-                              maxWidth: { xs: 160, sm: 150 },
+                               fontSize: "0.75rem", 
+                               maxWidth: { xs: 160, sm: 150 },
                               "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis", display: "block" },
                             }} 
                           />
                         </Tooltip>
                         <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0, gap: 0.25, ml: { xs: "auto", sm: 0 } }}>
-                        <Tooltip title="Launch">
-                          <IconButton 
-                            size="small" 
+                        <Button
+                            size="small"
                             color="primary"
+                            startIcon={<PlayArrowIcon fontSize="small" />}
                             onClick={(e) => {
                               e.stopPropagation();
                               invoke("launch_emulator", { emulatorPath: emu.installed_path })
                                 .then(() => setEmuMessage({ type: "success", message: `Launched ${emu.name}` }))
                                 .catch(err => setEmuMessage({ type: "error", message: `Failed: ${err}` }));
                             }}
-                          >
-                            <PlayArrowIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Open folder">
-                          <IconButton 
+                        >
+                          Launch
+                        </Button>
+                        <Button
                             size="small"
+                            startIcon={<FolderOpenIcon fontSize="small" />}
                             onClick={(e) => {
                               e.stopPropagation();
                               invoke("open_emulator_location", { emulatorPath: emu.installed_path })
                                 .catch(err => setEmuMessage({ type: "error", message: `Failed: ${err}` }));
                             }}
-                          >
-                            <FolderOpenIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleEmuMenuOpen(e, emu); }}>
-                          <MoreVertIcon fontSize="small" />
-                        </IconButton>
+                        >
+                          Open folder
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<ContentCopyIcon fontSize="small" />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyEmulatorPath(emu.installed_path);
+                          }}
+                          disabled={!emu.installed_path}
+                        >
+                          Copy path
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<MoreVertIcon fontSize="small" />}
+                          onClick={(e) => { e.stopPropagation(); handleEmuMenuOpen(e, emu); }}
+                        >
+                          More
+                        </Button>
                         {isRetroArch && (
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setExpandedEmu(isExpanded ? null : emu.id); }}>
-                            {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                          </IconButton>
+                          <Button
+                            size="small"
+                            startIcon={isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            aria-expanded={isExpanded}
+                            onClick={(e) => { e.stopPropagation(); setExpandedEmu(isExpanded ? null : emu.id); }}
+                          >
+                            {isExpanded ? "Hide cores" : "Show cores"}
+                          </Button>
                         )}
                         </Box>
                       </Box>
@@ -2042,8 +2295,8 @@ export default function Settings({
                         }}>
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                             {emu.install_type === "managed"
-                              ? `Certified RetroArch manifest ${emu.version || "recorded"}`
-                              : "Unverified external RetroArch install"}
+                              ? `Wingosy-managed RetroArch setup ${emu.version || "recorded"}`
+                              : "RetroArch installed outside Wingosy"}
                           </Typography>
                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1.5 }}>
                              <Button size="small" variant="outlined" onClick={handleOpenRetroarchInputSetup}>
@@ -2051,7 +2304,7 @@ export default function Settings({
                              </Button>
                              {emu.install_type === "managed" ? (
                                <Button size="small" variant="outlined" onClick={handleRepairRetroarchProfile}>
-                                 Repair Wingosy RetroArch profile
+                                Repair Wingosy controller setup
                                </Button>
                              ) : (
                                <Button size="small" variant="outlined" color="warning" onClick={handleResetRetroarchControllerAdditions}>
@@ -2068,14 +2321,14 @@ export default function Settings({
                                   onChange={handleRetroarchBetaProfileChange}
                                 />
                               }
-                              label="Use Wingosy beta profile for this external install"
+                              label="Use Wingosy controller settings for this installation"
                             />
                           )}
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.25, mb: 1 }}>
                             Recovery: Input → RetroPad Binds → Port 1 → Set All Controls → Save Controller Profile.
                           </Typography>
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-                            Promised beta cores:
+                            Supported RetroArch systems:
                           </Typography>
                           <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 1.5 }}>
                             {retroarchCoreInventory.map((core) => {
@@ -2111,7 +2364,7 @@ export default function Settings({
                             })}
                           </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-                            Missing cores for your game library:
+                            RetroArch support needed for your game library:
                           </Typography>
                           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                             {emuCores.map((core) => (
@@ -2160,7 +2413,7 @@ export default function Settings({
                               disabled={downloadingCore !== null}
                               sx={{ mt: 1.5 }}
                             >
-                              Download All Cores
+                              Download all support files
                             </Button>
                           )}
                         </Box>
@@ -2201,6 +2454,9 @@ export default function Settings({
             <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2, mb: 1 }}>
               Available for Download
             </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+              Version and size are shown when the download source reports them; some release details are resolved only when installation starts.
+            </Typography>
             <List dense>
               {availableEmus.map((emu) => {
                 const prog = emuInstallProgress[emu.id];
@@ -2233,13 +2489,25 @@ export default function Settings({
                         </ListItemIcon>
                         <ListItemText
                           primary={emu.name}
-                          secondary={emu.supported_platforms.join(", ").toUpperCase()}
-                          slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }}
+                          secondary={(
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
+                              <Typography variant="caption" color="text.secondary">
+                                Supports: {emu.supported_platforms.join(", ").toUpperCase()}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Version: {emu.version || "Not reported"}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Size: {formatOptionalStorageBytes(emu.download_size_bytes)}
+                              </Typography>
+                              <Chip size="small" label="Not installed" variant="outlined" />
+                            </Box>
+                          )}
                           sx={{ flex: 1, minWidth: 0 }}
                         />
                         <Button
                           size="small"
-                          variant="contained"
+                          variant="outlined"
                           startIcon={<DownloadIcon />}
                           onClick={() => handleDownloadEmulator(emu.id)}
                           disabled={busy}
@@ -2290,7 +2558,7 @@ export default function Settings({
                   <ListItemIcon sx={{ minWidth: 36 }}>
                     <OpenInNewIcon color="action" fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary={emu.name} secondary="Download manually from the emulator's website" slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }} />
+                  <ListItemText primary={emu.name} secondary="Download manually from the emulator's website" />
                 </ListItem>
               ))}
             </List>
@@ -2301,10 +2569,10 @@ export default function Settings({
         {missingCores.length > 0 && !installedEmus.some(e => e.id === "retroarch") && (
           <Alert severity="warning" sx={{ mt: 2 }}>
             <Typography variant="body2" sx={{ fontWeight: 500 }}>
-              {missingCores.length} cores needed for your games
+              RetroArch support needed for {missingCores.length} game system{missingCores.length === 1 ? "" : "s"}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Install RetroArch to use these cores: {missingCores.map(c => c.platform_name).join(", ")}
+              Install RetroArch to play these systems: {missingCores.map(c => c.platform_name).join(", ")}
             </Typography>
           </Alert>
         )}
@@ -2319,7 +2587,8 @@ export default function Settings({
             </Typography>
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Choose which emulator to use for each platform. &quot;Auto&quot; uses the first available.
+            Choose which emulator to use for each platform with games in your library. &quot;Auto&quot; uses the first available.
+            Platforms not listed here stay on Auto until you add a game; install a compatible emulator below to make it available.
             RetroArch appears only after the mapped libretro core for that platform is installed.
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -2334,15 +2603,27 @@ export default function Settings({
                 }
                 return true;
               });
-              if (compatibleEmus.length === 0) return null;
-
               const currentDefault = platformDefaults[platform.id] || "";
               const selectValue = compatibleEmus.some((e) => e.id === currentDefault) ? currentDefault : "";
               const raDll = retroarchCoreDllByPlatform[platform.id];
+              const selectedEmulator = compatibleEmus.find((emu) => emu.id === selectValue);
+              const selectedLabel = selectedEmulator
+                ? selectedEmulator.id === "retroarch" && raDll
+                  ? `${selectedEmulator.name} (${formatLibretroDllLabel(raDll)} core)`
+                  : selectedEmulator.name
+                : null;
 
               return (
-                <Box key={platform.id} sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-                  <Box sx={{ minWidth: 120 }}>
+                <Box
+                  key={platform.id}
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "minmax(220px, 1fr) minmax(240px, 1.5fr)" },
+                    alignItems: "center",
+                    gap: 1.5,
+                  }}
+                >
+                  <Box>
                     <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {platform.name}
                     </Typography>
@@ -2350,25 +2631,28 @@ export default function Settings({
                       {gameCount} game{gameCount !== 1 ? "s" : ""}
                     </Typography>
                   </Box>
-                  <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-                    <InputLabel>Emulator</InputLabel>
-                    <Select
-                      value={selectValue}
-                      label="Emulator"
-                      onChange={(e) => handleSetDefaultEmulator(platform.id, e.target.value)}
-                    >
-                      <MenuItem value="">
-                        <em>Auto (use first available)</em>
+                  <Select
+                    data-testid={`platform-default-${platform.id}`}
+                    aria-label={`${platform.name} default emulator`}
+                    value={selectValue}
+                    displayEmpty
+                    size="small"
+                    fullWidth
+                    disabled={compatibleEmus.length === 0}
+                    renderValue={() => selectedLabel || (compatibleEmus.length > 0 ? "Auto (default)" : "Install a compatible emulator below")}
+                    onChange={(e) => handleSetDefaultEmulator(platform.id, e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Auto</em>
+                    </MenuItem>
+                    {compatibleEmus.map((emu) => (
+                      <MenuItem key={emu.id} value={emu.id}>
+                        {emu.id === "retroarch" && raDll
+                          ? `${emu.name} (${formatLibretroDllLabel(raDll)} core)`
+                          : emu.name}
                       </MenuItem>
-                      {compatibleEmus.map((emu) => (
-                        <MenuItem key={emu.id} value={emu.id}>
-                          {emu.id === "retroarch" && raDll
-                            ? `${emu.name} (${formatLibretroDllLabel(raDll)} core)`
-                            : emu.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                    ))}
+                  </Select>
                 </Box>
               );
             })}
@@ -2395,21 +2679,22 @@ export default function Settings({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
           <EmojiEventsIcon color="primary" />
           <Typography variant="h6">Integrations</Typography>
+          <Chip label="Preview" size="small" color="info" variant="outlined" />
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           App-wide preferences for third-party services. These apply to your whole library, not individual games.
         </Typography>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          RetroAchievements tracking and achievement data are not shipped yet. This preview page is informational;
+          enabling it currently has no effect and does not add achievement placeholders elsewhere in Wingosy.
+        </Alert>
         <FormControlLabel
-          control={
-            <Switch
-              checked={retroachievementsEnabled}
-              onChange={(e) => persistRetroachievements(e.target.checked)}
-            />
-          }
+          control={<Switch checked={false} disabled />}
           label="Enable RetroAchievements"
         />
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, maxWidth: 520 }}>
-          When enabled, Wingosy may connect to RetroAchievements for tracking and display where supported. Full integration is planned for a future release.
+          The setting stays disabled until the integration is available. Existing game details keep the same
+          explanatory off state instead of rendering fake locked achievements.
         </Typography>
       </Paper>
       )}
@@ -2425,26 +2710,32 @@ export default function Settings({
           <strong>Download &amp; install</strong> for an in-place update (Windows restarts the app when the installer
           finishes). You can still open the release page for installers or release notes.
         </Typography>
-        <Typography variant="body2" sx={{ mb: 2 }}>
-          Current version:{" "}
-          <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
-            {appVersion || "—"}
-          </Box>
-        </Typography>
+         <AppVersionField value={appVersion} />
 
-        <FormControlLabel
-          control={
-            <Switch
-              checked={autoUpdateEnabled}
-              onChange={(e) => persistAutoUpdate(e.target.checked)}
-            />
-          }
-          label="Automatic updates"
-        />
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2, ml: 4.5, maxWidth: 560 }}>
-          When enabled, Wingosy installs available signed updates automatically after a startup check (no prompt).
-          Manual checks below always use your selected channel.
-        </Typography>
+         <FormControl component="fieldset" sx={{ mb: 2 }}>
+           <FormLabel component="legend">Update behavior</FormLabel>
+           <ToggleButtonGroup
+             value={updatePreference}
+             exclusive
+             aria-label="Update mode choices"
+             onChange={(_, nextPreference) => {
+               if (nextPreference) persistUpdatePreference(nextPreference);
+             }}
+             size="small"
+             sx={{ mt: 1 }}
+           >
+             <ToggleButton value={UPDATE_PREFERENCE.OFF}>Off</ToggleButton>
+             <ToggleButton value={UPDATE_PREFERENCE.CHECK_ONLY}>Check and notify</ToggleButton>
+             <ToggleButton value={UPDATE_PREFERENCE.AUTOMATIC}>Automatic</ToggleButton>
+           </ToggleButtonGroup>
+           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, maxWidth: 560 }}>
+             {updatePreference === UPDATE_PREFERENCE.AUTOMATIC
+               ? "Check for updates at startup and install signed updates automatically."
+               : updatePreference === UPDATE_PREFERENCE.CHECK_ONLY
+                 ? "Check for updates at startup and notify you before installing anything."
+                 : "Do not check for updates at startup. You can still check manually below."}
+           </Typography>
+         </FormControl>
 
         <FormControl component="fieldset" sx={{ mb: 2 }} variant="standard">
           <FormLabel component="legend">Update channel</FormLabel>
@@ -2456,39 +2747,23 @@ export default function Settings({
             <FormControlLabel
               value="beta"
               control={<Radio size="small" />}
-              label='Beta — prerelease builds (tag contains "beta")'
+              label="Beta — early preview releases with new features and less testing"
             />
             <FormControlLabel
               value="nightly"
               control={<Radio size="small" />}
-              label='Nightly — automated prerelease builds (tag contains "nightly")'
+              label="Nightly — frequent development releases for trying changes early"
             />
           </RadioGroup>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, maxWidth: 560 }}>
-            Beta and Nightly apply to manual and startup checks. Signed in-app installs require a release that ships{" "}
-            <code>latest.json</code> next to the installer.
+            Beta and Nightly apply to manual and startup checks. Signed in-app installs are available when a release
+            includes{" "}
+            <Typography component="span" variant="inherit" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
+              latest.json
+            </Typography>
+            ; otherwise use Open release to download the installer manually.
           </Typography>
         </FormControl>
-
-        <FormControlLabel
-          control={
-            <Switch
-              checked={checkOnStartup}
-              onChange={async (e) => {
-                const next = e.target.checked;
-                setCheckOnStartup(next);
-                try {
-                  const cfg = config || (await invoke("get_config"));
-                  cfg.updater = cfg.updater || {};
-                  cfg.updater.check_on_startup = next;
-                  await invoke("save_config", { config: cfg });
-                  setConfig(cfg);
-                } catch {}
-              }}
-            />
-          }
-          label="Check for updates when Wingosy starts (uses your selected channel)"
-        />
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 2 }}>
           <Button
@@ -2694,7 +2969,6 @@ export default function Settings({
                   <ListItemText
                     primary={game.name}
                     secondary={game.platform_id?.toUpperCase()}
-                    slotProps={{ secondary: { sx: { fontSize: "0.7rem" } } }}
                   />
                   <Button
                     size="small"

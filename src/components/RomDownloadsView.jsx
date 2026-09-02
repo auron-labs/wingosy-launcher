@@ -4,21 +4,26 @@ import Paper from "@mui/material/Paper";
 import LinearProgress from "@mui/material/LinearProgress";
 import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
+import Link from "@mui/material/Link";
 import Divider from "@mui/material/Divider";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
-import Alert from "@mui/material/Alert";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import { useRomDownloads, formatDownloadLabel } from "../RomDownloadsContext";
 import { tauriDragRegionProps, tauriDragRegionSx } from "../utils/isTauri";
 
-export default function RomDownloadsView({ onBack = null, immersive = false }) {
-  const { activeDownloads, recentDownloads } = useRomDownloads();
+export default function RomDownloadsView({
+  onBack = null,
+  immersive = false,
+  onOpenGameDetails = null,
+  onOpenCloudLibrary = null,
+}) {
+  const { activeDownloads, recentDownloads, clearRecentDownloads = null } = useRomDownloads();
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900, mx: "auto", width: "100%" }}>
+    <Box sx={{ p: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: "center" }}>
         {immersive && onBack ? (
           <Button
@@ -46,10 +51,10 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
         Active
       </Typography>
       {activeDownloads.length === 0 ? (
-        <Alert severity="info" sx={{ mt: 1, mb: 3 }}>
-          No downloads in progress. Start a download from a game&apos;s details page or a cloud
-          library tile.
-        </Alert>
+        <DownloadsEmptyState
+          onOpenGameDetails={onOpenGameDetails}
+          onOpenCloudLibrary={onOpenCloudLibrary}
+        />
       ) : (
         <Stack spacing={2} sx={{ mt: 1, mb: 4 }}>
           {activeDownloads.map((row) => (
@@ -72,9 +77,21 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
 
       <Divider sx={{ my: 2 }} />
 
-      <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: "0.08em" }}>
-        Recent
-      </Typography>
+      <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
+        <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: "0.08em" }}>
+          Recent
+        </Typography>
+        {recentDownloads.length > 0 ? (
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => clearRecentDownloads?.()}
+            aria-label="Clear history"
+          >
+            Clear history
+          </Button>
+        ) : null}
+      </Stack>
       {recentDownloads.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Completed and failed downloads will appear here.
@@ -104,4 +121,55 @@ export default function RomDownloadsView({ onBack = null, immersive = false }) {
       )}
     </Box>
   );
+}
+
+function DownloadsEmptyState({ onOpenGameDetails, onOpenCloudLibrary }) {
+  return (
+    <Paper
+      data-testid="downloads-empty-state"
+      variant="outlined"
+      sx={{
+        mt: 1,
+        mb: 3,
+        minHeight: 230,
+        px: 3,
+        py: 4,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        gap: 1.25,
+        bgcolor: "action.hover",
+      }}
+    >
+      <CloudDownloadIcon color="primary" sx={{ fontSize: 64, opacity: 0.85 }} />
+      <Typography variant="h6" component="h2">
+        No active downloads
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 620 }}>
+        Start a download from{" "}
+        <Link
+          href="#library"
+          onClick={(event) => handleNavigation(event, onOpenGameDetails)}
+        >
+          a game&apos;s details page
+        </Link>{" "}
+        or a{" "}
+        <Link
+          href="#library"
+          onClick={(event) => handleNavigation(event, onOpenCloudLibrary)}
+        >
+          cloud library tile
+        </Link>
+        .
+      </Typography>
+    </Paper>
+  );
+}
+
+function handleNavigation(event, callback) {
+  if (!callback) return;
+  event.preventDefault();
+  callback();
 }

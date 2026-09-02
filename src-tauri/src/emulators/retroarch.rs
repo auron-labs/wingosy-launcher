@@ -331,13 +331,13 @@ fn validate_managed_install_identity_with_hash(
     executable_sha256: &str,
 ) -> Result<()> {
     if !manifest_identity_matches(config) {
-        anyhow::bail!("RetroArch is not a Wingosy-managed certified install");
+        anyhow::bail!("RetroArch is not a Wingosy-managed installation");
     }
     if !managed_manifest_marker_matches(retroarch_executable) {
-        anyhow::bail!("Managed RetroArch manifest marker is missing or invalid");
+        anyhow::bail!("The Wingosy RetroArch installation marker is missing or invalid");
     }
     verify_sha256(retroarch_executable, executable_sha256)
-        .context("Certified RetroArch executable retroarch.exe failed validation")
+        .context("The Wingosy RetroArch executable could not be verified")
 }
 
 pub fn validate_managed_artifacts(retroarch_executable: &Path) -> Result<()> {
@@ -352,9 +352,9 @@ pub fn validate_managed_artifacts(retroarch_executable: &Path) -> Result<()> {
         let artifact = core_artifacts()
             .iter()
             .find(|artifact| artifact.filename == *filename)
-            .context("Certified RetroArch core is missing from the manifest")?;
+            .context("A required RetroArch core is missing from the Wingosy installation")?;
         verify_sha256(&cores_dir.join(filename), artifact.installed_sha256)
-            .with_context(|| format!("Certified RetroArch core {} failed validation", filename))?;
+            .with_context(|| format!("RetroArch core {} could not be verified", filename))?;
     }
     if !managed_autoconfig_is_present(retroarch_executable) {
         anyhow::bail!("Managed RetroArch XInput autoconfiguration assets are missing");
@@ -415,13 +415,13 @@ pub(crate) fn managed_core_path(
         retroarch_executable,
         manifest.executable_sha256,
     )
-    .context("Managed RetroArch install failed integrity validation")?;
+    .context("Wingosy RetroArch installation could not be verified")?;
     let artifact = manifest
         .cores
         .iter()
         .find(|core| core.platform_id == platform_id)
         .copied()
-        .with_context(|| format!("No certified RetroArch core is promised for {platform_id}"))?;
+        .with_context(|| format!("No compatible RetroArch core is installed for {platform_id}"))?;
     let path = retroarch_executable
         .parent()
         .context("RetroArch executable must have a parent directory")?
@@ -430,11 +430,11 @@ pub(crate) fn managed_core_path(
     match core_availability(Some(retroarch_executable), &artifact, true) {
         CoreAvailability::Installed => Ok(path),
         CoreAvailability::Missing => anyhow::bail!(
-            "Certified RetroArch core {} is missing",
+            "RetroArch core {} is missing from the Wingosy installation",
             artifact.filename
         ),
         CoreAvailability::Invalid => anyhow::bail!(
-            "Certified RetroArch core {} failed validation",
+            "RetroArch core {} could not be verified",
             artifact.filename
         ),
     }
@@ -442,7 +442,7 @@ pub(crate) fn managed_core_path(
 
 pub fn promised_core_path(retroarch_executable: &Path, platform_id: &str) -> Result<PathBuf> {
     let artifact = core_artifact_for_platform(platform_id)
-        .with_context(|| format!("No certified RetroArch core is promised for {platform_id}"))?;
+        .with_context(|| format!("No compatible RetroArch core is installed for {platform_id}"))?;
     Ok(retroarch_executable
         .parent()
         .context("RetroArch executable must have a parent directory")?

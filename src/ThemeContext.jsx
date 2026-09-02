@@ -27,7 +27,11 @@ const baseColors = {
   // Text
   onSurfaceDark: "#E1E1E1",
   onSurfaceLight: "#1C1B1F",
-  onSurfaceSecondary: "#9E9E9E",
+  // Secondary copy must stay comfortably readable on near-black surfaces
+  // (#121212/#1E1E1E) while remaining dimmer than disabled controls
+  // (rgba(255,255,255,0.3)), so disabled never reads as plain text.
+  onSurfaceSecondaryDark: "#B3B3B3",
+  onSurfaceSecondaryLight: "#5F5F5F",
 
   // Status
   difficultyRed: "#E53935",
@@ -49,7 +53,8 @@ function hslToHex(h, s, l) {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-function createAppTheme(mode, accentHue) {
+// eslint-disable-next-line react-refresh/only-export-components -- the factory keeps the app theme testable
+export function createAppTheme(mode, accentHue) {
   const isDark = mode === "dark";
 
   // Generate accent color from hue, or use default indigo
@@ -64,7 +69,16 @@ function createAppTheme(mode, accentHue) {
     primaryDark = baseColors.indigoDark;
   }
 
+  // Use the lighter accent on dark surfaces and the darker accent on light surfaces
+  // so the focus indicator remains visible across the configurable palette.
+  const focusRingColor = isDark ? primaryLight : primaryDark;
+  const focusRing = {
+    outline: `3px solid ${focusRingColor}`,
+    outlineOffset: 3,
+  };
   const focusGlow = alpha(primaryMain, 0.4);
+  const focusShadow = `0 0 0 3px ${alpha(focusRingColor, 0.35)}`;
+  const scrollbarBase = isDark ? "#ffffff" : "#000000";
 
   return createTheme({
     palette: {
@@ -98,7 +112,7 @@ function createAppTheme(mode, accentHue) {
       },
       text: {
         primary: isDark ? baseColors.onSurfaceDark : baseColors.onSurfaceLight,
-        secondary: baseColors.onSurfaceSecondary,
+        secondary: isDark ? baseColors.onSurfaceSecondaryDark : baseColors.onSurfaceSecondaryLight,
       },
       divider: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)",
     },
@@ -108,6 +122,10 @@ function createAppTheme(mode, accentHue) {
       h5: { fontWeight: 600 },
       h6: { fontWeight: 500 },
       button: { fontWeight: 600 },
+      // Body text: never below 14px on desktop.
+      body2: { fontSize: "0.875rem" },
+      // Caption foot: 13px (was 12px) — the floor for secondary/helper copy.
+      caption: { fontSize: "0.8125rem", lineHeight: 1.5 },
     },
     shape: {
       borderRadius: 8,
@@ -115,27 +133,38 @@ function createAppTheme(mode, accentHue) {
     components: {
       MuiCssBaseline: {
         styleOverrides: {
+          ":focus-visible": focusRing,
+          "button[data-controller-focused='true']": focusRing,
           body: {
-            scrollbarColor: `${baseColors.surfaceElevated} transparent`,
+            // Scrollbar system: 12px track (8px visible thumb) with enough contrast
+            // to be findable at rest — the old 4px surfaceElevated thumb was invisible.
+            scrollbarColor: `${alpha(scrollbarBase, 0.32)} transparent`,
             "&::-webkit-scrollbar, & *::-webkit-scrollbar": {
-              width: 8,
-              height: 8,
+              width: 12,
+              height: 12,
             },
             "&::-webkit-scrollbar-track, & *::-webkit-scrollbar-track": {
               background: "transparent",
             },
             "&::-webkit-scrollbar-thumb, & *::-webkit-scrollbar-thumb": {
-              backgroundColor: baseColors.surfaceElevated,
-              borderRadius: 4,
+              backgroundColor: alpha(scrollbarBase, 0.24),
+              borderRadius: 6,
               border: "2px solid transparent",
               backgroundClip: "content-box",
             },
             "&::-webkit-scrollbar-thumb:hover, & *::-webkit-scrollbar-thumb:hover": {
-              backgroundColor: alpha(primaryMain, 0.4),
+              backgroundColor: alpha(primaryMain, 0.6),
             },
             "&::-webkit-scrollbar-corner, & *::-webkit-scrollbar-corner": {
               background: "transparent",
             },
+          },
+        },
+      },
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            "&:focus-visible, &.Mui-focusVisible": focusRing,
           },
         },
       },
@@ -145,12 +174,24 @@ function createAppTheme(mode, accentHue) {
             textTransform: "none",
             fontWeight: 600,
             borderRadius: 8,
+            // Disabled must read as inert, not as dim secondary copy.
+            "&.Mui-disabled": {
+              cursor: "not-allowed",
+            },
           },
           contained: {
             boxShadow: "none",
             "&:hover": {
               boxShadow: `0 4px 12px ${focusGlow}`,
             },
+          },
+        },
+      },
+      MuiToggleButton: {
+        styleOverrides: {
+          root: {
+            // Segmented choices use sentence case like every other button.
+            textTransform: "none",
           },
         },
       },
@@ -191,10 +232,7 @@ function createAppTheme(mode, accentHue) {
             "&:hover": {
               backgroundColor: alpha(primaryMain, 0.08),
             },
-            "&:focus-visible": {
-              outline: `2px solid ${primaryMain}`,
-              outlineOffset: -2,
-            },
+            "&:focus-visible, &.Mui-focusVisible": focusRing,
           },
         },
       },
@@ -209,9 +247,15 @@ function createAppTheme(mode, accentHue) {
       MuiIconButton: {
         styleOverrides: {
           root: {
-            "&:focus-visible": {
-              outline: `2px solid ${primaryMain}`,
-              outlineOffset: 2,
+            "&:focus-visible, &.Mui-focusVisible": focusRing,
+          },
+        },
+      },
+      MuiInputBase: {
+        styleOverrides: {
+          root: {
+            "&.Mui-focused": {
+              boxShadow: focusShadow,
             },
           },
         },
@@ -224,9 +268,30 @@ function createAppTheme(mode, accentHue) {
                 borderColor: alpha(primaryMain, 0.5),
               },
               "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                borderColor: primaryMain,
+                borderColor: focusRingColor,
               },
             },
+          },
+        },
+      },
+      MuiSwitch: {
+        styleOverrides: {
+          switchBase: {
+            "&.Mui-focusVisible": focusRing,
+          },
+        },
+      },
+      MuiSlider: {
+        styleOverrides: {
+          thumb: {
+            "&:focus-visible, &.Mui-focusVisible": focusRing,
+          },
+        },
+      },
+      MuiSelect: {
+        styleOverrides: {
+          select: {
+            "&.Mui-focused": focusRing,
           },
         },
       },

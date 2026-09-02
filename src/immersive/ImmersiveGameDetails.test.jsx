@@ -31,7 +31,11 @@ vi.mock("../components/game/GameScreenshotsSection", () => ({
 }));
 
 vi.mock("../components/game/GameAchievementsSection", () => ({
-  default: () => null,
+  default: ({ onOpenIntegrations }) => (
+    <button type="button" onClick={onOpenIntegrations}>
+      Open integrations
+    </button>
+  ),
 }));
 
 vi.mock("../components/game/CollectionPickerDialog", () => ({
@@ -167,21 +171,32 @@ const remoteOnlyGame = {
   is_favorite: false,
 };
 
+const launchableGame = { ...remoteOnlyGame, local_file_path: "/roms/cloud.gba" };
+
 function renderDetails(
   onLaunch = vi.fn().mockResolvedValue({ success: true }),
   game = remoteOnlyGame,
-  { onBack = vi.fn(), onToggleFavorite = vi.fn(), onGameUpdate = vi.fn() } = {},
+  {
+    onBack = vi.fn(),
+    onToggleFavorite = vi.fn(),
+    onGameUpdate = vi.fn(),
+    onOpenSettings = vi.fn(),
+    onOpenIntegrations = vi.fn(),
+    platformLabel = "Game Boy Advance",
+  } = {},
 ) {
   return render(
     <MuiTestProvider>
       <RomDownloadsProvider>
         <ImmersiveGameDetails
           game={game}
-          platformLabel="Game Boy Advance"
+          platformLabel={platformLabel}
           onBack={onBack}
           onLaunch={onLaunch}
           onToggleFavorite={onToggleFavorite}
           onGameUpdate={onGameUpdate}
+          onOpenSettings={onOpenSettings}
+          onOpenIntegrations={onOpenIntegrations}
           rommToken="saved-token"
           rommUrl="https://romm.example"
         />
@@ -200,6 +215,17 @@ function tapPadButton(controller, pad, buttonIndex) {
 }
 
 describe("ImmersiveGameDetails launch controls", () => {
+  it("passes the Integrations navigation callback to the achievements section", () => {
+    const onOpenIntegrations = vi.fn();
+    renderDetails(vi.fn().mockResolvedValue({ success: true }), remoteOnlyGame, {
+      onOpenIntegrations,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open integrations" }));
+
+    expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["a local-only game", { ...remoteOnlyGame, id: 8, name: "Local Game", source: "Local", romm_id: null, local_file_path: "/roms/local.gba", sync_state: "local_only" }],
     ["a cached RomM game", { ...remoteOnlyGame, id: 9, name: "Cached Game", local_file_path: "/roms/cached.gba", sync_state: "synced" }],
@@ -212,27 +238,25 @@ describe("ImmersiveGameDetails launch controls", () => {
     await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(game.id));
   });
 
-  it("offers Play and explicit Download for a remote-only RomM game", async () => {
+  it("offers Download as the sole primary action for a remote-only RomM game", () => {
     const onLaunch = vi.fn().mockResolvedValue({ success: true });
     renderDetails(onLaunch);
 
-    const play = screen.getByRole("button", { name: "Play" });
-    expect(play).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
-
-    fireEvent.click(play);
-    expect(onLaunch).toHaveBeenCalledWith(remoteOnlyGame.id);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(play).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
+    const download = screen.getByRole("button", { name: "Download" });
+    expect(download).toHaveClass("MuiButton-contained");
+    expect(screen.getAllByRole("button").filter((button) => button.classList.contains("MuiButton-contained"))).toHaveLength(1);
+    expect(onLaunch).not.toHaveBeenCalled();
   });
 
   it("starts the same launch flow when controller A dispatches Enter to window", async () => {
     const onLaunch = vi.fn().mockResolvedValue({ success: true });
-    renderDetails(onLaunch);
+    const localGame = { ...remoteOnlyGame, local_file_path: "/roms/cloud.gba" };
+    renderDetails(onLaunch, localGame);
 
     dispatchControllerKey("Enter");
 
-    expect(onLaunch).toHaveBeenCalledWith(remoteOnlyGame.id);
+    expect(onLaunch).toHaveBeenCalledWith(localGame.id);
     await waitFor(() => expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled());
   });
 
@@ -395,7 +419,7 @@ describe("ImmersiveGameDetails launch controls", () => {
       pad.buttons[13].pressed = true;
       controller.runFrame();
 
-      expect(screen.getByRole("menuitem", { name: /Ratings & status/ })).toHaveFocus();
+      expect(screen.getByRole("menuitem", { name: /Add to collection/ })).toHaveFocus();
       expect(moreOptions).not.toHaveFocus();
     } finally {
       controller.restore();
@@ -420,7 +444,7 @@ describe("ImmersiveGameDetails launch controls", () => {
       expect(screen.getAllByRole("menu")).toHaveLength(1);
       expect(screen.getByRole("menuitem", { name: /Manage cached saves/ })).toHaveFocus();
 
-      for (let index = 0; index < 7; index += 1) tapPadButton(controller, pad, 13);
+      tapPadButton(controller, pad, 13);
       expect(screen.getByRole("menuitem", { name: /Add to collection/ })).toHaveFocus();
 
       tapPadButton(controller, pad, 0);
@@ -462,7 +486,7 @@ describe("ImmersiveGameDetails launch controls", () => {
     const controller = installControllerTestEnvironment();
 
     try {
-      renderDetails(onLaunch);
+      renderDetails(onLaunch, launchableGame);
       fireEvent.click(screen.getByRole("button", { name: "Play" }));
       await waitFor(() => expect(screen.getByText("network unavailable")).toBeInTheDocument());
       const retry = screen.getByRole("button", { name: "Retry" });
@@ -486,7 +510,7 @@ describe("ImmersiveGameDetails launch controls", () => {
     const controller = installControllerTestEnvironment();
 
     try {
-      renderDetails(onLaunch);
+      renderDetails(onLaunch, launchableGame);
       fireEvent.click(screen.getByRole("button", { name: "Play" }));
       await waitFor(() => expect(screen.getByText("network unavailable")).toBeInTheDocument());
 
@@ -521,7 +545,7 @@ describe("ImmersiveGameDetails launch controls", () => {
   it("ignores repeated or buffered Enter input while preparation is active", async () => {
     let finish;
     const onLaunch = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
-    renderDetails(onLaunch);
+    renderDetails(onLaunch, launchableGame);
 
     dispatchControllerKey("Enter");
     dispatchControllerKey("Enter");
@@ -540,7 +564,7 @@ describe("ImmersiveGameDetails launch controls", () => {
     });
     let finish;
     const onLaunch = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
-    renderDetails(onLaunch);
+    renderDetails(onLaunch, launchableGame);
 
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     await waitFor(() => expect(eventListeners.has("game-launch-progress")).toBe(true));
@@ -571,7 +595,7 @@ describe("ImmersiveGameDetails launch controls", () => {
       });
     });
 
-    expect(screen.getByRole("dialog")).toHaveTextContent("Cloud Game");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Cloud Game");
     expect(screen.getByText("Downloading ROM...")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
     expect(screen.getByText(/50%.*512\.0 KB.*1\.00 MB/)).toBeInTheDocument();
@@ -615,7 +639,7 @@ describe("ImmersiveGameDetails launch controls", () => {
       <MuiTestProvider>
         <RomDownloadsProvider>
           <ImmersiveGameDetails
-            game={remoteOnlyGame}
+            game={launchableGame}
             platformLabel="Game Boy Advance"
             onBack={onBack}
             onLaunch={onLaunch}
@@ -643,5 +667,53 @@ describe("ImmersiveGameDetails launch controls", () => {
     expect(onBack).not.toHaveBeenCalled();
     dispatchControllerKey("Escape");
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("translates missing emulator guidance and sends the user to Settings without Retry", async () => {
+    const onOpenSettings = vi.fn();
+    const onLaunch = vi.fn().mockResolvedValue({
+      success: false,
+      error: "No compatible RetroArch core is installed for ps2",
+    });
+    renderDetails(onLaunch, launchableGame, { onOpenSettings, platformLabel: "PlayStation 2" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => expect(screen.getByText(/no compatible emulator is installed/i)).toBeInTheDocument());
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("PlayStation 2");
+    expect(dialog).toHaveTextContent("Settings → Emulators");
+    expect(dialog).not.toHaveTextContent("Cloud Game");
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Launch failed" })).toBeInTheDocument();
+    expect(screen.getByText("Esc to go back")).toBeInTheDocument();
+    expect(document.querySelector(".MuiBackdrop-root")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes controller confirmation to Settings instead of retrying a deterministic failure", async () => {
+    const onOpenSettings = vi.fn();
+    const onLaunch = vi.fn().mockResolvedValue({
+      success: false,
+      error: "No compatible RetroArch core is installed for ps2",
+    });
+    renderDetails(onLaunch, launchableGame, { onOpenSettings, platformLabel: "PlayStation 2" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(screen.getByText(/no compatible emulator is installed/i)).toBeInTheDocument());
+
+    dispatchControllerKey("Enter");
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the More options menu directly in the cloud-saves guidance", () => {
+    renderDetails(undefined, remoteOnlyGame);
+
+    expect(screen.getByText(/this game's More options menu/)).toBeInTheDocument();
+    expect(screen.queryByText(/the menu above/)).not.toBeInTheDocument();
   });
 });

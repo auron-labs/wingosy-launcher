@@ -2,6 +2,7 @@ import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import Link from "@mui/material/Link";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import LockIcon from "@mui/icons-material/Lock";
 import AchievementListOverlay from "./AchievementListOverlay";
@@ -10,11 +11,12 @@ const TROPHY_AMBER = "#FFB300";
 
 /**
  * Argosy-style ACHIEVEMENTS header + (unlocked/total) + horizontal strip of badges.
- * Shows 0/0 until RetroAchievements is enabled; still 0/0 until real data exists.
+ * Shows progress only when the integration is enabled and real data exists.
  */
 export default function GameAchievementsSection({
   gameName,
   retroAchievementsEnabled,
+  onOpenIntegrations = null,
   /** Optional real data later */
   achievements = [],
 }) {
@@ -45,25 +47,74 @@ export default function GameAchievementsSection({
             >
               ACHIEVEMENTS
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              ({displayUnlocked}/{displayTotal})
-            </Typography>
+            {retroAchievementsEnabled && total > 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                ({displayUnlocked}/{displayTotal})
+              </Typography>
+            ) : null}
           </Box>
-          <Button size="small" variant="outlined" onClick={() => setOverlayOpen(true)}>
-            View all
-          </Button>
+          {retroAchievementsEnabled && total > 0 ? (
+            <Button size="small" variant="outlined" onClick={() => setOverlayOpen(true)}>
+              View all
+            </Button>
+          ) : null}
         </Box>
 
         {!retroAchievementsEnabled ? (
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-            Enable RetroAchievements in Settings → Integrations to track progress.
-          </Typography>
+          <Box
+            data-testid="achievements-disabled-empty"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              p: 2,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 2,
+              bgcolor: "action.hover",
+            }}
+          >
+            <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 34, opacity: 0.75 }} />
+            <Typography variant="body2" color="text.secondary">
+              RetroAchievements is turned off.{" "}
+              <Link
+                href="#settings/integrations"
+                onClick={(event) => {
+                  if (onOpenIntegrations) {
+                    event.preventDefault();
+                    onOpenIntegrations();
+                  }
+                }}
+              >
+                Enable it in Settings → Integrations.
+              </Link>
+            </Typography>
+          </Box>
+        ) : total === 0 ? (
+          <Box
+            data-testid="achievements-empty"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              p: 2,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 2,
+              bgcolor: "action.hover",
+            }}
+          >
+            <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 34, opacity: 0.75 }} />
+            <Typography variant="body2" color="text.secondary">
+              No RetroAchievements data is available for this game yet.
+            </Typography>
+          </Box>
         ) : null}
 
-        {/* Argosy-style horizontal badge strip */}
-        <Box sx={{ display: "flex", gap: 1.5, overflowX: "auto", pb: 0.5 }}>
-          {total > 0
-            ? achievements.slice(0, 12).map((a) => (
+        {retroAchievementsEnabled && total > 0 ? (
+          /* Argosy-style horizontal badge strip */
+          <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", pb: 0.5 }}>
+            {achievements.slice(0, 12).map((a) => (
                 <Box
                   key={a.id}
                   sx={{
@@ -85,28 +136,9 @@ export default function GameAchievementsSection({
                     <LockIcon fontSize="small" color="disabled" />
                   )}
                 </Box>
-              ))
-            : Array.from({ length: 6 }).map((_, i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 1,
-                    bgcolor: "action.hover",
-                    border: 1,
-                    borderColor: "divider",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    opacity: retroAchievementsEnabled ? 0.5 : 0.35,
-                  }}
-                >
-                  <LockIcon fontSize="small" color="disabled" />
-                </Box>
               ))}
-        </Box>
+          </Box>
+        ) : null}
       </Box>
 
       <AchievementListOverlay
@@ -114,6 +146,7 @@ export default function GameAchievementsSection({
         onClose={() => setOverlayOpen(false)}
         gameTitle={gameName}
         retroAchievementsEnabled={retroAchievementsEnabled}
+        onOpenIntegrations={onOpenIntegrations}
         achievements={achievements}
       />
     </>

@@ -3,10 +3,12 @@ import Typography from "@mui/material/Typography";
 import Dialog from "@mui/material/Dialog";
 import IconButton from "@mui/material/IconButton";
 import Button from "@mui/material/Button";
+import Link from "@mui/material/Link";
 import Divider from "@mui/material/Divider";
 import CloseIcon from "@mui/icons-material/Close";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import LockIcon from "@mui/icons-material/Lock";
+import KeyboardHint from "../KeyboardHint";
 
 /** Argosy TrophyAmber */
 const TROPHY_AMBER = "#FFB300";
@@ -20,6 +22,7 @@ export default function AchievementListOverlay({
   onClose,
   gameTitle,
   retroAchievementsEnabled,
+  onOpenIntegrations = null,
   achievements = [],
 }) {
   const unlocked = achievements.filter((a) => a.unlocked);
@@ -60,9 +63,12 @@ export default function AchievementListOverlay({
               Achievements
             </Typography>
           </Box>
-          <Typography variant="subtitle1" color="primary">
-            {uCount}/{total} ({pct}%)
-          </Typography>
+          {retroAchievementsEnabled && total > 0 ? (
+            <Typography variant="subtitle1" color="primary">
+              {uCount}/{total} ({pct}%)
+            </Typography>
+          ) : null}
+          <KeyboardHint>Esc to close</KeyboardHint>
           <IconButton onClick={onClose} aria-label="Close">
             <CloseIcon />
           </IconButton>
@@ -70,15 +76,28 @@ export default function AchievementListOverlay({
 
         <Box sx={{ flex: 1, overflow: "auto", px: 3, py: 2 }}>
           {!retroAchievementsEnabled ? (
-            <Typography color="text.secondary" sx={{ py: 4 }}>
-              Turn on <strong>Enable RetroAchievements</strong> in Settings → Integrations to load achievement
-              data when supported.
-            </Typography>
+            <AchievementEmptyState
+              title="RetroAchievements is turned off"
+              description={
+                <>
+                  Turn on RetroAchievements to load achievement data when supported. Visit{" "}
+                  <Link
+                    href="#settings/integrations"
+                    onClick={(event) => handleNavigation(event, onOpenIntegrations)}
+                  >
+                    Settings → Integrations
+                  </Link>{" "}
+                  to enable it.
+                </>
+              }
+              action="Open Integrations settings"
+              onOpenIntegrations={onOpenIntegrations}
+            />
           ) : total === 0 ? (
-            <Typography color="text.secondary" sx={{ py: 4 }}>
-              No RetroAchievements data for this game yet. Progress will appear here when the integration is
-              connected.
-            </Typography>
+            <AchievementEmptyState
+              title="No achievements yet"
+              description="No RetroAchievements data is available for this game yet."
+            />
           ) : (
             <>
               {unlocked.length > 0 && (
@@ -113,14 +132,52 @@ export default function AchievementListOverlay({
           )}
         </Box>
 
-        <Box sx={{ p: 2, borderTop: 1, borderColor: "divider", display: "flex", justifyContent: "flex-end" }}>
-          <Button variant="contained" onClick={onClose}>
-            Back
-          </Button>
-        </Box>
       </Box>
     </Dialog>
   );
+}
+
+function AchievementEmptyState({ title, description, action = null, onOpenIntegrations = null }) {
+  return (
+    <Box
+      data-testid="achievement-empty-state"
+      sx={{
+        minHeight: "min(52vh, 520px)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        gap: 1.5,
+        px: 2,
+      }}
+    >
+      <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 72, opacity: 0.8 }} />
+      <Typography variant="h5" component="h2">
+        {title}
+      </Typography>
+      <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 560 }}>
+        {description}
+      </Typography>
+      {action ? (
+        <Button
+          component="a"
+          href="#settings/integrations"
+          onClick={(event) => handleNavigation(event, onOpenIntegrations)}
+          variant="outlined"
+          sx={{ mt: 1 }}
+        >
+          {action}
+        </Button>
+      ) : null}
+    </Box>
+  );
+}
+
+function handleNavigation(event, callback) {
+  if (!callback) return;
+  event.preventDefault();
+  callback();
 }
 
 function AchievementRow({ achievement, locked }) {

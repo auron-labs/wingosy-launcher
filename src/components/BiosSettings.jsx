@@ -5,7 +5,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
-import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
@@ -19,6 +18,11 @@ import MemoryIcon from "@mui/icons-material/Memory";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import {
+  getBiosGroupTotals,
+  getBiosTotals,
+  orderBiosGroupsByLibraryRelevance,
+} from "./biosPresentation";
 
 const CARD_SX = {
   p: 3,
@@ -36,7 +40,7 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-export default function BiosSettings() {
+export default function BiosSettings({ libraryPlatforms = [] }) {
   const [firmware, setFirmware] = useState([]);
   const [biosDirectory, setBiosDirectory] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -52,7 +56,7 @@ export default function BiosSettings() {
         invoke("list_bios_firmware"),
       ]);
       setBiosDirectory(directory);
-      setFirmware(items);
+      setFirmware(Array.isArray(items) ? items : []);
     } catch (error) {
       setMessage({ type: "error", text: error?.message || String(error) });
     } finally {
@@ -75,12 +79,15 @@ export default function BiosSettings() {
       group.items.push(item);
       byPlatform.set(item.platform_slug, group);
     }
-    return [...byPlatform.values()];
-  }, [firmware]);
+    return orderBiosGroupsByLibraryRelevance([...byPlatform.values()], libraryPlatforms);
+  }, [firmware, libraryPlatforms]);
 
-  const downloaded = firmware.filter((item) => item.is_downloaded).length;
-  const downloadable = firmware.filter((item) => !item.missing_from_fs);
-  const missing = downloadable.filter((item) => !item.is_downloaded).length;
+  const libraryPlatformIds = useMemo(
+    () => new Set(libraryPlatforms.map((entry) => (Array.isArray(entry) ? entry[0]?.id : entry?.id)).filter(Boolean)),
+    [libraryPlatforms],
+  );
+
+  const totals = getBiosTotals(firmware);
 
   async function downloadOne(id, fileName) {
     setBusy(`file:${id}`);
@@ -104,6 +111,28 @@ export default function BiosSettings() {
       setMessage({
         type: "success",
         text: `Downloaded ${result.downloaded}; ${result.skipped} already present.`,
+      });
+      await load();
+    } catch (error) {
+      setMessage({ type: "error", text: error?.message || String(error) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadGroup(group) {
+    const missingItems = group.items.filter((item) => !item.missing_from_fs && !item.is_downloaded);
+    if (missingItems.length === 0) return;
+
+    setBusy(`platform:${group.slug}`);
+    setMessage(null);
+    try {
+      for (const item of missingItems) {
+        await invoke("download_bios_firmware", { firmwareId: item.id });
+      }
+      setMessage({
+        type: "success",
+        text: `Downloaded ${missingItems.length} ${group.name} firmware file${missingItems.length === 1 ? "" : "s"}.`,
       });
       await load();
     } catch (error) {
@@ -166,14 +195,29 @@ export default function BiosSettings() {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2, flexWrap: "wrap" }}>
           <MemoryIcon color="primary" />
           <Typography variant="h6" sx={{ flex: 1 }}>BIOS &amp; Firmware</Typography>
-          <Chip size="small" label={`${downloaded}/${downloadable.length} downloaded`} color={missing === 0 && downloadable.length ? "success" : "default"} />
-          <IconButton size="small" onClick={load} disabled={loading || Boolean(busy)} aria-label="Refresh BIOS list">
-            <RefreshIcon />
-          </IconButton>
+          <Chip
+            size="small"
+            label={`${totals.downloaded} downloaded · ${totals.missing} missing`}
+            color={totals.missing === 0 && totals.available ? "success" : "default"}
+          />
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={load}
+            disabled={loading || Boolean(busy)}
+          >
+            Refresh list
+          </Button>
         </Box>
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Download firmware from your RomM server, verify its checksum, then install it into known emulator BIOS folders. For Switch, Wingosy installs prod.keys and firmware.zip into configured Eden instances.
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} data-testid="bios-count-explanation">
+          {totals.available} file{totals.available === 1 ? "" : "s"} are available from RomM for download. {totals.unavailable > 0
+            ? `${totals.unavailable} listed file${totals.unavailable === 1 ? " is" : "s are"} unavailable on the RomM filesystem and excluded from the missing count.`
+            : "Missing counts include only files that RomM can provide."}
         </Typography>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, mb: 2, bgcolor: "rgba(0,0,0,0.2)", borderRadius: 2 }}>
@@ -186,10 +230,10 @@ export default function BiosSettings() {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
-          <Button variant="contained" startIcon={busy === "all" ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />} onClick={downloadAll} disabled={loading || Boolean(busy) || downloadable.length === 0}>
-            {missing > 0 ? `Download ${missing} missing` : "Verify / redownload"}
+          <Button variant="contained" startIcon={busy === "all" ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />} onClick={downloadAll} disabled={loading || Boolean(busy) || totals.available === 0}>
+            {totals.missing > 0 ? `Download ${totals.missing} missing` : "Verify / redownload"}
           </Button>
-          <Button variant="outlined" onClick={distribute} disabled={loading || Boolean(busy) || downloaded === 0}>
+          <Button variant="outlined" onClick={distribute} disabled={loading || Boolean(busy) || totals.downloaded === 0}>
             {busy === "distribute" ? "Distributing..." : "Distribute to emulators"}
           </Button>
         </Box>
@@ -206,16 +250,63 @@ export default function BiosSettings() {
           <List disablePadding>
             {groups.map((group) => {
               const isExpanded = Boolean(expanded[group.slug]);
-              const complete = group.items.filter((item) => !item.missing_from_fs).every((item) => item.is_downloaded);
+              const groupTotals = getBiosGroupTotals(group.items);
+              const complete = groupTotals.available > 0 && groupTotals.missing === 0;
+              const unavailable = groupTotals.available === 0;
+              const platformBusy = busy === `platform:${group.slug}`;
+              const libraryRelevant = libraryPlatformIds.has(group.slug);
+              const groupCount = groupTotals.available === 0
+                ? `${groupTotals.downloaded} downloaded · ${groupTotals.unavailable} unavailable on RomM`
+                : `${groupTotals.downloaded} of ${groupTotals.available} available downloaded${groupTotals.unavailable > 0 ? ` · ${groupTotals.unavailable} unavailable on RomM` : ""}`;
               return (
                 <Box key={group.slug} sx={{ borderBottom: 1, borderColor: "divider" }}>
                   <ListItem
-                    secondaryAction={<IconButton onClick={() => setExpanded((prev) => ({ ...prev, [group.slug]: !isExpanded }))}>{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>}
-                    sx={{ cursor: "pointer" }}
+                    sx={{ cursor: "pointer", pr: 2, gap: 1 }}
                     onClick={() => setExpanded((prev) => ({ ...prev, [group.slug]: !isExpanded }))}
                   >
-                    <ListItemText primary={group.name} secondary={`${group.items.filter((item) => item.is_downloaded).length} of ${group.items.length} downloaded`} />
-                    <Chip size="small" label={complete ? "Ready" : "Missing"} color={complete ? "success" : "warning"} sx={{ mr: 5 }} />
+                    <ListItemText
+                      sx={{ flex: "1 1 auto", minWidth: 0 }}
+                      primary={(
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                          <span>{group.name}</span>
+                          {libraryRelevant && <Chip size="small" label="Needed by your library" color="primary" variant="outlined" />}
+                        </Box>
+                      )}
+                      secondary={groupCount}
+                    />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                      <Chip
+                        size="small"
+                        label={unavailable ? "Unavailable" : complete ? "Ready" : "Missing"}
+                        color={complete ? "success" : "default"}
+                      />
+                      {groupTotals.missing > 0 && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={platformBusy ? <CircularProgress size={14} /> : <DownloadIcon />}
+                          disabled={Boolean(busy)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            downloadGroup(group);
+                          }}
+                        >
+                          {platformBusy ? "Downloading…" : `Download missing (${groupTotals.missing})`}
+                        </Button>
+                      )}
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                        aria-expanded={isExpanded}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpanded((prev) => ({ ...prev, [group.slug]: !isExpanded }));
+                        }}
+                      >
+                        {isExpanded ? "Hide files" : "Show files"}
+                      </Button>
+                    </Box>
                   </ListItem>
                   <Collapse in={isExpanded} unmountOnExit>
                     <List disablePadding sx={{ pl: 3, pb: 1 }}>

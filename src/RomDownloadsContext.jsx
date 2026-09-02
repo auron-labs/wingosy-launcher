@@ -14,6 +14,7 @@ const RomDownloadsContext = createContext({
   activeByGameId: {},
   activeDownloads: [],
   recentDownloads: [],
+  clearRecentDownloads: () => {},
   getProgress: (_gameId) => null,
   getLaunchProgress: (_gameId) => null,
   activeCount: 0,
@@ -206,11 +207,16 @@ export function RomDownloadsProvider({ children }) {
     [launchProgressByGameId]
   );
 
+  const clearRecentDownloads = useCallback(() => {
+    setRecentDownloads([]);
+  }, []);
+
   const value = useMemo(
     () => ({
       activeByGameId,
       activeDownloads,
       recentDownloads,
+      clearRecentDownloads,
       getProgress,
       getLaunchProgress,
       activeCount: activeDownloads.length,
@@ -219,6 +225,7 @@ export function RomDownloadsProvider({ children }) {
       activeByGameId,
       activeDownloads,
       recentDownloads,
+      clearRecentDownloads,
       getProgress,
       getLaunchProgress,
     ]

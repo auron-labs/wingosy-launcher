@@ -2,8 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Slider from "@mui/material/Slider";
 import { invoke } from "@tauri-apps/api/core";
+import SettingSlider from "./SettingSlider";
 
 /**
  * Isolated accent hue control so dragging does not re-render the full Settings screen.
@@ -92,8 +92,6 @@ function AccentHueSlider({ accentHue, setAccentHue, defaultHue = 235 }) {
     }
   }, [defaultHue, setAccentHue]);
 
-  const sliderKey = accentHue === null ? "default" : `hue-${accentHue}`;
-
   return (
     <Box sx={{ px: 1 }}>
       <Box
@@ -112,15 +110,17 @@ function AccentHueSlider({ accentHue, setAccentHue, defaultHue = 235 }) {
           mb: 1,
         }}
       />
-      <Slider
-        key={sliderKey}
-        defaultValue={initial}
+      <SettingSlider
+        label="Accent hue"
+        value={previewHue}
+        formatValue={(value) => `${Math.round(value)}°`}
+        valueTestId="accent-hue-value"
         min={0}
         max={360}
         step={1}
         onChange={(_, v) => schedulePreview(v)}
         onChangeCommitted={handleChangeCommitted}
-        slotProps={{
+        sliderSlotProps={{
           thumb: {
             style: {
               width: 20,
@@ -131,15 +131,15 @@ function AccentHueSlider({ accentHue, setAccentHue, defaultHue = 235 }) {
             },
           },
         }}
-        sx={{
+        sliderSx={{
           py: 0.5,
           "& .MuiSlider-track": { opacity: 0 },
           "& .MuiSlider-rail": { opacity: 0 },
           "& .MuiSlider-thumb::before": { display: "none" },
         }}
       />
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 2, mt: 1 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
           <Box
             style={{ backgroundColor: thumbColor }}
             sx={{
@@ -149,16 +149,28 @@ function AccentHueSlider({ accentHue, setAccentHue, defaultHue = 235 }) {
               border: "2px solid rgba(255,255,255,0.2)",
             }}
           />
-          <Typography variant="caption" color="text.secondary">
-            {accentHue === null && Math.round(previewHue) === Math.round(defaultHue)
-              ? "Default (Indigo)"
-              : `Hue: ${Math.round(previewHue)}°`}
-          </Typography>
+          <Typography variant="caption" color="text.secondary">Current accent</Typography>
+          <Box
+            aria-hidden="true"
+            sx={{
+              width: 24,
+              height: 24,
+              borderRadius: 1,
+              bgcolor: `hsl(${Math.round(defaultHue)}, 70%, 50%)`,
+              border: "2px solid rgba(255,255,255,0.2)",
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">Default (Indigo)</Typography>
         </Box>
-        <Button size="small" variant="text" onClick={handleReset} disabled={accentHue === null}>
+        <Button size="small" variant="contained" onClick={handleReset}>
           Reset to Default
         </Button>
       </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+        {accentHue === null
+          ? "The Default (Indigo) swatch is the built-in accent. Move the slider to choose a custom hue."
+          : "The slider overrides the Default (Indigo) swatch. Reset restores the built-in accent."}
+      </Typography>
     </Box>
   );
 }

@@ -41,6 +41,7 @@ pub struct StorageLocation {
 pub struct StorageOverview {
     pub roms_directory: String,
     pub using_default_roms_directory: bool,
+    pub free_disk_bytes: Option<u64>,
     pub active_rom_downloads: usize,
     pub tracked_rom_count: usize,
     pub tracked_rom_bytes: u64,
@@ -126,6 +127,7 @@ pub fn get_storage_overview() -> Result<StorageOverview, String> {
     Ok(StorageOverview {
         roms_directory: roms_directory.to_string_lossy().into_owned(),
         using_default_roms_directory: config.library.roms_directory.is_none(),
+        free_disk_bytes: free_disk_bytes(&roms_directory),
         active_rom_downloads: ACTIVE_ROM_DOWNLOADS.load(Ordering::SeqCst),
         tracked_rom_count,
         tracked_rom_bytes,
@@ -133,6 +135,61 @@ pub fn get_storage_overview() -> Result<StorageOverview, String> {
         migratable_rom_bytes,
         locations,
     })
+}
+
+#[cfg(windows)]
+fn free_disk_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let existing_path = existing_path(path);
+    let wide_path: Vec<u16> = existing_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut available_bytes = 0u64;
+
+    // Safety: `wide_path` is a valid NUL-terminated UTF-16 path and the output pointer points
+    // to initialized storage for the duration of the Win32 call.
+    let succeeded = unsafe {
+        get_disk_free_space_ex_w(
+            wide_path.as_ptr(),
+            &mut available_bytes,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        ) != 0
+    };
+
+    succeeded.then_some(available_bytes)
+}
+
+#[cfg(windows)]
+fn existing_path(path: &Path) -> PathBuf {
+    let mut current = path;
+    while !current.exists() {
+        let Some(parent) = current.parent() else {
+            return PathBuf::from(".");
+        };
+        current = parent;
+    }
+    current.to_path_buf()
+}
+
+#[cfg(not(windows))]
+fn free_disk_bytes(_path: &Path) -> Option<u64> {
+    None
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "GetDiskFreeSpaceExW"]
+    fn get_disk_free_space_ex_w(
+        directory_name: *const u16,
+        free_bytes_available: *mut u64,
+        total_number_of_bytes: *mut u64,
+        total_number_of_free_bytes: *mut u64,
+    ) -> i32;
 }
 
 /// Changes the ROM root. With `migrate_existing`, only database-linked files below the old root

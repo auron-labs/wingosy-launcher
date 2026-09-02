@@ -76,6 +76,7 @@ export default function ImmersiveGameTile({
       type="button"
       onClick={onSelect}
       onFocus={onFocus}
+      data-controller-focused={focused ? "true" : undefined}
       tabIndex={0}
       style={{
         appearance: "none",
@@ -99,7 +100,7 @@ export default function ImmersiveGameTile({
             : "transform 0.2s ease, box-shadow 0.2s ease",
           transform: focused ? "scale(1.05)" : "scale(1)",
           boxShadow: focused
-            ? `0 0 0 3px ${colors.primary}, 0 12px 32px ${alpha("#000", 0.45)}, 0 0 24px ${colors.focusGlow}`
+            ? `0 12px 32px ${alpha("#000", 0.45)}, 0 0 24px ${colors.focusGlow}`
             : "0 1px 4px rgba(0,0,0,0.25)",
           zIndex: focused ? 2 : 1,
         }}
@@ -150,7 +151,7 @@ export default function ImmersiveGameTile({
                 sx={{
                   color: "text.secondary",
                   textAlign: "center",
-                  fontSize: "0.7rem",
+                  fontSize: { xs: "0.9rem", sm: "0.95rem", md: "1rem" },
                   lineHeight: 1.25,
                   maxHeight: "2.5em",
                   overflow: "hidden",
@@ -181,15 +182,15 @@ export default function ImmersiveGameTile({
                 top: 0,
                 left: 0,
                 bgcolor: alpha("#000", 0.7),
-                px: 0.75,
-                py: 0.25,
+                px: 1,
+                py: 0.4,
                 borderBottomRightRadius: "8px",
                 minWidth: 24,
               }}
             >
               <Typography
                 sx={{
-                  fontSize: "0.6rem",
+                  fontSize: { xs: "0.8rem", sm: "0.85rem" },
                   fontWeight: 700,
                   color: "#fff",
                   letterSpacing: "0.4px",
@@ -288,7 +289,7 @@ export default function ImmersiveGameTile({
                 left: 0,
                 right: 0,
                 bottom: 0,
-                p: 1,
+                p: { xs: 1.25, sm: 1.5 },
                 pt: 4,
                 background:
                   "linear-gradient(transparent 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0.88) 100%)",
@@ -305,7 +306,7 @@ export default function ImmersiveGameTile({
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
                   overflow: "hidden",
-                  fontSize: "0.75rem",
+                  fontSize: { xs: "0.95rem", sm: "1rem", md: "1.05rem" },
                 }}
                 title={game.name}
               >

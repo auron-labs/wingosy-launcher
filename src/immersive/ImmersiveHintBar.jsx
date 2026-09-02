@@ -16,11 +16,18 @@ function Hint({ label, detail }) {
           border: `1px solid ${alpha(t.palette.common.white, 0.12)}`,
         })}
       >
-        <Typography variant="caption" sx={{ fontWeight: 800, letterSpacing: "0.03em" }}>
+        <Typography
+          variant="body2"
+          sx={{ fontWeight: 800, letterSpacing: "0.03em", fontSize: { xs: "0.95rem", sm: "1rem" } }}
+        >
           {label}
         </Typography>
       </Box>
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ fontWeight: 650, fontSize: { xs: "0.95rem", sm: "1rem" } }}
+      >
         {detail}
       </Typography>
     </Stack>
@@ -30,7 +37,7 @@ function Hint({ label, detail }) {
 export default function ImmersiveHintBar({ view, visible = true, unsupportedGamepad = false }) {
   if (!visible && !unsupportedGamepad) return null;
 
-  const hints =
+  const viewHints =
     view === "details"
       ? [
           { label: "D-pad / Stick / Arrows", detail: "Navigate" },
@@ -58,6 +65,7 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
               { label: "Menu / S", detail: "Menu" },
               { label: "View / H", detail: "Hide help" },
             ];
+  const hints = [...viewHints, { label: "F11", detail: "Fullscreen" }];
 
   return (
     <Box
@@ -65,9 +73,9 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
       sx={(t) => ({
         flexShrink: 0,
         width: "100%",
-        minHeight: 48,
+        minHeight: 64,
         px: { xs: 1.5, sm: 2.25 },
-        py: 1,
+        py: 1.5,
         borderTop: `1px solid ${alpha(t.palette.divider, 0.6)}`,
         borderRadius: 0,
         bgcolor: alpha(t.palette.background.paper, 0.7),
@@ -79,9 +87,9 @@ export default function ImmersiveHintBar({ view, visible = true, unsupportedGame
       {unsupportedGamepad ? (
         <Typography
           role="status"
-          variant="caption"
+          variant="body2"
           color="warning.main"
-          sx={{ display: "block", mb: visible ? 1 : 0, fontWeight: 650 }}
+          sx={{ display: "block", mb: visible ? 1 : 0, fontWeight: 650, fontSize: { xs: "0.95rem", sm: "1rem" } }}
         >
           Unsupported controller. Use a standard/XInput controller or keyboard for immersive navigation.
         </Typography>

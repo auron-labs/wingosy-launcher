@@ -12,7 +12,6 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
-import DialogContentText from "@mui/material/DialogContentText";
 import DialogActions from "@mui/material/DialogActions";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
@@ -31,25 +30,21 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import SaveIcon from "@mui/icons-material/Save";
-import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
-import MemoryIcon from "@mui/icons-material/Memory";
-import SystemUpdateIcon from "@mui/icons-material/SystemUpdate";
-import AlbumIcon from "@mui/icons-material/Album";
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
-import TagIcon from "@mui/icons-material/Tag";
 import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import { alpha } from "@mui/material/styles";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useAppTheme } from "../ThemeContext";
+import KeyboardHint from "../components/KeyboardHint";
 import GameScreenshotsSection from "../components/game/GameScreenshotsSection";
 import GameAchievementsSection from "../components/game/GameAchievementsSection";
 import CollectionPickerDialog from "../components/game/CollectionPickerDialog";
+import ConfirmDestructiveDialog from "../components/ConfirmDestructiveDialog";
 import {
   describeControllerElement,
   getControllerAction,
   logControllerOutcome,
 } from "./controllerDebug";
+import { getLaunchErrorPresentation } from "./launchError";
 
 const DETAILS_ACTION_SELECTOR = "button:not(:disabled)";
 const INPUT_OVERLAY_SELECTOR = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
@@ -108,6 +103,8 @@ export default function ImmersiveGameDetails({
   onLaunch,
   onToggleFavorite,
   onGameUpdate,
+  onOpenSettings = () => {},
+  onOpenIntegrations = null,
   rommToken,
   rommUrl,
   retroachievementsEnabled = false,
@@ -123,7 +120,7 @@ export default function ImmersiveGameDetails({
   const [launchError, setLaunchError] = useState(null);
   const launchInFlightRef = useRef(false);
   const staleLaunchProgressRef = useRef(null);
-  const playButtonRef = useRef(null);
+  const primaryActionRef = useRef(null);
   const detailsRef = useRef(null);
   const wasLaunchingRef = useRef(false);
   const [justDownloaded, setJustDownloaded] = useState(false);
@@ -133,8 +130,6 @@ export default function ImmersiveGameDetails({
   const [refreshing, setRefreshing] = useState(false);
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
   const [collections, setCollections] = useState([]);
-  const [comingSoon, setComingSoon] = useState({ open: false, title: "", detail: "" });
-  const [ratingsDialogOpen, setRatingsDialogOpen] = useState(false);
   const savesSectionRef = useRef(null);
 
   function markDetailsActionFocus(event) {
@@ -150,9 +145,8 @@ export default function ImmersiveGameDetails({
   }
 
   const hasLocalFile = (game.local_file_path && game.local_file_path.length > 0) || justDownloaded;
-  const isSynced = game.sync_state === "synced" || game.sync_state === "Synced";
   const isLocalGame = !game.romm_id && game.source !== "RomM";
-  const canPlay = hasLocalFile || isSynced || isLocalGame || Boolean(game.romm_id);
+  const canPlay = hasLocalFile || isLocalGame;
   const canDownload = game.romm_id && rommToken && rommUrl;
   const launchActive = launching;
   const attemptProgress = launchProgress &&
@@ -164,6 +158,9 @@ export default function ImmersiveGameDetails({
     : null;
   const launchFailure = Boolean(launchError || visibleLaunchProgress?.stage === "failure");
   const launchDialogOpen = Boolean(launching || visibleLaunchProgress || launchFailure);
+  const rawLaunchError = launchError || visibleLaunchProgress?.error;
+  const launchErrorPresentation = getLaunchErrorPresentation(rawLaunchError, platformLabel);
+  const retryableLaunchFailure = launchFailure && launchErrorPresentation.retryable;
 
   const handleLaunchGame = useCallback(async () => {
     if (launchInFlightRef.current || downloadInFlightRef.current || launchActive) return;
@@ -184,9 +181,31 @@ export default function ImmersiveGameDetails({
     }
   }, [game.id, launchActive, launchProgress, onLaunch]);
 
+  const handleDownloadRom = useCallback(async () => {
+    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
+    downloadInFlightRef.current = true;
+    try {
+      setDownloading(true);
+      setDownloadStatus(null);
+      await invoke("download_rom", {
+        gameId: game.id,
+        serverUrl: rommUrl,
+        token: rommToken,
+      });
+      setJustDownloaded(true);
+      setDownloadStatus({ type: "success", message: "Downloaded! Ready to play." });
+      if (onGameUpdate) onGameUpdate(game.id);
+    } catch (err) {
+      setDownloadStatus({ type: "error", message: err.message || String(err) });
+    } finally {
+      downloadInFlightRef.current = false;
+      setDownloading(false);
+    }
+  }, [game.id, launchActive, onGameUpdate, rommToken, rommUrl]);
+
   useEffect(() => {
     if (wasLaunchingRef.current && !launching && !launchFailure) {
-      playButtonRef.current?.focus();
+      primaryActionRef.current?.focus();
     }
     wasLaunchingRef.current = launching;
   }, [launchFailure, launching]);
@@ -219,11 +238,11 @@ export default function ImmersiveGameDetails({
 
         const direction = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
         const focusedIndex = actions.indexOf(document.activeElement);
-        const anchorIndex = actions.indexOf(playButtonRef.current);
+        const anchorIndex = actions.indexOf(primaryActionRef.current);
         const startIndex = focusedIndex >= 0
           ? focusedIndex
           : anchorIndex >= 0
-            ? anchorIndex
+            ? anchorIndex + (canPlay || direction < 0 ? 0 : -1)
             : direction > 0
               ? -1
               : actions.length;
@@ -260,8 +279,13 @@ export default function ImmersiveGameDetails({
         if (hasInputOverlay) {
           if (launchFailure && !launching) {
             e.preventDefault();
-            handleLaunchGame();
-            logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
+            if (retryableLaunchFailure) {
+              handleLaunchGame();
+              logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
+            } else {
+              onOpenSettings();
+              logControllerOutcome(action, "details", "handled", { reason: "open-settings" });
+            }
           } else {
             logControllerOutcome(action, "details", "suppressed", {
               reason: `${hasInputOverlay.getAttribute("role") || "overlay"} open`,
@@ -283,8 +307,13 @@ export default function ImmersiveGameDetails({
         }
         if (launchFailure && !launching) {
           e.preventDefault();
-          handleLaunchGame();
-          logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
+          if (retryableLaunchFailure) {
+            handleLaunchGame();
+            logControllerOutcome(action, "details", "handled", { reason: "retry-launch" });
+          } else {
+            onOpenSettings();
+            logControllerOutcome(action, "details", "handled", { reason: "open-settings" });
+          }
           return;
         }
         if (launching) {
@@ -292,8 +321,13 @@ export default function ImmersiveGameDetails({
           return;
         }
         e.preventDefault();
-        handleLaunchGame();
-        logControllerOutcome(action, "details", "handled", { reason: "launch-default" });
+        if (canPlay) {
+          handleLaunchGame();
+          logControllerOutcome(action, "details", "handled", { reason: "launch-default" });
+        } else {
+          handleDownloadRom();
+          logControllerOutcome(action, "details", "handled", { reason: "download-default" });
+        }
       } else if (e.key === "Escape") {
         if (!launchFailure) {
           logControllerOutcome(action, "details", "ignored", { reason: "no-launch-failure" });
@@ -307,31 +341,9 @@ export default function ImmersiveGameDetails({
 
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, [handleLaunchGame, launchFailure, launching, onBack]);
+  }, [canPlay, handleDownloadRom, handleLaunchGame, launchFailure, launching, onBack, onOpenSettings, retryableLaunchFailure]);
 
   const screenshots = Array.isArray(game.screenshot_paths) ? game.screenshot_paths : [];
-
-  async function handleDownloadRom() {
-    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
-    downloadInFlightRef.current = true;
-    try {
-      setDownloading(true);
-      setDownloadStatus(null);
-      await invoke("download_rom", {
-        gameId: game.id,
-        serverUrl: rommUrl,
-        token: rommToken,
-      });
-      setJustDownloaded(true);
-      setDownloadStatus({ type: "success", message: "Downloaded! Ready to play." });
-      if (onGameUpdate) onGameUpdate(game.id);
-    } catch (err) {
-      setDownloadStatus({ type: "error", message: err.message || String(err) });
-    } finally {
-      downloadInFlightRef.current = false;
-      setDownloading(false);
-    }
-  }
 
   async function handleDeleteDownload() {
     try {
@@ -423,11 +435,6 @@ export default function ImmersiveGameDetails({
         bgcolor: "background.default",
         backgroundImage: `radial-gradient(1000px 380px at 10% -5%, ${alpha(colors.primary, 0.12)} 0%, transparent 52%),
           radial-gradient(800px 320px at 92% 5%, ${alpha(colors.primaryLight, 0.07)} 0%, transparent 48%)`,
-        '& button[data-controller-focused="true"]': {
-          outline: `3px solid ${colors.primary}`,
-          outlineOffset: 2,
-          boxShadow: `0 0 0 5px ${alpha(colors.primary, 0.28)}`,
-        },
       }}
       onFocus={markDetailsActionFocus}
       onBlur={clearDetailsActionFocus}
@@ -500,86 +507,6 @@ export default function ImmersiveGameDetails({
                   <ListItemText primary="Manage cached saves" secondary="RomM cloud saves" slotProps={{ secondary: { variant: "caption" } }} />
                 </MenuItem>
               )}
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setRatingsDialogOpen(true);
-                }}
-              >
-                <ListItemIcon>
-                  <StarOutlineIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Ratings & status" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setComingSoon({
-                    open: true,
-                    title: "Change emulator",
-                    detail: "Use Settings → Emulators (platform defaults column) until per-game overrides exist.",
-                  });
-                }}
-              >
-                <ListItemIcon>
-                  <SportsEsportsIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Change emulator" secondary="From Settings" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setComingSoon({
-                    open: true,
-                    title: "Change core",
-                    detail: "Install cores from Settings → Emulators.",
-                  });
-                }}
-              >
-                <ListItemIcon>
-                  <MemoryIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Change core" secondary="RetroArch" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setComingSoon({ open: true, title: "Updates / DLC", detail: "Not wired yet." });
-                }}
-              >
-                <ListItemIcon>
-                  <SystemUpdateIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Updates / DLC" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setComingSoon({ open: true, title: "Select disc", detail: "Multi-disc support planned." });
-                }}
-              >
-                <ListItemIcon>
-                  <AlbumIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Select disc" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  setComingSoon({ open: true, title: "Select variant", detail: "ROM variants planned." });
-                }}
-              >
-                <ListItemIcon>
-                  <SwapHorizIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Select variant" secondary="Coming soon" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
-              <MenuItem disabled>
-                <ListItemIcon>
-                  <TagIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Title ID" secondary="Not available" slotProps={{ secondary: { variant: "caption" } }} />
-              </MenuItem>
               <MenuItem onClick={openAddToCollection}>
                 <ListItemIcon>
                   <FolderSpecialIcon fontSize="small" />
@@ -633,7 +560,11 @@ export default function ImmersiveGameDetails({
 
           <Divider sx={{ my: 3, opacity: 0.12 }} />
 
-          <GameAchievementsSection gameName={game.name} retroAchievementsEnabled={retroachievementsEnabled} />
+          <GameAchievementsSection
+            gameName={game.name}
+            retroAchievementsEnabled={retroachievementsEnabled}
+            onOpenIntegrations={onOpenIntegrations}
+          />
 
           <Divider sx={{ my: 3, opacity: 0.12 }} />
 
@@ -665,7 +596,7 @@ export default function ImmersiveGameDetails({
           <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
             {canPlay && (
               <Button
-                ref={playButtonRef}
+                ref={primaryActionRef}
                 variant="contained"
                 size="large"
                 startIcon={<PlayArrowIcon />}
@@ -681,6 +612,7 @@ export default function ImmersiveGameDetails({
               <Tooltip title={!rommToken || !rommUrl ? "Connect to RomM server in Settings to download" : ""} arrow>
                 <span>
                   <Button
+                    ref={primaryActionRef}
                     variant="contained"
                     size="large"
                     startIcon={downloading ? null : <CloudDownloadIcon />}
@@ -738,30 +670,26 @@ export default function ImmersiveGameDetails({
                 Saves (RomM)
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Use <strong>Manage cached saves</strong> in the menu above to jump here when cloud saves are configured on the server.
+                Select <strong>Manage cached saves</strong> in this game's More options menu to jump here when cloud saves are configured on the server.
               </Typography>
             </Box>
           ) : null}
         </Box>
       </Paper>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Downloaded ROM?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            This will delete the local ROM file for "{game.name}".
-            {game.romm_id
-              ? " The game will remain in your library (from RomM) and can be re-downloaded."
-              : " This will remove the game from your library completely."}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteDownload} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDestructiveDialog
+        open={deleteDialogOpen}
+        title="Delete Downloaded ROM?"
+        message={
+          `This will delete the local ROM file for "${game.name}".` +
+          (game.romm_id
+            ? " The game will remain in your library (from RomM) and can be re-downloaded."
+            : " This will remove the game from your library completely.")
+        }
+        confirmLabel="Delete"
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={handleDeleteDownload}
+      />
 
       <CollectionPickerDialog
         open={collectionDialogOpen}
@@ -771,50 +699,40 @@ export default function ImmersiveGameDetails({
         gameName={game.name}
       />
 
-      <Dialog open={ratingsDialogOpen} onClose={() => setRatingsDialogOpen(false)}>
-        <DialogTitle>Ratings & status</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Per-game backlog and ratings will appear here in a future update.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRatingsDialogOpen(false)} variant="contained">
-            OK
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={comingSoon.open} onClose={() => setComingSoon((s) => ({ ...s, open: false }))}>
-        <DialogTitle>{comingSoon.title}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{comingSoon.detail}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setComingSoon((s) => ({ ...s, open: false }))} variant="contained">
-            OK
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       <Dialog
         open={launchDialogOpen}
         fullWidth
         maxWidth="sm"
         onClose={launchFailure ? onBack : undefined}
         aria-labelledby="immersive-launch-title"
+        slotProps={{
+          backdrop: {
+            sx: (t) => ({
+              bgcolor: alpha("#000", t.palette.mode === "dark" ? 0.78 : 0.62),
+              backdropFilter: "brightness(0.55)",
+            }),
+          },
+        }}
       >
-        <DialogTitle id="immersive-launch-title">{game.name}</DialogTitle>
+        <DialogTitle id="immersive-launch-title">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", justifyContent: "space-between" }}>
+            <span>{launchFailure ? "Launch failed" : "Preparing game"}</span>
+            {launchFailure ? <KeyboardHint aria-hidden="true">Esc to go back</KeyboardHint> : null}
+          </Stack>
+        </DialogTitle>
         <DialogContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            {launchStageLabel(visibleLaunchProgress?.stage || (launchFailure ? "failure" : "resolving"))}
-          </Typography>
           {launchFailure ? (
-            <Alert severity="error">
-              {launchError || visibleLaunchProgress?.error || "Unable to launch game."}
+            <Alert severity="error" sx={{ alignItems: "flex-start" }}>
+              <Typography variant="body1">{launchErrorPresentation.message}</Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                {launchErrorPresentation.guidance}
+              </Typography>
             </Alert>
           ) : (
             <Box>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                {launchStageLabel(visibleLaunchProgress?.stage || "resolving")}
+              </Typography>
               <LinearProgress
                 variant={visibleLaunchProgress?.percent != null ? "determinate" : "indeterminate"}
                 value={visibleLaunchProgress?.percent ?? undefined}
@@ -831,9 +749,18 @@ export default function ImmersiveGameDetails({
         {launchFailure ? (
           <DialogActions>
             <Button onClick={onBack}>Back</Button>
-            <Button onClick={handleLaunchGame} variant="contained" autoFocus disabled={launchActive}>
-              Retry
+            <Button
+              onClick={onOpenSettings}
+              variant={retryableLaunchFailure ? "outlined" : "contained"}
+              autoFocus={!retryableLaunchFailure}
+            >
+              Open Settings
             </Button>
+            {retryableLaunchFailure ? (
+              <Button onClick={handleLaunchGame} variant="contained" autoFocus disabled={launchActive}>
+                Retry
+              </Button>
+            ) : null}
           </DialogActions>
         ) : null}
       </Dialog>

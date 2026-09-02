@@ -6,6 +6,8 @@ import Typography from "@mui/material/Typography";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
+import Stack from "@mui/material/Stack";
+import KeyboardHint from "../KeyboardHint";
 
 /**
  * Argosy-style full-screen screenshot viewer (ScreenshotViewerOverlay).
@@ -61,6 +63,30 @@ export default function ScreenshotLightbox({ open, onClose, urls, getSrc, index,
           p: 2,
         }}
       >
+        <Stack
+          direction="row"
+          spacing={1.5}
+          sx={{
+            position: "absolute",
+            top: 20,
+            left: 20,
+            alignItems: "center",
+            color: "#fff",
+            zIndex: 2,
+          }}
+        >
+          {n > 1 ? (
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              <KeyboardHint sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>← / →</KeyboardHint>
+              <Typography variant="body2">Navigate</Typography>
+            </Stack>
+          ) : null}
+          <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+            <KeyboardHint sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>Esc</KeyboardHint>
+            <Typography variant="body2">Close</Typography>
+          </Stack>
+        </Stack>
+
         <IconButton
           onClick={onClose}
           sx={{ position: "absolute", top: 12, right: 12, color: "#fff", zIndex: 2 }}

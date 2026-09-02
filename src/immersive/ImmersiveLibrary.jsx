@@ -368,10 +368,12 @@ export default function ImmersiveLibrary({
             sx={{
               minWidth: 0,
               px: 2,
-              py: 0.5,
+              py: 0.9,
               borderRadius: 1.5,
               textTransform: "none",
               fontWeight: active ? 800 : 600,
+              fontSize: { xs: "0.95rem", sm: "1rem" },
+              minHeight: 44,
               color: active ? "#fff" : "text.secondary",
               bgcolor: active ? "primary.main" : "transparent",
               border: (t) =>
@@ -513,7 +515,6 @@ export default function ImmersiveLibrary({
       </Button>
       <Button
         data-testid="immersive-exit-to-desktop"
-        color="error"
         onClick={onExitImmersive}
         sx={{
           minWidth: 0,
@@ -522,8 +523,10 @@ export default function ImmersiveLibrary({
           borderRadius: 1.5,
           textTransform: "none",
           fontWeight: 600,
-          border: (t) => `1px solid ${alpha(t.palette.error.main, 0.5)}`,
+          color: "text.secondary",
+          border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
           lineHeight: 1.2,
+          "&:hover": { bgcolor: alpha(colors.primary, 0.1), color: "text.primary" },
         }}
       >
         Exit to desktop
@@ -546,7 +549,6 @@ export default function ImmersiveLibrary({
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        outline: "none",
         bgcolor: "background.default",
         backgroundImage: `radial-gradient(1200px 420px at 12% -8%, ${alpha(colors.primary, 0.14)} 0%, transparent 55%),
           radial-gradient(900px 380px at 88% 0%, ${alpha(colors.primaryLight, 0.08)} 0%, transparent 50%)`,

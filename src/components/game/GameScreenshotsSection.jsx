@@ -1,6 +1,9 @@
 import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import ButtonBase from "@mui/material/ButtonBase";
+import Tooltip from "@mui/material/Tooltip";
+import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import ScreenshotLightbox from "./ScreenshotLightbox";
 
 /**
@@ -43,42 +46,73 @@ export default function GameScreenshotsSection({ urls, getMediaSrc, isRommGame =
         Screenshots
       </Typography>
       <Box
+        data-testid="game-screenshots-grid"
         sx={{
-          display: "flex",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
           gap: 1.5,
-          overflowX: "auto",
-          pb: 1,
-          "& img": {
-            borderRadius: 2,
-            maxHeight: 180,
-            width: "auto",
-            objectFit: "cover",
-            flexShrink: 0,
-            bgcolor: "action.hover",
-            cursor: "pointer",
-            transition: "transform 0.15s",
-            "&:hover": { transform: "scale(1.02)" },
-          },
         }}
       >
         {list.map((url, i) => {
           const src = getMediaSrc(url);
           if (!src) return null;
           return (
-            <Box
-              key={url}
-              component="img"
-              src={src}
-              alt=""
-              loading="lazy"
-              onClick={() => {
-                setLightboxIndex(i);
-                setLightboxOpen(true);
-              }}
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
+            <Tooltip key={`${url}-${i}`} title="View larger" arrow>
+              <ButtonBase
+                aria-label={`View screenshot ${i + 1} larger`}
+                onClick={() => {
+                  setLightboxIndex(i);
+                  setLightboxOpen(true);
+                }}
+                sx={{
+                  position: "relative",
+                  width: "100%",
+                  aspectRatio: "16 / 9",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                  bgcolor: "action.hover",
+                  border: 1,
+                  borderColor: "divider",
+                  "&:hover .screenshot-zoom": { opacity: 1 },
+                  "&:focus-visible": {
+                    outline: "2px solid",
+                    outlineColor: "primary.main",
+                    outlineOffset: 2,
+                  },
+                }}
+              >
+                <Box
+                  component="img"
+                  src={src}
+                  alt={`Screenshot ${i + 1}`}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                  sx={{ width: "100%", height: "100%", objectFit: "contain" }}
+                />
+                <Box
+                  className="screenshot-zoom"
+                  sx={{
+                    position: "absolute",
+                    right: 8,
+                    bottom: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    color: "common.white",
+                    bgcolor: "rgba(0, 0, 0, 0.68)",
+                    opacity: 0.86,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  <ZoomInIcon fontSize="small" />
+                </Box>
+              </ButtonBase>
+            </Tooltip>
           );
         })}
       </Box>

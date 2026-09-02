@@ -53,17 +53,22 @@ function renderDetails({
   onBack = vi.fn(),
   onToggleFavorite = vi.fn(),
   onGameUpdate = vi.fn(),
+  onOpenSettings = vi.fn(),
+  onOpenIntegrations = vi.fn(),
+  platforms = [],
 } = {}) {
   return render(
     <MuiTestProvider>
       <RomDownloadsProvider>
         <GameDetails
           game={game}
-          platforms={[]}
+          platforms={platforms}
           onBack={onBack}
           onLaunch={onLaunch}
           onToggleFavorite={onToggleFavorite}
           onGameUpdate={onGameUpdate}
+          onOpenSettings={onOpenSettings}
+          onOpenIntegrations={onOpenIntegrations}
           rommToken="saved-token"
           rommUrl="https://romm.example"
         />
@@ -124,6 +129,32 @@ describe("GameDetails remote Play", () => {
     expect(onGameUpdate).toHaveBeenCalledWith(cachedGame.id);
   });
 
+  it("keeps the overflow menu focused on working actions", async () => {
+    renderDetails({
+      game: {
+        ...remoteOnlyGame,
+        local_file_path: "/roms/cloud-game.gba",
+        sync_state: "synced",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+
+    expect(screen.queryByRole("menuitem", { name: /Manage cached saves/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Ratings & status/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Change emulator/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete Download" })).toBeInTheDocument();
+  });
+
+  it("uses the unified status chips and exposes the favorite affordance", () => {
+    renderDetails();
+
+    const statusChips = screen.getByTestId("game-status-chips").querySelectorAll(".MuiChip-root");
+    expect(statusChips).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Add Cloud Game to favorites" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More options" })).toBeInTheDocument();
+  });
+
   it("deduplicates Play activation until the preparation finishes", async () => {
     let finish = (_result) => {};
     const onLaunch = vi.fn(
@@ -161,6 +192,43 @@ describe("GameDetails remote Play", () => {
       expect(onLaunch).toHaveBeenCalledTimes(2);
       expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled();
     });
+  });
+
+  it("translates missing emulator errors into plain guidance without offering Retry", async () => {
+    const onOpenSettings = vi.fn();
+    const onLaunch = vi.fn().mockResolvedValue({
+      success: false,
+      error: "No compatible RetroArch core is installed for ps2",
+    });
+    renderDetails({
+      onLaunch,
+      onOpenSettings,
+      game: { ...remoteOnlyGame, platform_id: "ps2" },
+      platforms: [[{ id: "ps2", name: "PlayStation 2" }]],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => expect(screen.getByText(/no compatible emulator is installed/i)).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("PlayStation 2");
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
+    expect(screen.queryByText(/certified|promised/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the disabled achievements link to Integrations settings", async () => {
+    const onOpenIntegrations = vi.fn();
+    renderDetails({ onOpenIntegrations });
+
+    const integrationsLink = await screen.findByRole("link", {
+      name: "Enable it in Settings → Integrations.",
+    });
+    fireEvent.click(integrationsLink);
+
+    expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
   });
 
   it("renders staged launch preparation progress from the public event", async () => {

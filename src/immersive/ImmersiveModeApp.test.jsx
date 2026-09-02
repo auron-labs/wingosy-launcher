@@ -143,6 +143,35 @@ const immersivePlatforms = [
 ];
 
 describe("ImmersiveModeApp launch context", () => {
+  it("passes only one tile for duplicate game records", async () => {
+    const games = [
+      { id: 1, name: "Bonk's Adventure", platform_id: "nes" },
+      { id: 2, name: "  BONK'S   ADVENTURE ", platform_id: "NES" },
+      { id: 3, name: "Another Game", platform_id: "nes" },
+    ];
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") return Promise.resolve({ games, total: games.length });
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("game-2")).not.toBeInTheDocument();
+    expect(screen.getByTestId("game-3")).toBeInTheDocument();
+  });
+
   it("keeps the selected game, details view, and library index after refresh", async () => {
     let games = initialGames;
     let finishLaunch;

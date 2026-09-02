@@ -3,15 +3,18 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import LinearProgress from "@mui/material/LinearProgress";
 import IconButton from "@mui/material/IconButton";
+import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import FavoriteIcon from "@mui/icons-material/Favorite";
+import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
-import CloudIcon from "@mui/icons-material/Cloud";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useAppTheme } from "../ThemeContext";
 import { platformBadgeLabel } from "../utils/platformIcons";
+import { isGameDownloaded } from "../utils/gameFilters";
 
 const PLATFORM_COLORS = {
   // Nintendo
@@ -57,13 +60,27 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
   const launchActive = Boolean(launchProgress?.active);
   const downloadActive = Boolean(downloadProgress);
   const visibleProgress = launchActive ? launchProgress : downloadProgress;
+  const isDownloaded = isGameDownloaded(game);
+  const downloadStatusLabel = isDownloaded
+    ? "Downloaded"
+    : isRemoteOnly
+      ? "Cloud only"
+      : "Not downloaded";
 
   const platformSlug = platformBadgeLabel(game.platform_id);
 
   return (
     <Box
+      data-testid="game-card"
       role="button"
+      aria-label={game.name}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onClick();
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       sx={{
@@ -78,10 +95,6 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
           ? `0 8px 32px rgba(0,0,0,0.6), 0 0 20px ${colors.focusGlow}`
           : "0 2px 8px rgba(0,0,0,0.3)",
         zIndex: isHovered ? 10 : 1,
-        "&:focus-visible": {
-          outline: `2px solid ${colors.primary}`,
-          outlineOffset: 2,
-        },
       }}
       tabIndex={0}
     >
@@ -129,21 +142,7 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
               p: 2,
             }}
           >
-            <SportsEsportsIcon sx={{ fontSize: 48, color: `${platformColor}66`, mb: 1 }} />
-            <Typography
-              variant="caption"
-              sx={{
-                color: "text.secondary",
-                textAlign: "center",
-                fontSize: "0.7rem",
-                lineHeight: 1.2,
-                maxHeight: "2.4em",
-                overflow: "hidden",
-                px: 1,
-              }}
-            >
-              {game.name}
-            </Typography>
+            <SportsEsportsIcon sx={{ fontSize: 48, color: `${platformColor}66` }} />
           </Box>
         )}
 
@@ -158,98 +157,70 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
           }}
         />
 
-        {/* Platform badge - top left corner (Argosy-style) */}
+        {/* Download state is always visible so cover art is not the only identifier. */}
         <Box
           sx={{
             position: "absolute",
             top: 0,
             left: 0,
-            bgcolor: "rgba(0,0,0,0.75)",
+            zIndex: 3,
+            display: "flex",
+            alignItems: "center",
+            gap: 0.5,
+            bgcolor: "rgba(18,18,18,0.92)",
             backdropFilter: "blur(8px)",
             px: 1,
-            py: 0.4,
+            py: 0.5,
             borderBottomRightRadius: "8px",
-            minWidth: 32,
+            border: "1px solid rgba(255,255,255,0.24)",
+            borderTop: 0,
+            borderLeft: 0,
+          }}
+        >
+          {isDownloaded ? (
+            <CheckCircleIcon sx={{ fontSize: 17, color: "#9BE7A0" }} />
+          ) : (
+            <CloudDownloadIcon sx={{ fontSize: 17, color: "#FFD180" }} />
+          )}
+          <Typography
+            sx={{
+              fontSize: "0.8125rem",
+              fontWeight: 700,
+              color: "#fff",
+              lineHeight: 1.2,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {downloadStatusLabel}
+          </Typography>
+        </Box>
+
+        {/* Platform badge - top right corner */}
+        <Box
+          sx={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            zIndex: 3,
+            bgcolor: "rgba(0,0,0,0.78)",
+            backdropFilter: "blur(8px)",
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            pointerEvents: "none",
           }}
         >
           <Typography
             sx={{
-              fontSize: "0.6rem",
+              fontSize: "0.8125rem",
               fontWeight: 700,
               color: "#fff",
-              letterSpacing: "0.5px",
-              textAlign: "center",
+              lineHeight: 1.2,
+              letterSpacing: "0.03em",
             }}
           >
             {platformSlug}
           </Typography>
-        </Box>
-
-        {/* Status badges - bottom row */}
-        <Box
-          sx={{
-            position: "absolute",
-            bottom: 6,
-            left: 6,
-            right: 6,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            pointerEvents: "none",
-          }}
-        >
-          {/* Favorite badge */}
-          {game.is_favorite && (
-            <Box
-              sx={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                bgcolor: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(4px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <FavoriteIcon sx={{ fontSize: 12, color: "#fff" }} />
-            </Box>
-          )}
-          <Box sx={{ flex: 1 }} />
-
-          {/* Sync state badge */}
-          {game.sync_state === "remote_only" && (
-            <Box
-              sx={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                bgcolor: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(4px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <CloudIcon sx={{ fontSize: 12, color: colors.primaryLight }} />
-            </Box>
-          )}
-          {game.sync_state === "synced" && (
-            <Box
-              sx={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                bgcolor: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(4px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <CheckCircleIcon sx={{ fontSize: 12, color: "#66BB6A" }} />
-            </Box>
-          )}
         </Box>
 
         {visibleProgress ? (
@@ -275,104 +246,113 @@ export default function GameCard({ game, onClick, onToggleFavorite, onLaunch, do
           </Box>
         ) : null}
 
-        {/* Hover overlay with actions */}
+        {/* Persistent title and actions keep the card navigable without hover. */}
         <Box
           sx={{
             position: "absolute",
-            inset: 0,
-            bgcolor: "rgba(0,0,0,0.5)",
-            opacity: isHovered ? 1 : 0,
-            transition: "opacity 0.2s ease",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 1,
-            pointerEvents: isHovered ? "auto" : "none",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 3,
+            p: 1.25,
+            pt: 5,
+            background: "linear-gradient(transparent 0%, rgba(0,0,0,0.78) 48%, rgba(0,0,0,0.94) 100%)",
           }}
         >
-          {/* Game title on hover */}
           <Typography
             variant="body2"
             sx={{
               color: "#fff",
               fontWeight: 600,
               textAlign: "center",
-              px: 1.5,
-              maxWidth: "100%",
               overflow: "hidden",
               textOverflow: "ellipsis",
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
               textShadow: "0 2px 4px rgba(0,0,0,0.8)",
+              lineHeight: 1.3,
+              minHeight: "2.6em",
               mb: 1,
             }}
+            title={game.name}
           >
             {game.name}
           </Typography>
 
-          {/* Action buttons */}
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Stack direction="row" spacing={1} sx={{ pointerEvents: "auto" }}>
             {canPlay ? (
+              <Tooltip title={launchActive ? "Launching…" : "Play game"}>
+                <span>
+                  <IconButton
+                    aria-label={`Play ${game.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onLaunch();
+                    }}
+                    disabled={launchActive || downloadActive}
+                    sx={{
+                      bgcolor: "rgba(18,18,18,0.92)",
+                      color: colors.primaryLight,
+                      border: `1px solid ${colors.primaryLight}`,
+                      width: 44,
+                      height: 44,
+                      "&:hover": {
+                        bgcolor: colors.primary,
+                        color: "#fff",
+                        boxShadow: `0 0 16px ${colors.focusGlow}`,
+                      },
+                    }}
+                  >
+                    <PlayArrowIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : isRemoteOnly ? (
+              <Tooltip title="Open to download">
+                <IconButton
+                  aria-label={`Download ${game.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClick();
+                  }}
+                  sx={{
+                    bgcolor: "rgba(18,18,18,0.92)",
+                    color: "#FFD180",
+                    border: "1px solid #FFD180",
+                    width: 44,
+                    height: 44,
+                    "&:hover": { bgcolor: "#8A4B08", color: "#fff" },
+                  }}
+                >
+                  <CloudDownloadIcon />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+
+            <Tooltip title={game.is_favorite ? "Remove favorite" : "Add favorite"}>
               <IconButton
-                size="small"
+                aria-label={game.is_favorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`}
+                aria-pressed={Boolean(game.is_favorite)}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onLaunch();
+                  onToggleFavorite();
                 }}
-                disabled={launchActive || downloadActive}
                 sx={{
-                  bgcolor: colors.primary,
+                  bgcolor: game.is_favorite ? "rgba(229,57,53,0.92)" : "rgba(18,18,18,0.92)",
                   color: "#fff",
-                  width: 40,
-                  height: 40,
+                  border: "1px solid rgba(255,255,255,0.7)",
+                  width: 44,
+                  height: 44,
                   "&:hover": {
-                    bgcolor: colors.primaryLight,
-                    boxShadow: `0 0 16px ${colors.focusGlow}`,
+                    bgcolor: game.is_favorite ? "#E53935" : "rgba(50,50,50,0.96)",
                   },
                 }}
               >
-                <PlayArrowIcon />
+                {game.is_favorite ? <FavoriteIcon /> : <FavoriteBorderIcon />}
               </IconButton>
-            ) : isRemoteOnly ? (
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClick();
-                }}
-                sx={{
-                  bgcolor: "#FF7043",
-                  color: "#fff",
-                  width: 40,
-                  height: 40,
-                  "&:hover": { bgcolor: "#FFAB91" },
-                }}
-              >
-                <CloudDownloadIcon />
-              </IconButton>
-            ) : null}
-
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFavorite();
-              }}
-              sx={{
-                bgcolor: game.is_favorite ? "#E53935" : "rgba(255,255,255,0.15)",
-                color: "#fff",
-                width: 40,
-                height: 40,
-                "&:hover": {
-                  bgcolor: game.is_favorite ? "#E53935" : "rgba(255,255,255,0.25)",
-                },
-              }}
-            >
-              <FavoriteIcon />
-            </IconButton>
-          </Box>
+            </Tooltip>
+          </Stack>
         </Box>
       </Box>
     </Box>

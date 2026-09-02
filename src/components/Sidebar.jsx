@@ -178,7 +178,7 @@ export default function Sidebar({
           onClick={() => onSelectPlatform(null)}
           sx={{ borderRadius: 2, mb: 0.5 }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>
+          <ListItemIcon sx={{ minWidth: 40, color: "text.secondary" }}>
             <HomeIcon />
           </ListItemIcon>
           <ListItemText primary="All Games" />
@@ -191,8 +191,8 @@ export default function Sidebar({
           }}
           sx={{ borderRadius: 2, mb: 0.5 }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            <FavoriteIcon color="error" />
+          <ListItemIcon sx={{ minWidth: 40, color: "text.secondary" }}>
+            <FavoriteIcon />
           </ListItemIcon>
           <ListItemText primary="Favorites" />
         </ListItemButton>
@@ -205,7 +205,7 @@ export default function Sidebar({
           }}
           sx={{ borderRadius: 2, mb: 0.5 }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>
+          <ListItemIcon sx={{ minWidth: 40, color: "text.secondary" }}>
             <Badge
               color="primary"
               badgeContent={activeCount > 0 ? activeCount : 0}
@@ -237,11 +237,6 @@ export default function Sidebar({
           overflowY: "auto",
           overflowX: "hidden",
           overscrollBehavior: "contain",
-          "&::-webkit-scrollbar": { width: 4 },
-          "&::-webkit-scrollbar-thumb": {
-            bgcolor: "rgba(255,255,255,0.1)",
-            borderRadius: 2,
-          },
         }}
       >
         {platforms.map(([platform, count]) => (
@@ -279,7 +274,7 @@ export default function Sidebar({
           onClick={() => onNavigate("settings")}
           sx={{ borderRadius: 2 }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>
+          <ListItemIcon sx={{ minWidth: 40, color: "text.secondary" }}>
             <SettingsIcon />
           </ListItemIcon>
           <ListItemText primary="Settings" />

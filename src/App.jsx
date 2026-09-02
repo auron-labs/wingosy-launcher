@@ -18,6 +18,8 @@ import WindowChrome from "./components/WindowChrome";
 import { isTauri, mousedownTargetElement } from "./utils/isTauri";
 import { UiSoundsProvider } from "./UiSoundsContext";
 import { debugLog } from "./utils/debugLog";
+import { filterAndSortGames } from "./utils/gameFilters";
+import { getLaunchErrorPresentation } from "./immersive/launchError";
 
 const appWindow = isTauri() ? getCurrentWindow() : null;
 const getCurrent = getCurrentWindow;
@@ -78,8 +80,11 @@ function App() {
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [librarySortBy, setLibrarySortBy] = useState("name");
+  const [libraryFilterBy, setLibraryFilterBy] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [libraryLaunchError, setLibraryLaunchError] = useState(null);
   const [rommToken, setRommToken] = useState(null);
   const [rommUrl, setRommUrl] = useState("");
   const [immersiveModeEnabled, setImmersiveModeEnabled] = useState(false);
@@ -211,27 +216,49 @@ function App() {
     platformId = selectedPlatform,
     query = searchQuery,
     requestedPage = page,
+    requestedSortBy = librarySortBy,
+    requestedFilterBy = libraryFilterBy,
   ) => {
     const requestId = ++gamesRequestId.current;
     setLoading(true);
     try {
-      const result = await invoke("get_games_page", {
-        platformId,
-        searchQuery: query || null,
-        page: requestedPage,
-        pageSize: GAMES_PER_PAGE,
-      });
+      const usesClientPage = requestedSortBy !== "name" || requestedFilterBy !== "all";
+      const result = usesClientPage
+        ? await invoke("get_games_filtered", {
+            platformId,
+            searchQuery: query || null,
+            favoritesOnly: requestedFilterBy === "favorites",
+            sortBy: requestedSortBy === "recent" ? "last_played" : requestedSortBy,
+          })
+        : await invoke("get_games_page", {
+            platformId,
+            searchQuery: query || null,
+            page: requestedPage,
+            pageSize: GAMES_PER_PAGE,
+          });
       if (requestId === gamesRequestId.current) {
-        const lastPage = Math.max(1, Math.ceil(result.total / GAMES_PER_PAGE));
+        const allGames = usesClientPage
+          ? filterAndSortGames(result, {
+              searchQuery: query,
+              filterBy: requestedFilterBy,
+              sortBy: requestedSortBy,
+            })
+          : result.games;
+        const resultTotal = usesClientPage ? allGames.length : result.total;
+        const lastPage = Math.max(1, Math.ceil(resultTotal / GAMES_PER_PAGE));
         if (requestedPage > lastPage) {
           setPage(lastPage);
           return;
         }
-        setGames(result.games);
-        setGameTotal(result.total);
+        setGames(
+          usesClientPage
+            ? allGames.slice((requestedPage - 1) * GAMES_PER_PAGE, requestedPage * GAMES_PER_PAGE)
+            : result.games,
+        );
+        setGameTotal(resultTotal);
         setSelectedGame((current) => {
           if (!current) return current;
-          return result.games.find((game) => game.id === current.id) || current;
+          return allGames.find((game) => game.id === current.id) || current;
         });
       }
     } catch (err) {
@@ -241,7 +268,7 @@ function App() {
         setLoading(false);
       }
     }
-  }, [page, searchQuery, selectedPlatform]);
+  }, [libraryFilterBy, librarySortBy, page, searchQuery, selectedPlatform]);
 
   useEffect(() => {
     if (showSetup === false) {
@@ -333,9 +360,17 @@ function App() {
       const result = await invoke("prepare_and_launch_game", { gameId });
       
       if (!result.success && result.error) {
-        setError(result.error);
+        const game = games.find((item) => item.id === gameId);
+        const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
+        const presentation = getLaunchErrorPresentation(result.error, platformLabel);
+        setLibraryLaunchError({ gameId, ...presentation });
+        setError(presentation.message);
       } else if (result.save_sync_warnings?.length) {
+        setLibraryLaunchError(null);
         setError(result.save_sync_warnings.join("\n"));
+      } else {
+        setLibraryLaunchError(null);
+        setError(null);
       }
       
       if (!result.dry_run) {
@@ -343,7 +378,11 @@ function App() {
       }
       return result;
     } catch (err) {
-      setError(err.message || String(err));
+      const game = games.find((item) => item.id === gameId);
+      const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
+      const presentation = getLaunchErrorPresentation(err, platformLabel);
+      setLibraryLaunchError({ gameId, ...presentation });
+      setError(presentation.message);
       return null;
     } finally {
       launchInFlightRef.current.delete(gameId);
@@ -365,6 +404,16 @@ function App() {
   function handleSearchChange(query) {
     setPage(1);
     setSearchQuery(query);
+  }
+
+  function handleLibrarySortChange(sortBy) {
+    setPage(1);
+    setLibrarySortBy(sortBy);
+  }
+
+  function handleLibraryFilterChange(filterBy) {
+    setPage(1);
+    setLibraryFilterBy(filterBy);
   }
 
   function handlePageChange(nextPage) {
@@ -479,7 +528,10 @@ function App() {
               overscrollBehavior: "contain",
             }}
           >
-            <RomDownloadsView />
+            <RomDownloadsView
+              onOpenGameDetails={() => handleNavigate("library")}
+              onOpenCloudLibrary={() => handleNavigate("library")}
+            />
           </Box>
         )}
         {view === "library" && (
@@ -511,8 +563,20 @@ function App() {
             onNavigateRommSettings={() =>
               handleNavigate("settings", { settingsSection: "romm" })
             }
+            onOpenSettings={() => handleNavigate("settings", { settingsSection: "emulators" })}
+            onRetryLaunch={() =>
+              libraryLaunchError ? handleLaunchGame(libraryLaunchError.gameId) : null
+            }
+            launchError={libraryLaunchError}
             error={error}
-            onDismissError={() => setError(null)}
+            onDismissError={() => {
+              setError(null);
+              setLibraryLaunchError(null);
+            }}
+            sortBy={librarySortBy}
+            filterBy={libraryFilterBy}
+            onSortChange={handleLibrarySortChange}
+            onFilterChange={handleLibraryFilterChange}
           />
           </Box>
         )}
@@ -534,6 +598,8 @@ function App() {
               reloadLibrary();
             }}
             onLaunch={handleLaunchGame}
+            onOpenSettings={() => handleNavigate("settings", { settingsSection: "emulators" })}
+            onOpenIntegrations={() => handleNavigate("settings", { settingsSection: "integrations" })}
             onToggleFavorite={handleToggleFavorite}
             onGameUpdate={async (gameId) => {
               // Refresh game data and update selected game
@@ -556,10 +622,6 @@ function App() {
           <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <Settings
             initialSection={settingsInitialSection}
-            onBack={() => {
-              handleNavigate("library");
-              reloadLibrary();
-            }}
             rommToken={rommToken}
             rommUrl={rommUrl}
             onRommConnect={handleRommConnect}

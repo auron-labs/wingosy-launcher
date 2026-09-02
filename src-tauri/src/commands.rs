@@ -2659,7 +2659,7 @@ pub fn set_retroarch_beta_profile(enabled: bool) -> Result<(), String> {
     let managed = crate::emulators::retroarch::managed_profile_enabled(&config, executable)
         && AppConfig::emulators_dir().ok().is_some_and(|root| executable.starts_with(root));
     if managed {
-        return Err("Managed RetroArch always uses the certified Wingosy profile".to_string());
+        return Err("Managed RetroArch always uses Wingosy controller settings".to_string());
     }
     config.emulators.retroarch_install_kind = RetroArchInstallKind::External;
     config.emulators.retroarch_manifest_version = None;
@@ -2892,7 +2892,7 @@ fn extract_certified_retroarch_cores(
                 }
                 source.ok_or_else(|| {
                     format!(
-                        "Certified RetroArch core archive did not contain {}",
+                        "RetroArch core archive did not contain {}",
                         core.filename
                     )
                 })?
@@ -3468,7 +3468,7 @@ pub async fn download_retroarch_core(core_name: String) -> Result<String, String
         let resolved_core_name = crate::emulators::cores::resolve_core_filename(&core_name)
             .map_err(|e| e.to_string())?;
         let core = crate::emulators::retroarch::core_artifact_for_filename(&resolved_core_name)
-            .ok_or_else(|| format!("Unsupported certified RetroArch core: {resolved_core_name}"))?;
+            .ok_or_else(|| format!("Unsupported RetroArch core: {resolved_core_name}"))?;
         let root = retroarch_path.parent().ok_or("RetroArch has no install directory")?;
         let core_path = root.join("cores").join(&resolved_core_name);
         if core_path.is_file()
@@ -4019,8 +4019,8 @@ pub async fn check_for_app_update(channel: String) -> UpdateCheckResult {
     let picked = pick_prerelease_track(&releases, ch);
     let Some(release) = picked else {
         let hint = match ch {
-            UpdateChannel::Beta => "No beta prerelease found (tags should include \"beta\", GitHub prerelease: true).",
-            UpdateChannel::Nightly => "No nightly prerelease found (tags should include \"nightly\", GitHub prerelease: true).",
+            UpdateChannel::Beta => "No Beta release is available right now. Try Stable or check again later.",
+            UpdateChannel::Nightly => "No Nightly release is available right now. Try Stable or check again later.",
             UpdateChannel::Stable => unreachable!(),
         };
         return UpdateCheckResult {

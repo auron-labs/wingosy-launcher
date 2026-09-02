@@ -59,8 +59,8 @@ export function UiSoundsProvider({ children, immersiveActive = false }) {
 
   const play = useCallback(
     /** @param {ArgosySoundId} id */
-    (id) => {
-      if (!immersiveActive || !uiSoundsEnabled) return;
+    (id, allowDesktop = false) => {
+      if ((!immersiveActive && !allowDesktop) || !uiSoundsEnabled) return;
       const url = ARGOSY_SOUND_URLS[id];
       if (!url) return;
       if (id === "tap") {
@@ -79,6 +79,12 @@ export function UiSoundsProvider({ children, immersiveActive = false }) {
       }
     },
     [immersiveActive, uiSoundsEnabled, uiSoundsVolume]
+  );
+
+  const preview = useCallback(
+    /** @param {ArgosySoundId} id */
+    (id) => play(id, true),
+    [play]
   );
 
   const setUiSoundsEnabled = useCallback((next) => {
@@ -129,6 +135,7 @@ export function UiSoundsProvider({ children, immersiveActive = false }) {
       setUiSoundsVolume,
       refreshUiSoundsFromConfig: refreshFromConfig,
       playArgosySound: play,
+      previewArgosySound: preview,
     }),
     [
       uiSoundsEnabled,
@@ -137,6 +144,7 @@ export function UiSoundsProvider({ children, immersiveActive = false }) {
       setUiSoundsVolume,
       refreshFromConfig,
       play,
+      preview,
     ]
   );
 
