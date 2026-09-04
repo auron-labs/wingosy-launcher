@@ -1,0 +1,78 @@
+amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
+// Using a coding agent? See https://hk.jdx.dev/agents
+
+exclude = List("src-tauri/gen/**", "src/data/consoleIconSet.json")
+
+local linters = new Mapping<String, Step> {
+    ["cargo_fmt"] = new Step {
+        check = "cargo fmt --all -- --check"
+        fix = "cargo fmt --all"
+        glob = "**/*.rs"
+        dir = "src-tauri"
+    }
+    ["cargo_clippy"] = new Step {
+        check = "cargo clippy --all-targets --all-features --locked -- -D warnings"
+        glob = "**/*.rs"
+        dir = "src-tauri"
+    }
+    ["cargo_test"] = new Step {
+        check = "cargo test --all-features --locked"
+        glob = "**/*.{rs,toml}"
+        dir = "src-tauri"
+    }
+    ["check_added_large_files"] = Builtins.check_added_large_files
+    ["byte_order_marker"] = Builtins.byte_order_marker
+    ["check_case_conflict"] = Builtins.check_case_conflict
+    ["check_executables_have_shebangs"] = Builtins.check_executables_have_shebangs
+    ["check_merge_conflict"] = Builtins.check_merge_conflict
+    ["check_symlinks"] = Builtins.check_symlinks
+    ["contextlint"] = Builtins.contextlint
+    ["detect_private_key"] = Builtins.detect_private_key
+    ["jq"] = Builtins.jq
+    ["mise"] = Builtins.mise
+    ["newlines"] = Builtins.newlines
+    ["frontend_lint"] = new Step {
+        check = "bun run lint:frontend"
+        fix = "bun run lint:frontend:fix"
+        glob = "**/*.{js,jsx,ts,tsx,json,jsonc,css,html,md,yaml,yml}"
+    }
+    ["frontend_typecheck"] = new Step {
+        check = "bun run typecheck"
+        glob = "src/**/*.{js,jsx,ts,tsx}"
+    }
+    ["frontend_test"] = new Step {
+        check = "bun run test:unit"
+        glob = "src/**/*.{js,jsx,ts,tsx}"
+    }
+    ["pkl"] = Builtins.pkl
+    ["shellcheck"] = Builtins.shellcheck
+    ["shfmt"] = Builtins.shfmt
+    ["tombi"] = Builtins.tombi
+    ["tombi_format"] = Builtins.tombi_format
+    ["yamlfmt"] = Builtins.yamlfmt
+    ["yamllint"] = Builtins.yamllint
+    ["zizmor"] = Builtins.zizmor
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps = linters
+    }
+    ["check"] {
+        steps = linters
+    }
+    ["fix"] {
+        fix = true
+        steps = linters
+    }
+    ["commit-msg"] {
+      steps {
+        ["conventional-commit"] {
+          check = "hk util check-conventional-commit {{commit_msg_file}}"
+        }
+      }
+    }
+}
