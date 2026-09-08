@@ -1,16 +1,15 @@
 # Local Issue State
 
-Generated: 2026-09-08T14:59:10+10:00
+Generated: 2026-09-08T06:14:17Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 3 active, 16 resolved
+Tickets: 2 active, 17 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [01-drive-system-controller](virtual-gamepad-testing/issues/01-drive-system-controller.md) | — | — | ready-for-agent | None |
 | [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [02-release-unattended-input](virtual-gamepad-testing/issues/02-release-unattended-input.md) | — | — | ready-for-agent | 01 — Drive one system controller through a persistent adapter |
 | [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [03-prove-wingosy-navigation](virtual-gamepad-testing/issues/03-prove-wingosy-navigation.md) | — | — | ready-for-agent | 01 — Drive one system controller through a persistent adapter; 02 — Release unattended input without ending the controller session |
 
@@ -34,3 +33,4 @@ Tickets: 3 active, 16 resolved
 | [ui-audit](ui-audit) | [12-settings-updates](ui-audit/issues/12-settings-updates.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |
 | [ui-audit](ui-audit) | [13-copy-jargon-coming-soon-sweep](ui-audit/issues/13-copy-jargon-coming-soon-sweep.md) | — | — | resolved | 05 — Game details page overhaul; 10 — RomM and Integrations; 12 — Updates. |
 | [ui-audit](ui-audit) | [14-focus-keyboard-affordances](ui-audit/issues/14-focus-keyboard-affordances.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [01-drive-system-controller](virtual-gamepad-testing/issues/01-drive-system-controller.md) | — | — | resolved | None |
