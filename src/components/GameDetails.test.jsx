@@ -56,6 +56,8 @@ function renderDetails({
   onOpenSettings = vi.fn(),
   onOpenIntegrations = vi.fn(),
   platforms = [],
+  rommToken = "saved-token",
+  rommUrl = "https://romm.example",
 } = {}) {
   return render(
     <MuiTestProvider>
@@ -69,13 +71,21 @@ function renderDetails({
           onGameUpdate={onGameUpdate}
           onOpenSettings={onOpenSettings}
           onOpenIntegrations={onOpenIntegrations}
-          rommToken="saved-token"
-          rommUrl="https://romm.example"
+          rommToken={rommToken}
+          rommUrl={rommUrl}
         />
       </RomDownloadsProvider>
     </MuiTestProvider>
   );
 }
+
+const switchRemoteGame = {
+  ...remoteOnlyGame,
+  id: 17,
+  name: "Switch Cloud Game",
+  platform_id: "switch",
+  file_path: "Switch Cloud Game.nsp",
+};
 
 describe("GameDetails remote Play", () => {
   beforeEach(() => {
@@ -87,6 +97,88 @@ describe("GameDetails remote Play", () => {
 
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download ROM" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sync Updates & DLC" })).not.toBeInTheDocument();
+  });
+
+  it("shows Switch content sync only for an authenticated RomM Switch game", () => {
+    renderDetails({ game: switchRemoteGame });
+
+    expect(screen.getByRole("button", { name: "Sync Updates & DLC" })).toBeInTheDocument();
+  });
+
+  it("dispatches Switch content sync once and reports its completion summary", async () => {
+    let finish;
+    invoke.mockImplementation((command) => {
+      if (command === "sync_switch_content") {
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve({ display: {} });
+    });
+    renderDetails({ game: switchRemoteGame });
+
+    const sync = screen.getByRole("button", { name: "Sync Updates & DLC" });
+    fireEvent.click(sync);
+    fireEvent.click(sync);
+
+    expect(invoke).toHaveBeenCalledWith("sync_switch_content", { gameId: switchRemoteGame.id });
+    expect(invoke.mock.calls.filter(([command]) => command === "sync_switch_content")).toHaveLength(1);
+    expect(sync).toBeDisabled();
+
+    finish({
+      success: true,
+      message: "Synced Switch content: 1 downloaded, 2 reused.",
+      downloaded: 1,
+      reused: 2,
+    });
+    expect(await screen.findByText("Synced Switch content: 1 downloaded, 2 reused.")).toBeInTheDocument();
+  });
+
+  it("renders Switch content progress and actionable retry guidance", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    listen.mockImplementation(async (event, handler) => {
+      eventListeners.set(event, handler);
+      return () => eventListeners.delete(event);
+    });
+    let finish;
+    invoke.mockImplementation((command) => {
+      if (command === "sync_switch_content") {
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve({ display: {} });
+    });
+    renderDetails({ game: switchRemoteGame });
+
+    await waitFor(() => expect(eventListeners.has("switch-content-sync-progress")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    await act(async () => {
+      eventListeners.get("switch-content-sync-progress")({
+        payload: {
+          game_id: switchRemoteGame.id,
+          stage: "downloading",
+          file_index: 1,
+          total_files: 2,
+          downloaded: 512,
+          total: 1024,
+          percent: 50,
+        },
+      });
+    });
+    expect(screen.getByTestId("switch-content-sync-progress")).toHaveTextContent("Downloading Switch content… (1/2)");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
+
+    finish({ success: true, message: "Synced Switch content: 1 downloaded, 1 reused." });
+    await waitFor(() => expect(screen.getByText(/1 downloaded, 1 reused/)).toBeInTheDocument());
+
+    invoke.mockImplementation((command) => {
+      if (command === "sync_switch_content") return Promise.reject(new Error("Eden is running"));
+      return Promise.resolve({ display: {} });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    expect(await screen.findByText(/Eden is running.*Choose “Sync Updates & DLC” to retry/)).toBeInTheDocument();
   });
 
   it("downloads a ROM manually and updates the game", async () => {

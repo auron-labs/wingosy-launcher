@@ -17,6 +17,7 @@ const RomDownloadsContext = createContext({
   clearRecentDownloads: () => {},
   getProgress: (_gameId) => null,
   getLaunchProgress: (_gameId) => null,
+  getSwitchContentProgress: (_gameId) => null,
   activeCount: 0,
 });
 
@@ -47,6 +48,7 @@ export function RomDownloadsProvider({ children }) {
   const [activeByGameId, setActiveByGameId] = useState({});
   const [recentDownloads, setRecentDownloads] = useState([]);
   const [launchProgressByGameId, setLaunchProgressByGameId] = useState({});
+  const [switchContentProgressByGameId, setSwitchContentProgressByGameId] = useState({});
   const activeRef = useRef({});
 
   useEffect(() => {
@@ -184,6 +186,27 @@ export function RomDownloadsProvider({ children }) {
           },
         }));
       });
+
+      await safeListen("switch-content-sync-progress", (event) => {
+        const progress = event.payload || {};
+        if (progress.game_id == null) return;
+        setSwitchContentProgressByGameId((prev) => ({
+          ...prev,
+          [progress.game_id]: progress,
+        }));
+      });
+
+      const clearSwitchContentProgress = (event) => {
+        const gameId = event.payload?.game_id;
+        if (gameId == null) return;
+        setSwitchContentProgressByGameId((prev) => {
+          const next = { ...prev };
+          delete next[gameId];
+          return next;
+        });
+      };
+      await safeListen("switch-content-sync-complete", clearSwitchContentProgress);
+      await safeListen("switch-content-sync-error", clearSwitchContentProgress);
     })();
 
     return () => {
@@ -207,6 +230,11 @@ export function RomDownloadsProvider({ children }) {
     [launchProgressByGameId]
   );
 
+  const getSwitchContentProgress = useCallback(
+    (gameId) => switchContentProgressByGameId[gameId] ?? null,
+    [switchContentProgressByGameId]
+  );
+
   const clearRecentDownloads = useCallback(() => {
     setRecentDownloads([]);
   }, []);
@@ -219,6 +247,7 @@ export function RomDownloadsProvider({ children }) {
       clearRecentDownloads,
       getProgress,
       getLaunchProgress,
+      getSwitchContentProgress,
       activeCount: activeDownloads.length,
     }),
     [
@@ -228,6 +257,7 @@ export function RomDownloadsProvider({ children }) {
       clearRecentDownloads,
       getProgress,
       getLaunchProgress,
+      getSwitchContentProgress,
     ]
   );
 

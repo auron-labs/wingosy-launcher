@@ -1,22 +1,24 @@
 # Local Issue State
 
-Generated: 2026-09-07T00:05:01Z
+Generated: 2026-09-08T04:47:25Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 0 active, 16 resolved
+Tickets: 2 active, 18 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-
-_No active tickets._
+| [eden-integration](eden-integration/spec.md) | [03-reliable-eden-save-sync](eden-integration/issues/03-reliable-eden-save-sync.md) | — | — | ready-for-human | None — can start immediately |
+| [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | ready-for-human | None — can start immediately |
 
 ## Resolved Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
+| [eden-integration](eden-integration/spec.md) | [01-follow-wingosy-fullscreen](eden-integration/issues/01-follow-wingosy-fullscreen.md) | — | — | resolved | None — can start immediately |
+| [eden-integration](eden-integration/spec.md) | [02-configure-controller-for-eden](eden-integration/issues/02-configure-controller-for-eden.md) | — | — | resolved | None — can start immediately |
 | [immersive-library-discovery](immersive-library-discovery) | [01-filter-immersive-library-by-platform](immersive-library-discovery/issues/01-filter-immersive-library-by-platform.md) | — | — | resolved | None — can start immediately. |
 | [immersive-library-discovery](immersive-library-discovery) | [02-search-immersive-library-by-name](immersive-library-discovery/issues/02-search-immersive-library-by-name.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [01-design-system-typography-buttons-states](ui-audit/issues/01-design-system-typography-buttons-states.md) | — | — | resolved | None — can start immediately. |

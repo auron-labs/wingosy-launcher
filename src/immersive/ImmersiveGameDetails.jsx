@@ -31,6 +31,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import SaveIcon from "@mui/icons-material/Save";
 import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
+import SyncIcon from "@mui/icons-material/Sync";
 import { alpha } from "@mui/material/styles";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useAppTheme } from "../ThemeContext";
@@ -110,9 +111,10 @@ export default function ImmersiveGameDetails({
   retroachievementsEnabled = false,
 }) {
   const { colors } = useAppTheme();
-  const { getProgress, getLaunchProgress } = useRomDownloads();
+  const { getProgress, getLaunchProgress, getSwitchContentProgress } = useRomDownloads();
   const romDl = getProgress(game.id);
   const launchProgress = getLaunchProgress(game.id);
+  const switchContentProgress = getSwitchContentProgress(game.id);
   const [downloading, setDownloading] = useState(false);
   const downloadInFlightRef = useRef(false);
   const [downloadStatus, setDownloadStatus] = useState(null);
@@ -126,6 +128,9 @@ export default function ImmersiveGameDetails({
   const [justDownloaded, setJustDownloaded] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [actionStatus, setActionStatus] = useState(null);
+  const [switchContentSyncing, setSwitchContentSyncing] = useState(false);
+  const switchContentInFlightRef = useRef(false);
+  const switchContentSyncingRef = useRef(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
@@ -148,6 +153,7 @@ export default function ImmersiveGameDetails({
   const isLocalGame = !game.romm_id && game.source !== "RomM";
   const canPlay = hasLocalFile || isLocalGame;
   const canDownload = game.romm_id && rommToken && rommUrl;
+  const canSyncSwitchContent = game.platform_id === "switch" && game.source === "RomM" && game.romm_id && rommToken && rommUrl;
   const launchActive = launching;
   const attemptProgress = launchProgress &&
     launchProgress !== staleLaunchProgressRef.current
@@ -163,7 +169,7 @@ export default function ImmersiveGameDetails({
   const retryableLaunchFailure = launchFailure && launchErrorPresentation.retryable;
 
   const handleLaunchGame = useCallback(async () => {
-    if (launchInFlightRef.current || downloadInFlightRef.current || launchActive) return;
+    if (launchInFlightRef.current || downloadInFlightRef.current || switchContentInFlightRef.current || launchActive) return;
     launchInFlightRef.current = true;
     staleLaunchProgressRef.current = launchProgress;
     setLaunching(true);
@@ -182,7 +188,7 @@ export default function ImmersiveGameDetails({
   }, [game.id, launchActive, launchProgress, onLaunch]);
 
   const handleDownloadRom = useCallback(async () => {
-    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
+    if (downloadInFlightRef.current || switchContentInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
     downloadInFlightRef.current = true;
     try {
       setDownloading(true);
@@ -202,6 +208,36 @@ export default function ImmersiveGameDetails({
       setDownloading(false);
     }
   }, [game.id, launchActive, onGameUpdate, rommToken, rommUrl]);
+
+  async function handleSyncSwitchContent() {
+    if (
+      switchContentInFlightRef.current
+      || launchActive
+      || downloading
+      || !canSyncSwitchContent
+    ) return;
+    switchContentInFlightRef.current = true;
+    switchContentSyncingRef.current = true;
+    setSwitchContentSyncing(true);
+    setActionStatus({ type: "info", message: "Syncing Switch updates and DLC…" });
+    try {
+      const result = await invoke("sync_switch_content", { gameId: game.id });
+      setActionStatus({
+        type: "success",
+        message: result.message || `Switch content synced: ${result.downloaded} downloaded, ${result.reused} reused.`,
+      });
+    } catch (err) {
+      const message = err?.message || String(err);
+      setActionStatus({
+        type: "error",
+        message: `${message} Choose “Sync Updates & DLC” to retry after correcting the issue.`,
+      });
+    } finally {
+      switchContentInFlightRef.current = false;
+      switchContentSyncingRef.current = false;
+      setSwitchContentSyncing(false);
+    }
+  }
 
   useEffect(() => {
     if (wasLaunchingRef.current && !launching && !launchFailure) {
@@ -316,7 +352,7 @@ export default function ImmersiveGameDetails({
           }
           return;
         }
-        if (launching) {
+        if (launching || switchContentSyncingRef.current) {
           logControllerOutcome(action, "details", "suppressed", { reason: "launch-in-progress" });
           return;
         }
@@ -592,6 +628,30 @@ export default function ImmersiveGameDetails({
               {actionStatus.message}
             </Alert>
           )}
+          {switchContentSyncing && (
+            <Box sx={{ mb: 2 }} data-testid="switch-content-sync-progress">
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                {switchContentProgress?.stage === "registering"
+                  ? "Registering content with Eden…"
+                  : switchContentProgress?.stage === "reusing"
+                    ? "Reusing unchanged content…"
+                    : "Downloading Switch content…"}
+                {switchContentProgress?.file_index && switchContentProgress.total_files
+                  ? ` (${switchContentProgress.file_index}/${switchContentProgress.total_files})`
+                  : ""}
+              </Typography>
+              <LinearProgress
+                variant={switchContentProgress?.percent != null ? "determinate" : "indeterminate"}
+                value={switchContentProgress?.percent ?? undefined}
+                sx={{ borderRadius: 2 }}
+              />
+              {switchContentProgress?.downloaded != null ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  {formatDownloadLabel(switchContentProgress)}
+                </Typography>
+              ) : null}
+            </Box>
+          )}
 
           <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
             {canPlay && (
@@ -601,7 +661,7 @@ export default function ImmersiveGameDetails({
                 size="large"
                 startIcon={<PlayArrowIcon />}
                 onClick={handleLaunchGame}
-                disabled={launchActive || downloading}
+                disabled={launchActive || downloading || switchContentSyncing}
                 sx={{ borderRadius: 2, px: 4, py: 1.6, fontSize: "1.05rem", textTransform: "none", fontWeight: 700 }}
               >
                 {launchActive ? "Preparing..." : "Play"}
@@ -617,7 +677,7 @@ export default function ImmersiveGameDetails({
                     size="large"
                     startIcon={downloading ? null : <CloudDownloadIcon />}
                     onClick={handleDownloadRom}
-                    disabled={downloading || !rommToken || !rommUrl}
+                    disabled={downloading || switchContentSyncing || !rommToken || !rommUrl}
                     sx={{ borderRadius: 2, px: 4, py: 1.6, fontSize: "1.05rem", textTransform: "none", fontWeight: 700 }}
                   >
                     {downloading ? "Downloading..." : "Download"}
@@ -632,10 +692,23 @@ export default function ImmersiveGameDetails({
                 size="large"
                 startIcon={downloading ? null : <CloudDownloadIcon />}
                 onClick={handleDownloadRom}
-                disabled={downloading}
+                disabled={downloading || switchContentSyncing}
                 sx={{ borderRadius: 2, px: 3, py: 1.6, textTransform: "none", fontWeight: 700 }}
               >
                 {downloading ? "Downloading..." : "Re-download"}
+              </Button>
+            )}
+
+            {canSyncSwitchContent && (
+              <Button
+                variant="outlined"
+                size="large"
+                startIcon={switchContentSyncing ? null : <SyncIcon />}
+                onClick={handleSyncSwitchContent}
+                disabled={switchContentSyncing || launchActive || downloading}
+                sx={{ borderRadius: 2, px: 3, py: 1.6, textTransform: "none", fontWeight: 700 }}
+              >
+                {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
               </Button>
             )}
 

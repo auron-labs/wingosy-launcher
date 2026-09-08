@@ -225,9 +225,12 @@ impl Database {
         Ok(())
     }
 
-    pub fn clear_save_sync_failure(&self, game_id: i64) -> Result<()> {
+    pub fn clear_save_sync_failure(&self, game_id: i64, phase: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM pending_save_sync WHERE game_id = ?1", [game_id])?;
+        conn.execute(
+            "DELETE FROM pending_save_sync WHERE game_id = ?1 AND phase = ?2",
+            rusqlite::params![game_id, phase],
+        )?;
         Ok(())
     }
 }
@@ -262,6 +265,18 @@ mod tests {
         }
         db.record_save_sync_failure(42, "post_launch", "offline")
             .unwrap();
+        db.clear_save_sync_failure(42, "pre_launch").unwrap();
+        let conn = db.conn.lock().unwrap();
+        let row: (String, i64, String) = conn
+            .query_row(
+                "SELECT phase, attempts, last_error FROM pending_save_sync WHERE game_id = 42",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("post_launch".to_string(), 1, "offline".to_string()));
+        drop(conn);
+
         db.record_save_sync_failure(42, "pre_launch", "still offline")
             .unwrap();
         let conn = db.conn.lock().unwrap();
@@ -272,9 +287,21 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert_eq!(row, ("pre_launch".to_string(), 2, "still offline".to_string()));
+        assert_eq!(
+            row,
+            ("pre_launch".to_string(), 2, "still offline".to_string())
+        );
         drop(conn);
-        db.clear_save_sync_failure(42).unwrap();
+
+        db.clear_save_sync_failure(42, "post_launch").unwrap();
+        let conn = db.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        drop(conn);
+
+        db.clear_save_sync_failure(42, "pre_launch").unwrap();
         let conn = db.conn.lock().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))

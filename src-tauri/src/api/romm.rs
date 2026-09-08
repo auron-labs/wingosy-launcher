@@ -368,6 +368,8 @@ impl RomMClient {
                     .filter(|m| m.is_object() && !m.as_object().unwrap().is_empty())
                     .and_then(|m| serde_json::from_value(m.clone()).ok()),
                 screenshots,
+                title_id_candidates: None,
+                files: None,
             })
         }).collect();
 
@@ -407,6 +409,13 @@ impl RomMClient {
             .context(format!("ROM response is not valid JSON: {}", &text[..text.len().min(100)]))?;
         
         let screenshots = screenshot_urls_from_rom_json(&raw, &self.base_url);
+        let files = raw
+            .get("files")
+            .map(|value| {
+                serde_json::from_value::<Vec<RomMFile>>(value.clone())
+                    .context("Detailed ROM metadata 'files' must be an array")
+            })
+            .transpose()?;
         let rom = RomMRom {
             id: raw["id"].as_i64().context("ROM missing 'id' field")? as i32,
             platform_id: raw["platform_id"].as_i64().unwrap_or(0) as i32,
@@ -425,6 +434,8 @@ impl RomMClient {
                 .filter(|m| m.is_object() && !m.as_object().unwrap().is_empty())
                 .and_then(|m| serde_json::from_value(m.clone()).ok()),
             screenshots,
+            title_id_candidates: Some(title_id_candidates_from_rom_json(&raw)),
+            files,
         };
         
         tracing::debug!("[RomM] Fetched ROM: {} (fs_name={})", rom.name, rom.fs_name);
@@ -435,6 +446,14 @@ impl RomMClient {
         format!(
             "{}/api/roms/{}/content/{}",
             self.base_url, rom_id, filename
+        )
+    }
+
+    pub fn rom_file_download_url(&self, file_id: i32, filename: &str) -> String {
+        let encoded_name = urlencoding::encode(filename);
+        format!(
+            "{}/api/roms/{}/files/content/{}",
+            self.base_url, file_id, encoded_name
         )
     }
 
@@ -919,6 +938,40 @@ pub struct RomMRom {
     /// Resolved from RomM JSON (`screenshots`, `igdb_screenshots`, etc.); not serde-filled from list API.
     #[serde(default)]
     pub screenshots: Vec<String>,
+    /// Valid base application IDs found in authenticated detailed ROM metadata.
+    /// `None` means the response did not include detailed identity metadata.
+    #[serde(default)]
+    pub title_id_candidates: Option<Vec<String>>,
+    /// Child files from authenticated detailed metadata. List responses leave this unset.
+    #[serde(default)]
+    pub files: Option<Vec<RomMFile>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RomMFile {
+    #[serde(default)]
+    pub id: Option<i32>,
+    #[serde(default)]
+    pub rom_id: Option<i32>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub file_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub last_modified: Option<RomMFileLastModified>,
+    #[serde(default)]
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RomMFileLastModified {
+    Number(f64),
+    Text(String),
 }
 
 impl RomMRom {
@@ -1018,6 +1071,102 @@ impl RomMRom {
             local_file_path: None,
         }
     }
+}
+
+fn add_title_id_candidates(text: Option<&str>, candidates: &mut Vec<String>) {
+    let Some(text) = text else {
+        return;
+    };
+    for title_id in crate::sync::switch_save::extract_title_ids_from_path(text) {
+        if !candidates.contains(&title_id) {
+            candidates.push(title_id);
+        }
+    }
+}
+
+fn file_category(value: &serde_json::Value) -> Option<&serde_json::Value> {
+    value
+        .get("category")
+        .or_else(|| value.get("file_category"))
+        .or_else(|| value.get("file_type"))
+        .or_else(|| value.get("type"))
+}
+
+fn file_category_name(category: &serde_json::Value) -> Option<&str> {
+    category
+        .as_str()
+        .or_else(|| category.get("name").and_then(|name| name.as_str()))
+}
+
+fn is_base_game_file(value: &serde_json::Value) -> bool {
+    let Some(category) = file_category(value) else {
+        return true;
+    };
+    category.is_null()
+        || file_category_name(category).is_some_and(|name| name.eq_ignore_ascii_case("game"))
+}
+
+fn add_file_title_id_candidates(file: &serde_json::Value, candidates: &mut Vec<String>) {
+    for key in [
+        "fs_name",
+        "file_name",
+        "filename",
+        "name",
+        "file_path",
+        "full_path",
+        "path",
+    ] {
+        add_title_id_candidates(file.get(key).and_then(|value| value.as_str()), candidates);
+    }
+}
+
+fn add_game_file_candidates(value: &serde_json::Value, candidates: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Array(files) => {
+            for file in files {
+                add_game_file_candidates(file, candidates);
+            }
+        }
+        serde_json::Value::Object(files) if is_base_game_file(value) => {
+            if files.keys().any(|key| {
+                [
+                    "fs_name",
+                    "file_name",
+                    "filename",
+                    "name",
+                    "file_path",
+                    "full_path",
+                    "path",
+                ]
+                .iter()
+                .any(|file_key| key == file_key)
+            }) {
+                add_file_title_id_candidates(value, candidates);
+            }
+            for key in ["game", "files", "items", "children"] {
+                if let Some(nested) = files.get(key) {
+                    add_game_file_candidates(nested, candidates);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn title_id_candidates_from_rom_json(raw: &serde_json::Value) -> Vec<String> {
+    let mut candidates = Vec::new();
+    add_title_id_candidates(
+        raw.get("fs_name").and_then(|value| value.as_str()),
+        &mut candidates,
+    );
+    add_title_id_candidates(
+        raw.get("file_name").and_then(|value| value.as_str()),
+        &mut candidates,
+    );
+    if let Some(files) = raw.get("files") {
+        add_game_file_candidates(files, &mut candidates);
+    }
+    candidates
 }
 
 fn absolutize_media_url(path: &str, server_url: &str) -> String {
@@ -1194,6 +1343,16 @@ mod tests {
     }
 
     #[test]
+    fn rom_file_download_url_uses_authenticated_child_file_endpoint() {
+        let client = RomMClient::new("https://romm.example.com/");
+        let url = client.rom_file_download_url(456, "Update Pack.nsp");
+        assert_eq!(
+            url,
+            "https://romm.example.com/api/roms/456/files/content/Update%20Pack.nsp"
+        );
+    }
+
+    #[test]
     fn cover_url_format() {
         let client = RomMClient::new("https://romm.example.com");
         let url = client.cover_url(456);
@@ -1221,6 +1380,60 @@ mod tests {
     }
 
     #[test]
+    fn detailed_rom_identity_uses_primary_and_game_files_only() {
+        let raw = serde_json::json!({
+            "fs_name": "Game [0100AAAA00000001].nsp",
+            "files": [
+                {"category": "game", "file_name": "Game [0100AAAA00000001].nsp"},
+                {"category": "update", "file_name": "Update [0100BBBB00000002].nsp"},
+                {"category": "dlc", "file_name": "DLC [0100CCCC00000003].nsp"},
+                {"category": "future-artifact", "file_name": "Other [0100DDDD00000004].nsp"}
+            ]
+        });
+
+        assert_eq!(
+            title_id_candidates_from_rom_json(&raw),
+            vec!["0100AAAA00000001".to_string()]
+        );
+    }
+
+    #[test]
+    fn detailed_rom_identity_retains_conflicting_trusted_candidates() {
+        let raw = serde_json::json!({
+            "fs_name": "Game [0100AAAA00000001].nsp",
+            "files": {
+                "game": [{"file_name": "Game [0100BBBB00000002].nsp"}]
+            }
+        });
+
+        assert_eq!(
+            title_id_candidates_from_rom_json(&raw),
+            vec![
+                "0100AAAA00000001".to_string(),
+                "0100BBBB00000002".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn detailed_rom_identity_accepts_uncategorized_nested_base_file() {
+        let raw = serde_json::json!({
+            "fs_name": "Game.nsp",
+            "files": [{
+                "category": null,
+                "children": [{
+                    "file_name": "Game [0100AAAA00000001].nsp"
+                }]
+            }]
+        });
+
+        assert_eq!(
+            title_id_candidates_from_rom_json(&raw),
+            vec!["0100AAAA00000001".to_string()]
+        );
+    }
+
+    #[test]
     fn rom_has_cover_when_url_present() {
         let rom = RomMRom {
             id: 1,
@@ -1234,6 +1447,8 @@ mod tests {
             url_cover: Some("https://example.com/cover.jpg".into()),
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         assert!(rom.has_cover());
     }
@@ -1252,6 +1467,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         assert!(!rom.has_cover());
     }
@@ -1270,6 +1487,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         assert!(rom.genres().is_empty());
     }
@@ -1296,6 +1515,8 @@ mod tests {
                 game_modes: None,
             }),
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         let genres = rom.genres();
         assert_eq!(genres.len(), 2);
@@ -1324,6 +1545,8 @@ mod tests {
                 game_modes: None,
             }),
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         assert_eq!(rom.aggregated_rating(), Some(85.5));
     }
@@ -1350,6 +1573,8 @@ mod tests {
                 game_modes: None,
             }),
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         assert_eq!(rom.aggregated_rating(), Some(75.0));
     }
@@ -1368,6 +1593,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com");
@@ -1393,6 +1620,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com");
@@ -1413,6 +1642,8 @@ mod tests {
             url_cover: Some("/media/covers/test.jpg".into()),
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com/");
@@ -1433,6 +1664,8 @@ mod tests {
             url_cover: Some("https://cdn.example.com/cover.jpg".into()),
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com");
@@ -1502,6 +1735,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com");
@@ -1531,6 +1766,8 @@ mod tests {
                 game_modes: Some(vec!["Single player".into(), "Co-operative".into()]),
             }),
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.developer.as_deref(), Some("Dev Studio"));
@@ -1554,6 +1791,8 @@ mod tests {
             url_cover: None,
             igdb_metadata: None,
             screenshots: vec![],
+            title_id_candidates: None,
+            files: None,
         };
         
         let game = rom.into_game("https://romm.example.com");

@@ -183,6 +183,10 @@ export default function Settings({
   const [emuMenuAnchor, setEmuMenuAnchor] = useState(null);
   const [selectedEmu, setSelectedEmu] = useState(null);
   const [expandedEmu, setExpandedEmu] = useState(null);
+  const [nativeControllers, setNativeControllers] = useState([]);
+  const [nativeControllerLoading, setNativeControllerLoading] = useState(false);
+  const [nativeControllerCapture, setNativeControllerCapture] = useState(null);
+  const [nativeControllerMessage, setNativeControllerMessage] = useState(null);
   
   // Hidden games state
   const [hiddenGames, setHiddenGames] = useState([]);
@@ -246,6 +250,12 @@ export default function Settings({
     loadPlatformDefaults();
     loadPlatforms();
   }, []);
+
+  useEffect(() => {
+    if (settingsSection === "emulators") {
+      loadNativeControllers();
+    }
+  }, [settingsSection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -686,6 +696,44 @@ export default function Settings({
       setRetroarchCoreDllByPlatform(raCores && typeof raCores === "object" ? raCores : {});
     } catch (err) {
       console.error("Failed to load emulators:", err);
+    }
+  }
+
+  async function loadNativeControllers() {
+    setNativeControllerLoading(true);
+    try {
+      const controllers = await invoke("get_native_controllers");
+      setNativeControllers(Array.isArray(controllers) ? controllers : []);
+      setNativeControllerMessage(null);
+    } catch (err) {
+      setNativeControllers([]);
+      setNativeControllerMessage({
+        type: "warning",
+        message: err?.message || String(err),
+      });
+    } finally {
+      setNativeControllerLoading(false);
+    }
+  }
+
+  async function handleCaptureNativeController(deviceId) {
+    setNativeControllerCapture(deviceId);
+    setNativeControllerMessage(null);
+    try {
+      await invoke("capture_native_controller", { deviceId });
+      await loadConfig();
+      await loadNativeControllers();
+      setNativeControllerMessage({
+        type: "success",
+        message: "Controller mapping saved for this SDL hardware model.",
+      });
+    } catch (err) {
+      setNativeControllerMessage({
+        type: "warning",
+        message: err?.message || String(err),
+      });
+    } finally {
+      setNativeControllerCapture(null);
     }
   }
 
@@ -2564,6 +2612,68 @@ export default function Settings({
             </List>
           </>
         )}
+
+        <Paper
+          variant="outlined"
+          data-testid="native-controller-card"
+          sx={{ mt: 3, p: 2, borderRadius: 2, bgcolor: "rgba(33, 150, 243, 0.04)" }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <SportsEsportsIcon color="primary" fontSize="small" />
+              <Typography variant="subtitle1">Eden controller</Typography>
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={loadNativeControllers}
+              disabled={nativeControllerLoading || nativeControllerCapture !== null}
+            >
+              Refresh controllers
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Wingosy uses the native SDL controller identity and applies the saved standard mapping to Eden when you play.
+            Browser gamepad names are not used for this setup.
+          </Typography>
+          {nativeControllerMessage && (
+            <Alert severity={nativeControllerMessage.type} sx={{ mb: 1.5 }}>
+              {nativeControllerMessage.message}
+            </Alert>
+          )}
+          {nativeControllerLoading && <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />}
+          {!nativeControllerLoading && nativeControllers.length === 0 && !nativeControllerMessage && (
+            <Alert severity="info">
+              No standard SDL controller is connected. Eden will use its defaults until one is connected.
+            </Alert>
+          )}
+          {nativeControllers.length > 0 && (
+            <List dense disablePadding>
+              {nativeControllers.map((controller) => (
+                <ListItem
+                  key={controller.device_id}
+                  disableGutters
+                  secondaryAction={(
+                    <Button
+                      size="small"
+                      variant={controller.configured ? "outlined" : "contained"}
+                      onClick={() => handleCaptureNativeController(controller.device_id)}
+                      disabled={nativeControllerCapture !== null}
+                    >
+                      {nativeControllerCapture === controller.device_id ? "Saving…" : controller.configured ? "Update" : "Capture"}
+                    </Button>
+                  )}
+                >
+                  <ListItemText
+                    primary={controller.name}
+                    secondary={controller.configured ? "Saved mapping for this SDL hardware model" : "No saved mapping"}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </Paper>
         
         {/* Show missing cores alert if RetroArch is NOT installed but cores are needed */}
         {missingCores.length > 0 && !installedEmus.some(e => e.id === "retroarch") && (

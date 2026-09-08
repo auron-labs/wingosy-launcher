@@ -24,6 +24,30 @@ pub struct LaunchCommand {
     pub rom_path: String,
 }
 
+impl LaunchCommand {
+    pub(crate) fn append_argument(&mut self, argument: impl Into<String>) {
+        self.args.push(argument.into());
+        self.full_command = format_full_command(&self.executable, &self.args);
+    }
+}
+
+fn format_full_command(executable: &str, args: &[String]) -> String {
+    format!(
+        "\"{}\" {}",
+        executable,
+        args.iter()
+            .map(|arg| {
+                if arg.contains(' ') {
+                    format!("\"{}\"", arg)
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
 pub struct EmulatorLauncher {
     config: AppConfig,
     db: Database,
@@ -167,14 +191,7 @@ impl EmulatorLauncher {
             .context("Failed to build launch command")?;
 
         let exe_str = exe_path.to_string_lossy().to_string();
-        let full_command = format!(
-            "\"{}\" {}",
-            exe_str,
-            args.iter()
-                .map(|a| if a.contains(' ') { format!("\"{}\"", a) } else { a.clone() })
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        let full_command = format_full_command(&exe_str, &args);
 
         Ok(LaunchCommand {
             executable: exe_str,

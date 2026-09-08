@@ -84,6 +84,7 @@ function App() {
   const [libraryFilterBy, setLibraryFilterBy] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [saveSyncMessages, setSaveSyncMessages] = useState([]);
   const [libraryLaunchError, setLibraryLaunchError] = useState(null);
   const [rommToken, setRommToken] = useState(null);
   const [rommUrl, setRommUrl] = useState("");
@@ -358,6 +359,10 @@ function App() {
     launchInFlightRef.current.add(gameId);
     try {
       const result = await invoke("prepare_and_launch_game", { gameId });
+      const messages = Array.isArray(result.save_sync_messages)
+        ? result.save_sync_messages.filter((message) => message?.trim())
+        : [];
+      setSaveSyncMessages(messages);
       
       if (!result.success && result.error) {
         const game = games.find((item) => item.id === gameId);
@@ -383,6 +388,7 @@ function App() {
       const presentation = getLaunchErrorPresentation(err, platformLabel);
       setLibraryLaunchError({ gameId, ...presentation });
       setError(presentation.message);
+      setSaveSyncMessages([]);
       return null;
     } finally {
       launchInFlightRef.current.delete(gameId);
@@ -632,6 +638,13 @@ function App() {
         )}
       </Box>
       </Box>
+      <Snackbar
+        open={saveSyncMessages.length > 0}
+        autoHideDuration={7000}
+        onClose={() => setSaveSyncMessages([])}
+        message={saveSyncMessages.join("\n")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      />
       <Snackbar
         open={updateSnack.open}
         onClose={() => {

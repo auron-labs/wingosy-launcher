@@ -36,6 +36,7 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import StarIcon from "@mui/icons-material/Star";
 import GroupsIcon from "@mui/icons-material/Groups";
 import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
+import SyncIcon from "@mui/icons-material/Sync";
 import GameScreenshotsSection from "./game/GameScreenshotsSection";
 import GameAchievementsSection from "./game/GameAchievementsSection";
 import CollectionPickerDialog from "./game/CollectionPickerDialog";
@@ -112,9 +113,10 @@ export default function GameDetails({
   onOpenSettings = null,
   onOpenIntegrations = null,
 }) {
-  const { getProgress, getLaunchProgress } = useRomDownloads();
+  const { getProgress, getLaunchProgress, getSwitchContentProgress } = useRomDownloads();
   const romDl = getProgress(game.id);
   const launchProgress = getLaunchProgress(game.id);
+  const switchContentProgress = getSwitchContentProgress(game.id);
   const [downloading, setDownloading] = useState(false);
   const downloadInFlightRef = useRef(false);
   const [launching, setLaunching] = useState(false);
@@ -138,6 +140,8 @@ export default function GameDetails({
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [actionStatus, setActionStatus] = useState(null);
+  const [switchContentSyncing, setSwitchContentSyncing] = useState(false);
+  const switchContentInFlightRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
@@ -196,6 +200,7 @@ export default function GameDetails({
   const isDownloaded = isGameDownloaded(game, { justDownloaded });
   const canPlay = isDownloaded || Boolean(game.romm_id);
   const canDownload = game.romm_id && rommToken && rommUrl;
+  const canSyncSwitchContent = isSwitch && game.source === "RomM" && game.romm_id && rommToken && rommUrl;
   const launchActive = launching || Boolean(launchProgress?.active);
   const downloadActive = downloading || Boolean(romDl);
   const visibleLaunchProgress = launching && launchProgress?.stage === "failure" ? null : launchProgress;
@@ -208,7 +213,7 @@ export default function GameDetails({
   const syncStatus = isRemoteOnly ? "remote-only" : isSynced ? "synced" : "downloaded-not-synced";
 
   async function handleLaunchGame() {
-    if (launchInFlightRef.current || downloadActive) return;
+    if (launchInFlightRef.current || downloadActive || switchContentInFlightRef.current) return;
     launchInFlightRef.current = true;
     setLaunching(true);
     setLaunchError(null);
@@ -226,7 +231,7 @@ export default function GameDetails({
   }
 
   async function handleDownloadRom() {
-    if (downloadInFlightRef.current || launchActive || !rommToken || !rommUrl) return;
+    if (downloadInFlightRef.current || launchActive || switchContentInFlightRef.current || !rommToken || !rommUrl) return;
     downloadInFlightRef.current = true;
     try {
       setDownloading(true);
@@ -250,6 +255,34 @@ export default function GameDetails({
     } finally {
       downloadInFlightRef.current = false;
       setDownloading(false);
+    }
+  }
+
+  async function handleSyncSwitchContent() {
+    if (
+      switchContentInFlightRef.current
+      || launchActive
+      || downloadActive
+      || !canSyncSwitchContent
+    ) return;
+    switchContentInFlightRef.current = true;
+    setSwitchContentSyncing(true);
+    setActionStatus({ type: "info", message: "Syncing Switch updates and DLC…" });
+    try {
+      const result = await invoke("sync_switch_content", { gameId: game.id });
+      setActionStatus({
+        type: "success",
+        message: result.message || `Switch content synced: ${result.downloaded} downloaded, ${result.reused} reused.`,
+      });
+    } catch (err) {
+      const message = err?.message || String(err);
+      setActionStatus({
+        type: "error",
+        message: `${message} Choose “Sync Updates & DLC” to retry after correcting the issue.`,
+      });
+    } finally {
+      switchContentInFlightRef.current = false;
+      setSwitchContentSyncing(false);
     }
   }
 
@@ -714,7 +747,7 @@ export default function GameDetails({
               size="large"
               startIcon={<PlayArrowIcon />}
               onClick={handleLaunchGame}
-              disabled={launchActive || downloadActive}
+              disabled={launchActive || downloadActive || switchContentSyncing}
               sx={{
                 px: 5,
                 py: 1.5,
@@ -738,7 +771,7 @@ export default function GameDetails({
                   size="large"
                   startIcon={downloading ? null : <CloudDownloadIcon />}
                   onClick={handleDownloadRom}
-                  disabled={downloading || launchActive || !rommToken || !rommUrl}
+                  disabled={downloading || launchActive || switchContentSyncing || !rommToken || !rommUrl}
                   sx={{
                     px: 5,
                     py: 1.5,
@@ -759,13 +792,27 @@ export default function GameDetails({
               size="small"
               startIcon={downloading ? null : <CloudDownloadIcon />}
               onClick={handleDownloadRom}
-              disabled={downloading || launchActive}
+              disabled={downloading || launchActive || switchContentSyncing}
               color="secondary"
               sx={{
                 borderRadius: 3,
               }}
             >
               {downloading ? "Downloading..." : "Re-download"}
+            </Button>
+          )}
+
+          {canSyncSwitchContent && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={switchContentSyncing ? null : <SyncIcon />}
+              onClick={handleSyncSwitchContent}
+              disabled={switchContentSyncing || launchActive || downloadActive}
+              color="secondary"
+              sx={{ borderRadius: 3 }}
+            >
+              {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
             </Button>
           )}
         </Box>
@@ -831,6 +878,30 @@ export default function GameDetails({
           <Alert severity={downloadStatus.type} sx={{ mb: 2 }}>
             {downloadStatus.message}
           </Alert>
+        )}
+        {switchContentSyncing && (
+          <Box sx={{ mb: 2 }} data-testid="switch-content-sync-progress">
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              {switchContentProgress?.stage === "registering"
+                ? "Registering content with Eden…"
+                : switchContentProgress?.stage === "reusing"
+                  ? "Reusing unchanged content…"
+                  : "Downloading Switch content…"}
+              {switchContentProgress?.file_index && switchContentProgress.total_files
+                ? ` (${switchContentProgress.file_index}/${switchContentProgress.total_files})`
+                : ""}
+            </Typography>
+            <LinearProgress
+              variant={switchContentProgress?.percent != null ? "determinate" : "indeterminate"}
+              value={switchContentProgress?.percent ?? undefined}
+              sx={{ borderRadius: 2 }}
+            />
+            {switchContentProgress?.downloaded != null ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                {formatDownloadLabel(switchContentProgress)}
+              </Typography>
+            ) : null}
+          </Box>
         )}
 
         <GameScreenshotsSection

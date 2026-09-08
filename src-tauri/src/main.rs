@@ -7,6 +7,7 @@
 mod api;
 mod bios;
 mod commands;
+mod controller;
 mod config;
 mod database;
 mod emulators;
@@ -91,6 +92,8 @@ fn main() {
             commands::toggle_favorite,
             commands::launch_game,
             commands::prepare_and_launch_game,
+            commands::get_native_controllers,
+            commands::capture_native_controller,
             commands::get_launch_command,
             commands::scan_directory,
             commands::get_config,
@@ -109,6 +112,7 @@ fn main() {
             commands::restore_romm_session,
             commands::sync_romm_library,
             commands::download_rom,
+            commands::sync_switch_content,
             bios::get_bios_directory,
             bios::set_bios_directory,
             bios::list_bios_firmware,

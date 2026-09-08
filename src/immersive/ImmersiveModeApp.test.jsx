@@ -56,6 +56,7 @@ vi.mock("./ImmersiveLibrary", () => ({
     selectedIndex,
     onSelectedIndexChange,
     onSelectGame,
+    error,
   }) => (
     <div
       data-testid="immersive-library"
@@ -72,6 +73,7 @@ vi.mock("./ImmersiveLibrary", () => ({
         onSelectedIndexChange(Math.min(games.length - 1, selectedIndex + 1));
       }}
     >
+      {error ? <span data-testid="immersive-launch-error">{error}</span> : null}
       <button onClick={() => onSelectedPlatformChange(null)}>All platforms</button>
       {platforms.map(([platform]) => (
         <button
@@ -209,6 +211,41 @@ describe("ImmersiveModeApp launch context", () => {
     await waitFor(() => expect(screen.getByTestId("details-game")).toHaveTextContent("Second Game Refreshed"));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("selected-index")).toHaveTextContent("1");
+  });
+
+  it("presents successful automatic save-sync messages without treating them as errors", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games: initialGames, total: initialGames.length });
+      }
+      if (command === "get_platforms_with_games") return Promise.resolve([]);
+      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "prepare_and_launch_game") {
+        return Promise.resolve({
+          success: true,
+          save_sync_messages: ["Uploaded newer local save"],
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    render(
+      <MuiTestProvider>
+        <ImmersiveModeApp
+          onExit={vi.fn()}
+          rommToken={null}
+          rommUrl={null}
+          onRommConnect={vi.fn()}
+        />
+      </MuiTestProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("game-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => expect(screen.getByText("Uploaded newer local save")).toBeInTheDocument());
+    expect(screen.queryByTestId("immersive-launch-error")).not.toBeInTheDocument();
   });
 
   it("returns from details to the immersive library on controller Back", async () => {

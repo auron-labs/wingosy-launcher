@@ -9,6 +9,9 @@ pub struct AppConfig {
     pub library: LibraryConfig,
     pub display: DisplayConfig,
     pub emulators: EmulatorPaths,
+    /// Native standard-controller mappings keyed by normalized SDL hardware GUID.
+    #[serde(default)]
+    pub controllers: crate::controller::ControllerConfig,
     /// Immersive-mode audio: UI sound volume, ambient BGM (Argosy-style).
     #[serde(default)]
     pub audio: AudioConfig,
@@ -625,6 +628,7 @@ mod tests {
         assert_eq!(config.display.cover_aspect_ratio, CoverAspectRatio::Square);
         assert!(!config.display.big_picture);
         assert!(!config.display.fullscreen);
+        assert!(config.controllers.mappings.is_empty());
     }
 
     #[test]
@@ -651,6 +655,35 @@ mod tests {
         assert!(config.display.big_picture);
         assert!(config.display.fullscreen);
         assert_eq!(config.display.controller_deadzone, 0.35);
+    }
+
+    #[test]
+    fn serialized_controller_data_excludes_runtime_identity() {
+        let mut config = AppConfig::default();
+        config.controllers.mappings.insert(
+            "000000005e0400008e02000000000000".to_string(),
+            crate::controller::ControllerMapping {
+                name: "Test Pad".to_string(),
+                controls: std::collections::BTreeMap::from([(
+                    "face_a".to_string(),
+                    crate::controller::PhysicalInput::Button { index: 0 },
+                )]),
+            },
+        );
+
+        let serialized = toml::to_string(&config.controllers).expect("Should serialize controllers");
+        let value: toml::Value = toml::from_str(&serialized).expect("Should parse controllers");
+        let mapping = value
+            .get("mappings")
+            .and_then(toml::Value::as_table)
+            .and_then(|mappings| mappings.values().next())
+            .and_then(toml::Value::as_table)
+            .expect("Serialized mapping should be a table");
+
+        assert!(mapping.contains_key("name"));
+        assert!(mapping.contains_key("controls"));
+        assert!(!mapping.contains_key("device_id"));
+        assert!(!mapping.contains_key("port"));
     }
 
     #[test]

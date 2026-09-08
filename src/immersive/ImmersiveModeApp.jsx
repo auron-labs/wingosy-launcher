@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import Snackbar from "@mui/material/Snackbar";
 import Settings from "../components/Settings";
 import AmbientAudioPlayer from "./AmbientAudioPlayer";
 import ImmersiveLibrary from "./ImmersiveLibrary";
@@ -10,7 +11,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { getControllerAction, isTextInputTarget, logControllerOutcome } from "./controllerDebug";
-import { getControllerAction, logControllerOutcome } from "./controllerDebug";
 import { dedupeGames } from "./gameList";
 import { getLaunchErrorPresentation } from "./launchError";
 
@@ -44,6 +44,7 @@ export default function ImmersiveModeApp({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [saveSyncMessages, setSaveSyncMessages] = useState([]);
   const [loadedGameCount, setLoadedGameCount] = useState(0);
   const [displayCfg, setDisplayCfg] = useState(() => ({
     big_picture: true,
@@ -258,6 +259,10 @@ export default function ImmersiveModeApp({
     launchInFlightRef.current = true;
     try {
       const result = await invoke("prepare_and_launch_game", { gameId });
+      const messages = Array.isArray(result.save_sync_messages)
+        ? result.save_sync_messages.filter((message) => message?.trim())
+        : [];
+      setSaveSyncMessages(messages);
       if (!result.success && result.error) {
         const game = games.find((item) => item.id === gameId);
         const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
@@ -271,6 +276,7 @@ export default function ImmersiveModeApp({
       const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
       const presentation = getLaunchErrorPresentation(err, platformLabel);
       setError(`${presentation.message} ${presentation.guidance}`);
+      setSaveSyncMessages([]);
       return { success: false, error: err?.message || String(err) };
     } finally {
       launchInFlightRef.current = false;
@@ -522,6 +528,13 @@ export default function ImmersiveModeApp({
       <AmbientAudioPlayer audio={audioCfg} />
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{main}</Box>
       <ImmersiveHintBar view={view} visible={showHints} unsupportedGamepad={unsupportedGamepad} />
+      <Snackbar
+        open={saveSyncMessages.length > 0}
+        autoHideDuration={7000}
+        onClose={() => setSaveSyncMessages([])}
+        message={saveSyncMessages.join("\n")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      />
     </Box>
   );
 }

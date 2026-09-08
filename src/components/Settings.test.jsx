@@ -50,13 +50,14 @@ afterEach(() => {
 });
 
 /**
- * @param {{ emulators?: any[], config?: any, initialSection?: string, inventory?: any[] | (() => any[]), savedRommSession?: boolean, rommConnectionStatus?: string, rommToken?: string | null, rommUrl?: string, syncGames?: any[], platforms?: any[], biosFirmware?: any[], storageOverview?: any }} options
+ * @param {{ emulators?: any[], config?: any, initialSection?: string, inventory?: any[] | (() => any[]), nativeControllers?: any[], savedRommSession?: boolean, rommConnectionStatus?: string, rommToken?: string | null, rommUrl?: string, syncGames?: any[], platforms?: any[], biosFirmware?: any[], storageOverview?: any }} options
  */
 function renderSettings({
   emulators = [],
   config = {},
   initialSection = "general",
   inventory = [],
+  nativeControllers = [],
   savedRommSession = false,
   rommConnectionStatus,
   rommToken = "test-token",
@@ -79,6 +80,10 @@ function renderSettings({
         };
       case "get_all_emulators":
         return emulators;
+      case "get_native_controllers":
+        return nativeControllers;
+      case "capture_native_controller":
+        return {};
       case "get_retroarch_core_inventory":
         return typeof inventory === "function" ? inventory() : inventory;
       case "get_missing_cores":
@@ -402,6 +407,28 @@ describe("Settings beta support", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Repair Wingosy controller setup" }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("repair_retroarch_profile"));
+  });
+
+  it("captures a native SDL controller without using browser identity", async () => {
+    renderSettings({
+      initialSection: "emulators",
+      nativeControllers: [
+        {
+          device_id: 7,
+          name: "USB Gamepad",
+          guid: "000000005e0400008e02000000000000",
+          configured: false,
+        },
+      ],
+    });
+
+    expect(await screen.findByText("USB Gamepad")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Capture" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("capture_native_controller", { deviceId: 7 });
+    });
+    expect(screen.getByText("Controller mapping saved for this SDL hardware model.")).toBeInTheDocument();
   });
 
   it("does not offer managed profile repair for external installs", async () => {

@@ -171,6 +171,13 @@ const remoteOnlyGame = {
   is_favorite: false,
 };
 
+const switchRemoteGame = {
+  ...remoteOnlyGame,
+  id: 17,
+  name: "Switch Cloud Game",
+  platform_id: "switch",
+};
+
 const launchableGame = { ...remoteOnlyGame, local_file_path: "/roms/cloud.gba" };
 
 function renderDetails(
@@ -247,6 +254,78 @@ describe("ImmersiveGameDetails launch controls", () => {
     expect(download).toHaveClass("MuiButton-contained");
     expect(screen.getAllByRole("button").filter((button) => button.classList.contains("MuiButton-contained"))).toHaveLength(1);
     expect(onLaunch).not.toHaveBeenCalled();
+  });
+
+  it("shows and dispatches the explicit Switch content action without disturbing Play", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "sync_switch_content") {
+        return Promise.resolve({
+          success: true,
+          message: "Synced Switch content: 1 downloaded, 1 reused.",
+          downloaded: 1,
+          reused: 1,
+        });
+      }
+      return Promise.resolve({ display: {} });
+    });
+    const onLaunch = vi.fn().mockResolvedValue({ success: true });
+    renderDetails(onLaunch, switchRemoteGame);
+
+    expect(screen.getByRole("button", { name: "Sync Updates & DLC" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    fireEvent.click(screen.getByRole("button", { name: "Syncing Updates & DLC…" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("sync_switch_content", { gameId: switchRemoteGame.id });
+    });
+    expect(invoke.mock.calls.filter(([command]) => command === "sync_switch_content")).toHaveLength(1);
+    expect(await screen.findByText("Synced Switch content: 1 downloaded, 1 reused.")).toBeInTheDocument();
+  });
+
+  it("shows Switch content progress and retry guidance in immersive details", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    listen.mockImplementation(async (event, handler) => {
+      eventListeners.set(event, handler);
+      return () => eventListeners.delete(event);
+    });
+    let finish;
+    invoke.mockImplementation((command) => {
+      if (command === "sync_switch_content") {
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve({ display: {} });
+    });
+    renderDetails(undefined, switchRemoteGame);
+
+    await waitFor(() => expect(eventListeners.has("switch-content-sync-progress")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    await act(async () => {
+      eventListeners.get("switch-content-sync-progress")({
+        payload: {
+          game_id: switchRemoteGame.id,
+          stage: "registering",
+          file_index: 2,
+          total_files: 2,
+          downloaded: null,
+          total: null,
+          percent: null,
+        },
+      });
+    });
+    expect(screen.getByTestId("switch-content-sync-progress")).toHaveTextContent("Registering content with Eden… (2/2)");
+    finish({ success: true, message: "Synced Switch content: 2 downloaded, 0 reused." });
+    await waitFor(() => expect(screen.getByText(/2 downloaded, 0 reused/)).toBeInTheDocument());
+
+    invoke.mockImplementation((command) => (
+      command === "sync_switch_content"
+        ? Promise.reject(new Error("Eden is running"))
+        : Promise.resolve({ display: {} })
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    await waitFor(() => expect(screen.getByText(/Eden is running.*Choose “Sync Updates & DLC” to retry/)).toBeInTheDocument());
   });
 
   it("starts the same launch flow when controller A dispatches Enter to window", async () => {

@@ -1,6 +1,7 @@
 //! Argosy-compatible Switch (Eden) save sync via RomM device-aware API.
 use anyhow::{Context, Result};
 use serde::Serialize;
+use std::future::Future;
 use std::path::PathBuf;
 
 use crate::api::RomMClient;
@@ -9,8 +10,9 @@ use crate::config::AppConfig;
 use crate::models::Game;
 
 use super::switch_save::{
-    resolve_local_title_save_path, unzip_into_title_folder, zip_title_folder,
-    ARGOSY_LATEST_SAVE_NAME, DEFAULT_SAVE_SLOT, EDEN_EMULATOR_ID,
+    extract_title_ids_from_path, resolve_local_title_save_path_for_title_id,
+    unzip_into_title_folder, zip_title_folder, ARGOSY_LATEST_SAVE_NAME, DEFAULT_SAVE_SLOT,
+    EDEN_EMULATOR_ID,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +22,21 @@ pub struct SwitchSaveSyncResult {
     pub local_path: Option<String>,
     pub romm_save_id: Option<i32>,
     pub slot: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SyncAction {
+    Upload,
+    Download(Option<i32>),
+    Refused(String),
+    NoOp(Option<i32>),
+    Unsupported(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SyncTransfer {
+    Upload,
+    Download(Option<i32>),
 }
 
 pub fn ensure_device_id(config: &mut AppConfig) -> String {
@@ -136,19 +153,114 @@ fn pick_save_for_slot<'a>(
         .max_by(|a, b| a.updated_at.cmp(&b.updated_at))
 }
 
+fn sync_action_for(
+    operation: Option<&crate::api::SyncOperation>,
+    allow_download: bool,
+) -> SyncAction {
+    match operation.map(|operation| operation.action.as_str()) {
+        Some("upload") => SyncAction::Upload,
+        Some("download") if allow_download => {
+            SyncAction::Download(operation.and_then(|operation| operation.save_id))
+        }
+        Some("download") => SyncAction::Refused(
+            "RomM has a newer save after this play session; local upload was blocked".to_string(),
+        ),
+        Some("conflict") => SyncAction::Refused(format!(
+            "Save conflict: {}",
+            operation
+                .map(|operation| operation.reason.as_str())
+                .unwrap_or("both saves changed")
+        )),
+        Some("no_op") | None => SyncAction::NoOp(operation.and_then(|operation| operation.save_id)),
+        Some(other) => SyncAction::Unsupported(other.to_string()),
+    }
+}
+
+async fn execute_sync_action<Transfer, TransferFuture>(
+    action: SyncAction,
+    slot: String,
+    transfer: Transfer,
+) -> Result<SwitchSaveSyncResult>
+where
+    Transfer: FnOnce(SyncTransfer) -> TransferFuture,
+    TransferFuture: Future<Output = Result<SwitchSaveSyncResult>>,
+{
+    match action {
+        SyncAction::Upload => transfer(SyncTransfer::Upload).await,
+        SyncAction::Download(save_id) => transfer(SyncTransfer::Download(save_id)).await,
+        SyncAction::Refused(reason) => Err(anyhow::anyhow!(reason)),
+        SyncAction::NoOp(save_id) => Ok(SwitchSaveSyncResult {
+            success: true,
+            message: "Switch save is already synchronized".to_string(),
+            local_path: None,
+            romm_save_id: save_id,
+            slot: Some(slot),
+        }),
+        SyncAction::Unsupported(action) => {
+            Err(anyhow::anyhow!("Unsupported sync action: {action}"))
+        }
+    }
+}
+
+struct SyncPlanOutcome {
+    result: Result<SwitchSaveSyncResult>,
+    completed: u32,
+    failed: u32,
+}
+
+async fn execute_negotiated_sync_plan<Transfer, TransferFuture>(
+    plan: crate::api::SyncNegotiateResponse,
+    rom_id: i32,
+    slot: String,
+    allow_download: bool,
+    transfer: Transfer,
+) -> SyncPlanOutcome
+where
+    Transfer: FnOnce(SyncTransfer) -> TransferFuture,
+    TransferFuture: Future<Output = Result<SwitchSaveSyncResult>>,
+{
+    let operation = crate::sync::negotiation::operation_for(&plan, rom_id, &slot).cloned();
+    let action = sync_action_for(operation.as_ref(), allow_download);
+    let operation_was_planned = matches!(
+        &action,
+        SyncAction::Upload | SyncAction::Download(_) | SyncAction::Refused(_)
+    );
+    let result = execute_sync_action(action, slot, transfer).await;
+    let (completed, failed) = match (operation_was_planned, result.is_ok()) {
+        (false, _) => (0, 0),
+        (true, true) => (1, 0),
+        (true, false) => (0, 1),
+    };
+
+    SyncPlanOutcome {
+        result,
+        completed,
+        failed,
+    }
+}
+
 pub async fn upload_switch_save_from_eden(
     game: &Game,
     config: &mut AppConfig,
     slot: Option<String>,
 ) -> Result<SwitchSaveSyncResult> {
-    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
-    let rom_path = game
-        .local_file_path
-        .as_deref()
-        .or(Some(game.file_path.as_str()))
-        .context("No local ROM path")?;
+    let client = romm_client(config)?;
+    let device_id = ensure_device_id(config);
+    let title_id = resolve_sync_title_id(game, &client).await?;
+    upload_switch_save_from_eden_with_title_id(game, config, slot, &title_id, &client, &device_id)
+        .await
+}
 
-    let (title_dir, title_id) = resolve_local_title_save_path(config, rom_path)?;
+async fn upload_switch_save_from_eden_with_title_id(
+    game: &Game,
+    config: &mut AppConfig,
+    slot: Option<String>,
+    title_id: &str,
+    client: &RomMClient,
+    device_id: &str,
+) -> Result<SwitchSaveSyncResult> {
+    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
+    let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, title_id)?;
     let slot_s = slot_name(slot.as_deref()).to_string();
     let rom_base = rom_base_name(game);
 
@@ -160,8 +272,6 @@ pub async fn upload_switch_save_from_eden(
     zip_title_folder(&title_dir, &title_id, &zip_path)?;
 
     let zip_bytes = std::fs::read(&zip_path)?;
-    let client = romm_client(config)?;
-    let device_id = ensure_device_id(config);
     let uploaded = client
         .upload_save_device(
             romm_id,
@@ -191,19 +301,28 @@ pub async fn download_switch_save_to_eden(
     slot: Option<String>,
     save_id: Option<i32>,
 ) -> Result<SwitchSaveSyncResult> {
-    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
-    let rom_path = game
-        .local_file_path
-        .as_deref()
-        .or(Some(game.file_path.as_str()))
-        .context("No local ROM path")?;
-
-    let (title_dir, title_id) = resolve_local_title_save_path(config, rom_path)?;
-    let slot_s = slot_name(slot.as_deref()).to_string();
-    let rom_base = rom_base_name(game);
-
     let client = romm_client(config)?;
     let device_id = ensure_device_id(config);
+    let title_id = resolve_sync_title_id(game, &client).await?;
+    download_switch_save_to_eden_with_title_id(
+        game, config, slot, save_id, &title_id, &client, &device_id,
+    )
+    .await
+}
+
+async fn download_switch_save_to_eden_with_title_id(
+    game: &Game,
+    config: &mut AppConfig,
+    slot: Option<String>,
+    save_id: Option<i32>,
+    title_id: &str,
+    client: &RomMClient,
+    device_id: &str,
+) -> Result<SwitchSaveSyncResult> {
+    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
+    let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, title_id)?;
+    let slot_s = slot_name(slot.as_deref()).to_string();
+    let rom_base = rom_base_name(game);
 
     let save = if let Some(id) = save_id {
         client
@@ -259,39 +378,53 @@ pub async fn download_switch_save_to_eden(
 }
 
 pub async fn pre_launch_sync(game: &Game, config: &mut AppConfig) -> Result<()> {
+    pre_launch_sync_result(game, config).await.map(|_| ())
+}
+
+pub(crate) async fn pre_launch_sync_result(
+    game: &Game,
+    config: &mut AppConfig,
+) -> Result<Option<SwitchSaveSyncResult>> {
     if !config.romm.sync_saves {
-        return Ok(());
+        return Ok(None);
     }
     if game.platform_id != "switch" {
-        return Ok(());
+        return Ok(None);
     }
-    let result = negotiated_launch_sync(game, config, true).await;
-    match result {
-        Ok(r) => tracing::info!("[SaveSync] Pre-launch: {}", r.message),
+    let result = negotiated_launch_sync(game, config, true).await.map(Some);
+    match &result {
+        Ok(Some(r)) => tracing::info!("[SaveSync] Pre-launch: {}", r.message),
         Err(e) => {
             tracing::warn!("[SaveSync] Pre-launch sync skipped: {e}");
-            return Err(e);
         }
+        Ok(None) => {}
     }
-    Ok(())
+    result
 }
 
 pub async fn post_launch_sync(game: &Game, config: &mut AppConfig) -> Result<()> {
+    post_launch_sync_result(game, config).await.map(|_| ())
+}
+
+pub(crate) async fn post_launch_sync_result(
+    game: &Game,
+    config: &mut AppConfig,
+) -> Result<Option<SwitchSaveSyncResult>> {
     if !config.romm.sync_saves {
-        return Ok(());
+        return Ok(None);
     }
     if game.platform_id != "switch" {
-        return Ok(());
+        return Ok(None);
     }
-    let result = negotiated_launch_sync(game, config, false).await;
-    match result {
-        Ok(r) => tracing::info!("[SaveSync] Post-launch: {}", r.message),
+    let result = negotiated_launch_sync(game, config, false).await.map(Some);
+    match &result {
+        Ok(Some(r)) => tracing::info!("[SaveSync] Post-launch: {}", r.message),
         Err(e) => {
             tracing::warn!("[SaveSync] Post-launch sync failed: {e}");
-            return Err(e);
         }
+        Ok(None) => {}
     }
-    Ok(())
+    result
 }
 
 async fn negotiated_launch_sync(
@@ -300,92 +433,170 @@ async fn negotiated_launch_sync(
     allow_download: bool,
 ) -> Result<SwitchSaveSyncResult> {
     let romm_id = game.romm_id.context("Game is not linked to RomM")?;
-    let rom_path = game
-        .local_file_path
-        .as_deref()
-        .unwrap_or(game.file_path.as_str());
     let slot = slot_name(None).to_string();
     let rom_base = rom_base_name(game);
     let client = romm_client(config)?;
     let device_id = ensure_device_id(config);
 
-    let client_saves = match resolve_local_title_save_path(config, rom_path) {
-        Ok((title_dir, title_id)) if title_dir.exists() => {
-            let cache_dir = AppConfig::data_dir()
-                .map(|dir| dir.join("save_sync_cache"))
-                .unwrap_or_else(|_| PathBuf::from("save_sync_cache"));
-            std::fs::create_dir_all(&cache_dir)?;
-            let snapshot = cache_dir.join(format!("negotiate_{romm_id}.zip"));
-            zip_title_folder(&title_dir, &title_id, &snapshot)?;
-            let bytes = std::fs::read(&snapshot)?;
-            let _ = std::fs::remove_file(&snapshot);
-            let modified = walkdir::WalkDir::new(&title_dir)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter_map(|entry| entry.metadata().ok()?.modified().ok())
-                .max()
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            vec![crate::sync::negotiation::client_save_state(
-                romm_id,
-                upload_filename(&slot, &rom_base),
-                slot.clone(),
-                EDEN_EMULATOR_ID,
-                &bytes,
-                modified,
-            )]
-        }
-        _ => vec![],
+    let title_id = resolve_sync_title_id(game, &client).await?;
+    let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, &title_id)?;
+    let client_saves = if title_dir.exists() {
+        let cache_dir = AppConfig::data_dir()
+            .map(|dir| dir.join("save_sync_cache"))
+            .unwrap_or_else(|_| PathBuf::from("save_sync_cache"));
+        std::fs::create_dir_all(&cache_dir)?;
+        let snapshot = cache_dir.join(format!("negotiate_{romm_id}.zip"));
+        zip_title_folder(&title_dir, &title_id, &snapshot)?;
+        let bytes = std::fs::read(&snapshot)?;
+        let _ = std::fs::remove_file(&snapshot);
+        let modified = walkdir::WalkDir::new(&title_dir)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| entry.metadata().ok()?.modified().ok())
+            .max()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        vec![crate::sync::negotiation::client_save_state(
+            romm_id,
+            upload_filename(&slot, &rom_base),
+            slot.clone(),
+            EDEN_EMULATOR_ID,
+            &bytes,
+            modified,
+        )]
+    } else {
+        vec![]
     };
 
     let Some(plan) = client.negotiate_sync(&device_id, client_saves).await? else {
         return if allow_download {
-            download_switch_save_to_eden(game, config, Some(slot), None).await
+            download_switch_save_to_eden_with_title_id(
+                game,
+                config,
+                Some(slot),
+                None,
+                &title_id,
+                &client,
+                &device_id,
+            )
+            .await
         } else {
-            upload_switch_save_from_eden(game, config, Some(slot)).await
+            upload_switch_save_from_eden_with_title_id(
+                game,
+                config,
+                Some(slot),
+                &title_id,
+                &client,
+                &device_id,
+            )
+            .await
         };
     };
-    let operation = crate::sync::negotiation::operation_for(&plan, romm_id, &slot).cloned();
-    let result = match operation.as_ref().map(|operation| operation.action.as_str()) {
-        Some("upload") => upload_switch_save_from_eden(game, config, Some(slot.clone())).await,
-        Some("download") if allow_download => {
-            let save_id = operation.as_ref().and_then(|operation| operation.save_id);
-            download_switch_save_to_eden(game, config, Some(slot.clone()), save_id).await
+    let transfer_client = client.clone();
+    let session_id = plan.session_id;
+    let outcome = execute_negotiated_sync_plan(
+        plan,
+        romm_id,
+        slot.clone(),
+        allow_download,
+        |transfer| async move {
+            match transfer {
+                SyncTransfer::Upload => {
+                    upload_switch_save_from_eden_with_title_id(
+                        game,
+                        config,
+                        Some(slot.clone()),
+                        &title_id,
+                        &transfer_client,
+                        &device_id,
+                    )
+                    .await
+                }
+                SyncTransfer::Download(save_id) => {
+                    download_switch_save_to_eden_with_title_id(
+                        game,
+                        config,
+                        Some(slot.clone()),
+                        save_id,
+                        &title_id,
+                        &transfer_client,
+                        &device_id,
+                    )
+                    .await
+                }
+            }
+        },
+    )
+    .await;
+    client
+        .complete_sync_session(session_id, outcome.completed, outcome.failed)
+        .await?;
+    outcome.result
+}
+
+async fn resolve_sync_title_id(game: &Game, client: &RomMClient) -> Result<String> {
+    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
+
+    let metadata_candidates = match client.get_rom(romm_id).await {
+        Ok(rom) => rom.title_id_candidates,
+        Err(error) => {
+            tracing::debug!(
+                "[SaveSync] Detailed RomM title metadata unavailable; falling back to ROM path: {error}"
+            );
+            None
         }
-        Some("download") => Err(anyhow::anyhow!(
-            "RomM has a newer save after this play session; local upload was blocked"
-        )),
-        Some("conflict") => Err(anyhow::anyhow!(
-            "Save conflict: {}",
-            operation.as_ref().map(|op| op.reason.as_str()).unwrap_or("both saves changed")
-        )),
-        Some("no_op") | None => Ok(SwitchSaveSyncResult {
-            success: true,
-            message: "Switch save is already synchronized".to_string(),
-            local_path: None,
-            romm_save_id: operation.as_ref().and_then(|operation| operation.save_id),
-            slot: Some(slot),
-        }),
-        Some(other) => Err(anyhow::anyhow!("Unsupported sync action: {other}")),
     };
 
-    let operation_was_planned = matches!(
-        operation.as_ref().map(|operation| operation.action.as_str()),
-        Some("upload" | "download" | "conflict")
-    );
-    let (completed, failed) = match (operation_was_planned, result.is_ok()) {
-        (false, _) => (0, 0),
-        (true, true) => (1, 0),
-        (true, false) => (0, 1),
-    };
-    client
-        .complete_sync_session(plan.session_id, completed, failed)
-        .await?;
-    result
+    let mut path_candidates = Vec::new();
+    if let Some(local_path) = game.local_file_path.as_deref() {
+        path_candidates.extend(extract_title_ids_from_path(local_path));
+    }
+    for title_id in extract_title_ids_from_path(&game.file_path) {
+        if !path_candidates.contains(&title_id) {
+            path_candidates.push(title_id);
+        }
+    }
+    resolve_title_id_from_sources(metadata_candidates.as_deref(), &path_candidates)
+}
+
+fn resolve_title_id_from_sources(
+    metadata_candidates: Option<&[String]>,
+    path_candidates: &[String],
+) -> Result<String> {
+    if let Some(candidates) = metadata_candidates {
+        if let Some(title_id) = unique_title_id(candidates, "authenticated RomM metadata")? {
+            return Ok(title_id);
+        }
+    }
+
+    unique_title_id(path_candidates, "ROM path")?
+        .context("Could not resolve a unique valid Switch base title ID; save sync was skipped")
+}
+
+fn unique_title_id(candidates: &[String], source: &str) -> Result<Option<String>> {
+    let mut valid_candidates = Vec::new();
+    for candidate in candidates {
+        if !super::switch_save::is_valid_title_id(candidate) {
+            continue;
+        }
+        let normalized = candidate.to_ascii_uppercase();
+        if !valid_candidates.contains(&normalized) {
+            valid_candidates.push(normalized);
+        }
+    }
+
+    match valid_candidates.as_slice() {
+        [] => Ok(None),
+        [title_id] => Ok(Some(title_id.clone())),
+        _ => Err(anyhow::anyhow!(
+            "Could not resolve a unique valid Switch base title ID from {source}; conflicting candidates were found"
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::SyncOperation;
 
     fn save(id: i32, file_name: &str, slot: Option<&str>, updated_at: &str) -> RomMSave {
         RomMSave {
@@ -439,5 +650,197 @@ mod tests {
         assert_eq!(upload_filename("autosave", "The Game"), "The Game.zip");
         assert_eq!(upload_filename("argosy-latest", "The Game"), "The Game.zip");
         assert_eq!(upload_filename("slot-1", "The Game"), "slot-1.zip");
+    }
+
+    fn operation(action: &str, reason: &str, save_id: Option<i32>) -> crate::api::SyncOperation {
+        crate::api::SyncOperation {
+            action: action.to_string(),
+            rom_id: 7,
+            save_id,
+            file_name: "The Game.zip".to_string(),
+            slot: Some(DEFAULT_SAVE_SLOT.to_string()),
+            emulator: Some(EDEN_EMULATOR_ID.to_string()),
+            reason: reason.to_string(),
+            server_updated_at: None,
+            server_content_hash: None,
+        }
+    }
+
+    fn sync_result(message: &str) -> SwitchSaveSyncResult {
+        SwitchSaveSyncResult {
+            success: true,
+            message: message.to_string(),
+            local_path: None,
+            romm_save_id: None,
+            slot: Some(DEFAULT_SAVE_SLOT.to_string()),
+        }
+    }
+
+    fn negotiate(operation: SyncOperation) -> crate::api::SyncNegotiateResponse {
+        crate::api::SyncNegotiateResponse {
+            session_id: 12,
+            operations: vec![operation],
+            total_upload: 0,
+            total_download: 0,
+            total_conflict: 0,
+            total_no_op: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn negotiated_actions_execute_the_selected_transfer_and_preserve_message() {
+        let uploads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let downloads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let remote_newer = operation("download", "server is newer", Some(19));
+        let restored = execute_negotiated_sync_plan(
+            negotiate(remote_newer),
+            7,
+            DEFAULT_SAVE_SLOT.to_string(),
+            true,
+            {
+                let uploads = uploads.clone();
+                let downloads = downloads.clone();
+                move |transfer| async move {
+                    match transfer {
+                        SyncTransfer::Upload => {
+                            uploads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Ok(sync_result("uploaded"))
+                        }
+                        SyncTransfer::Download(save_id) => {
+                            assert_eq!(save_id, Some(19));
+                            downloads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Ok(sync_result("Restored newer remote save"))
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+        let restored_outcome = restored.result.unwrap();
+        assert_eq!(restored_outcome.message, "Restored newer remote save");
+        assert_eq!(restored.completed, 1);
+        assert_eq!(restored.failed, 0);
+        assert_eq!(uploads.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(downloads.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let local_newer = operation("upload", "local is newer", None);
+        let uploaded = execute_negotiated_sync_plan(
+            negotiate(local_newer),
+            7,
+            DEFAULT_SAVE_SLOT.to_string(),
+            false,
+            {
+                let uploads = uploads.clone();
+                let downloads = downloads.clone();
+                move |transfer| async move {
+                    match transfer {
+                        SyncTransfer::Upload => {
+                            uploads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Ok(sync_result("Uploaded newer local save"))
+                        }
+                        SyncTransfer::Download(_) => {
+                            downloads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Ok(sync_result("downloaded"))
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+        let uploaded_outcome = uploaded.result.unwrap();
+        assert_eq!(uploaded_outcome.message, "Uploaded newer local save");
+        assert_eq!(uploaded.completed, 1);
+        assert_eq!(uploaded.failed, 0);
+        assert_eq!(uploads.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(downloads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn post_launch_download_and_conflict_actions_are_refused_without_transfer() {
+        let download = operation("download", "server is newer", Some(19));
+        assert_eq!(
+            sync_action_for(Some(&download), false),
+            SyncAction::Refused(
+                "RomM has a newer save after this play session; local upload was blocked"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            sync_action_for(Some(&download), true),
+            SyncAction::Download(Some(19))
+        );
+
+        let conflict = operation("conflict", "both saves changed", None);
+        assert_eq!(
+            sync_action_for(Some(&conflict), false),
+            SyncAction::Refused("Save conflict: both saves changed".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn conflict_and_unresolved_identity_execute_no_transfer() {
+        let transfers = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let conflict = operation("conflict", "both saves changed", None);
+        let outcome = execute_negotiated_sync_plan(
+            negotiate(conflict),
+            7,
+            DEFAULT_SAVE_SLOT.to_string(),
+            false,
+            {
+                let transfers = transfers.clone();
+                move |transfer| async move {
+                    transfers.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let message = match transfer {
+                        SyncTransfer::Upload => "must not upload",
+                        SyncTransfer::Download(_) => "must not download",
+                    };
+                    Ok(sync_result(message))
+                }
+            },
+        )
+        .await;
+        assert!(outcome.result.is_err());
+        assert_eq!(outcome.completed, 0);
+        assert_eq!(outcome.failed, 1);
+
+        let conflicting_identity = vec![
+            "0100AAAA00000001".to_string(),
+            "0100BBBB00000002".to_string(),
+        ];
+        assert!(resolve_title_id_from_sources(Some(&conflicting_identity), &[]).is_err());
+        assert_eq!(transfers.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn trusted_romm_identity_wins_over_cached_rom_path() {
+        let metadata = vec!["0100BBBB00000002".to_string()];
+
+        assert_eq!(
+            resolve_title_id_from_sources(Some(&metadata), &["0100AAAA00000001".to_string()])
+                .unwrap(),
+            "0100BBBB00000002"
+        );
+    }
+
+    #[test]
+    fn conflicting_or_missing_identity_refuses_path_resolution() {
+        let conflicting = vec![
+            "0100AAAA00000001".to_string(),
+            "0100BBBB00000002".to_string(),
+        ];
+        let error = resolve_title_id_from_sources(Some(&conflicting), &[])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("conflicting candidates"));
+
+        assert!(resolve_title_id_from_sources(None, &[]).is_err());
+        assert!(resolve_title_id_from_sources(
+            None,
+            &[
+                "0100AAAA00000001".to_string(),
+                "0100BBBB00000002".to_string()
+            ]
+        )
+        .is_err());
     }
 }

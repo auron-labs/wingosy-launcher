@@ -26,14 +26,24 @@ fn title_id_re() -> &'static Regex {
     TITLE_ID_RE.get_or_init(|| Regex::new(r"(?i)\b(0100[0-9A-F]{12})\b").expect("title id regex"))
 }
 
+pub fn extract_title_ids_from_path(path: &str) -> Vec<String> {
+    let mut title_ids = Vec::new();
+    for caps in title_id_re().captures_iter(path) {
+        let title_id = caps[1].to_ascii_uppercase();
+        if !title_ids.contains(&title_id) {
+            title_ids.push(title_id);
+        }
+    }
+    title_ids
+}
+
 pub fn extract_title_id_from_path(path: &str) -> Option<String> {
-    let caps = title_id_re().captures(path)?;
-    Some(caps[1].to_ascii_uppercase())
+    extract_title_ids_from_path(path).into_iter().next()
 }
 
 pub fn is_valid_title_id(title_id: &str) -> bool {
     title_id.len() == 16
-        && title_id.starts_with("01")
+        && title_id.to_ascii_uppercase().starts_with("0100")
         && title_id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
@@ -45,27 +55,30 @@ pub fn is_valid_profile_folder_id(name: &str) -> bool {
     (name.len() == 16 || name.len() == 32) && name.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Resolve `.../nand/user/save` for Eden on Windows.
+/// Resolve `.../nand/user/save` under the same Eden data root used by BIOS and
+/// controller setup.
 pub fn resolve_eden_save_base(config: &AppConfig) -> PathBuf {
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    resolve_eden_save_base_with_appdata(config, appdata.as_deref())
+}
+
+fn resolve_eden_save_base_with_appdata(
+    config: &AppConfig,
+    appdata: Option<&Path>,
+) -> PathBuf {
     if let Some(custom) = &config.emulators.eden_save_root {
         return normalize_save_base(custom);
     }
 
     if let Some(eden_exe) = &config.emulators.eden {
-        if let Some(parent) = eden_exe.parent() {
-            for candidate in [
-                parent.join("user").join("nand").join("user").join("save"),
-                parent.join("nand").join("user").join("save"),
-            ] {
-                if candidate.is_dir() {
-                    return candidate;
-                }
-            }
+        if let Ok(root) = crate::bios::eden_data_root(eden_exe, appdata) {
+            return root.join("nand").join("user").join("save");
         }
     }
 
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        return PathBuf::from(appdata)
+    if let Some(appdata) = appdata {
+        return appdata
+            .to_path_buf()
             .join("Eden")
             .join("nand")
             .join("user")
@@ -222,16 +235,30 @@ pub fn resolve_local_title_save_path(
     config: &AppConfig,
     rom_path: &str,
 ) -> Result<(PathBuf, String)> {
-    let title_id = extract_title_id_from_path(rom_path).context(
-        "Could not read Switch title ID from ROM filename (expected [0100XXXXXXXXXXXX])",
-    )?;
-    if !is_valid_title_id(&title_id) {
+    let title_ids = extract_title_ids_from_path(rom_path);
+    let title_id = match title_ids.as_slice() {
+        [title_id] => title_id.clone(),
+        [] => {
+            bail!("Could not read Switch title ID from ROM filename (expected [0100XXXXXXXXXXXX])")
+        }
+        _ => bail!(
+            "Could not resolve a unique Switch title ID from ROM filename (multiple candidates)"
+        ),
+    };
+    resolve_local_title_save_path_for_title_id(config, &title_id)
+}
+
+pub fn resolve_local_title_save_path_for_title_id(
+    config: &AppConfig,
+    title_id: &str,
+) -> Result<(PathBuf, String)> {
+    if !is_valid_title_id(title_id) {
         bail!("Invalid Switch title ID: {title_id}");
     }
     let save_base = resolve_eden_save_base(config);
     let folder = find_title_save_folder(&save_base, &title_id)
         .unwrap_or_else(|| construct_title_save_path(&save_base, &title_id));
-    Ok((folder, title_id))
+    Ok((folder, title_id.to_ascii_uppercase()))
 }
 
 /// Zip `title_dir` so the archive root is `{title_id}/...` (Argosy `zipFolder` layout).
@@ -357,6 +384,82 @@ mod tests {
         )
         .unwrap();
         assert_eq!(id, "0100F2C0115B6000");
+    }
+
+    #[test]
+    fn path_title_id_fallback_requires_one_base_application_id() {
+        assert_eq!(
+            extract_title_ids_from_path("Game [0100F2C0115B6000].nsp"),
+            vec!["0100F2C0115B6000".to_string()]
+        );
+        assert!(resolve_local_title_save_path(
+            &AppConfig::default(),
+            "Game [0100F2C0115B6000][0100ABCD00000002].nsp"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn eden_save_base_matches_bios_root_for_portable_and_nonportable_layouts() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let portable_dir = temp.path().join("portable");
+        let portable_executable = portable_dir.join("eden.exe");
+        let portable_user = portable_dir.join("user");
+        std::fs::create_dir_all(&portable_user).unwrap();
+        std::fs::write(&portable_executable, b"").unwrap();
+        let mut portable_config = AppConfig::default();
+        portable_config.emulators.eden = Some(portable_executable.clone());
+
+        let portable_root = crate::bios::eden_data_root(&portable_executable, None).unwrap();
+        assert_eq!(
+            resolve_eden_save_base(&portable_config),
+            portable_root.join("nand/user/save")
+        );
+
+        let installed_dir = temp.path().join("installed");
+        let installed_executable = installed_dir.join("eden.exe");
+        std::fs::create_dir_all(installed_dir.join("nand")).unwrap();
+        std::fs::write(&installed_executable, b"").unwrap();
+        let mut installed_config = AppConfig::default();
+        installed_config.emulators.eden = Some(installed_executable.clone());
+
+        let installed_root = crate::bios::eden_data_root(&installed_executable, None).unwrap();
+        assert_eq!(installed_root, installed_dir);
+        assert_eq!(
+            resolve_eden_save_base(&installed_config),
+            installed_root.join("nand/user/save")
+        );
+    }
+
+    #[test]
+    fn eden_save_base_matches_appdata_root_without_process_environment() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("installed").join("eden.exe");
+        let appdata = temp.path().join("AppData").join("Roaming");
+        std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        std::fs::write(&executable, b"").unwrap();
+        let mut config = AppConfig::default();
+        config.emulators.eden = Some(executable.clone());
+
+        let expected_root = crate::bios::eden_data_root(&executable, Some(&appdata)).unwrap();
+        assert_eq!(
+            resolve_eden_save_base_with_appdata(&config, Some(&appdata)),
+            expected_root.join("nand/user/save")
+        );
+    }
+
+    #[test]
+    fn explicit_eden_save_root_override_remains_authoritative() {
+        let temp = tempfile::tempdir().unwrap();
+        let configured_root = temp.path().join("custom").join("nand").join("user");
+        let mut config = AppConfig::default();
+        config.emulators.eden_save_root = Some(configured_root.clone());
+
+        assert_eq!(
+            resolve_eden_save_base(&config),
+            configured_root.join("save")
+        );
     }
 
     #[test]

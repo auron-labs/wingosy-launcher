@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
@@ -472,6 +473,8 @@ pub struct LaunchGameResult {
     pub success: bool,
     pub error: Option<String>,
     pub save_sync_warnings: Vec<String>,
+    #[serde(default)]
+    pub save_sync_messages: Vec<String>,
     pub dry_run: bool,
     pub duration_minutes: Option<i32>,
     pub exit_code: Option<i32>,
@@ -508,6 +511,49 @@ impl LaunchStage {
                 | (Self::Launching, Self::Running | Self::Completion | Self::Failure)
                 | (Self::Running, Self::SaveSync | Self::Completion | Self::Failure)
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LaunchDisplayContext {
+    window_fullscreen: bool,
+    immersive: bool,
+}
+
+impl LaunchDisplayContext {
+    fn requires_fullscreen(self) -> bool {
+        self.window_fullscreen || self.immersive
+    }
+}
+
+fn read_window_fullscreen<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<bool> {
+    match window.is_fullscreen() {
+        Ok(value) => Some(value),
+        Err(error) => {
+            tracing::warn!("[Launch] Could not read Wingosy fullscreen state: {error}");
+            None
+        }
+    }
+}
+
+fn current_window_fullscreen<R: Runtime>(app: Option<&AppHandle<R>>) -> Option<bool> {
+    let window = app?.get_webview_window("main")?;
+    read_window_fullscreen(&window)
+}
+
+fn capture_launch_display_context(
+    app: Option<&AppHandle>,
+    config: &AppConfig,
+) -> LaunchDisplayContext {
+    LaunchDisplayContext {
+        window_fullscreen: current_window_fullscreen(app).unwrap_or(false),
+        immersive: config.display.big_picture,
+    }
+}
+
+fn apply_launch_display_context(command: &mut LaunchCommand, context: LaunchDisplayContext) {
+    if command.emulator_id == "eden" && context.requires_fullscreen() {
+        command.append_argument("-f");
     }
 }
 
@@ -549,13 +595,7 @@ impl<R: Runtime> RetroArchWindowRestoration<R> {
     fn capture(app: Option<&AppHandle<R>>) -> Option<Self> {
         let app = app?.clone();
         let window = app.get_webview_window("main")?;
-        let was_fullscreen = match window.is_fullscreen() {
-            Ok(value) => Some(value),
-            Err(error) => {
-                tracing::warn!("[Launch] Could not read Wingosy fullscreen state: {error}");
-                None
-            }
-        };
+        let was_fullscreen = read_window_fullscreen(&window);
 
         Some(Self {
             app,
@@ -766,9 +806,84 @@ fn failed_launch_result(error: String) -> LaunchGameResult {
         success: false,
         error: Some(error),
         save_sync_warnings: vec![],
+        save_sync_messages: vec![],
         dry_run: false,
         duration_minutes: None,
         exit_code: None,
+    }
+}
+
+const EDEN_CONTROLLER_MISSING_WARNING: &str =
+    "Eden controller unavailable; Eden defaults will be used.";
+const EDEN_CONTROLLER_FAILED_WARNING: &str =
+    "Eden controller setup failed; Eden defaults will be used.";
+
+fn record_eden_controller_warning(
+    warnings: &mut Vec<String>,
+    preparation: &std::result::Result<Option<PathBuf>, anyhow::Error>,
+) {
+    let warning = match preparation {
+        Ok(Some(_)) => return,
+        Ok(None) => EDEN_CONTROLLER_MISSING_WARNING,
+        Err(_) => EDEN_CONTROLLER_FAILED_WARNING,
+    };
+    warnings.push(warning.to_string());
+}
+
+fn should_run_post_launch_sync(result: &LaunchResult) -> bool {
+    match result {
+        LaunchResult::Success {
+            command: Some(_), ..
+        } => true,
+        LaunchResult::EmulatorExitedUnsuccessfully { id, .. } => id == "eden",
+        _ => false,
+    }
+}
+
+fn save_sync_transfer_message(
+    result: Option<crate::sync::switch_romm::SwitchSaveSyncResult>,
+) -> Option<String> {
+    result.and_then(|result| result.local_path.is_some().then_some(result.message))
+}
+
+async fn dispatch_post_launch_sync<F, Fut>(
+    result: &LaunchResult,
+    sync: F,
+) -> Option<std::result::Result<Option<String>, anyhow::Error>>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = std::result::Result<Option<String>, anyhow::Error>>,
+{
+    if !should_run_post_launch_sync(result) {
+        return None;
+    }
+    Some(sync().await)
+}
+
+fn record_save_sync_outcome(
+    db: &Database,
+    game_id: i64,
+    phase: &str,
+    label: &str,
+    result: &std::result::Result<Option<String>, anyhow::Error>,
+    warnings: &mut Vec<String>,
+    messages: &mut Vec<String>,
+) {
+    match result {
+        Ok(message) => {
+            if let Some(message) = message
+                .as_deref()
+                .filter(|message| !message.trim().is_empty())
+            {
+                messages.push(message.to_string());
+            }
+            let _ = db.clear_save_sync_failure(game_id, phase);
+        }
+        Err(error) => {
+            tracing::warn!("[SaveSync] {label}: {error}");
+            warnings.push(format!("{label} save sync: {error}"));
+            let _ = db.record_save_sync_failure(game_id, phase, &error.to_string());
+        }
     }
 }
 
@@ -855,6 +970,27 @@ pub async fn prepare_and_launch_game(
     game_id: i64,
 ) -> Result<LaunchGameResult, String> {
     run_launch_pipeline(game_id, Some(app)).await
+}
+
+#[tauri::command]
+pub fn get_native_controllers() -> Result<Vec<crate::controller::NativeController>, String> {
+    let config = AppConfig::load().map_err(|error| error.to_string())?;
+    crate::controller::list_native_controllers(&config.controllers).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn capture_native_controller(
+    device_id: u32,
+) -> Result<crate::controller::ControllerMapping, String> {
+    let captured = crate::controller::capture_native_controller(device_id)
+        .map_err(|error| error.to_string())?;
+    let mut config = AppConfig::load().map_err(|error| error.to_string())?;
+    config
+        .controllers
+        .mappings
+        .insert(captured.guid, captured.mapping.clone());
+    config.save().map_err(|error| error.to_string())?;
+    Ok(captured.mapping)
 }
 
 async fn run_launch_pipeline(
@@ -1078,7 +1214,7 @@ async fn run_launch_pipeline(
     tracing::info!("[Launch] Game: {} ({})", game.name, game.platform_id);
 
     let launcher = EmulatorLauncher::new(config.clone(), db.clone());
-    let launch_command = match launcher.build_command(&game) {
+    let mut launch_command = match launcher.build_command(&game) {
         Ok(command) => command,
         Err(error) => {
             let error = emit_launch_failure(
@@ -1091,7 +1227,12 @@ async fn run_launch_pipeline(
             return Ok(failed_launch_result(error));
         }
     };
+    if launch_command.emulator_id == "eden" {
+        let launch_display_context = capture_launch_display_context(app.as_ref(), &config);
+        apply_launch_display_context(&mut launch_command, launch_display_context);
+    }
     let mut save_sync_warnings = Vec::new();
+    let mut save_sync_messages = Vec::new();
 
     previous_stage = emit_launch_progress(
         app.as_ref(),
@@ -1130,23 +1271,49 @@ async fn run_launch_pipeline(
         None,
     );
 
-    let pre_sync_result = if launch_command.emulator_id == "retroarch" {
-        crate::sync::retroarch_romm::pre_launch_sync(
-            &game,
-            &mut config,
-            launch_command.core_name.as_deref(),
-        )
-        .await
-    } else {
-        crate::sync::switch_romm::pre_launch_sync(&game, &mut config).await
-    };
-    if config.romm.sync_saves {
-        if let Err(e) = &pre_sync_result {
-            tracing::warn!("[SaveSync] Pre-launch: {e}");
-            save_sync_warnings.push(format!("Pre-launch save sync: {e}"));
-            let _ = db.record_save_sync_failure(game.id, "pre_launch", &e.to_string());
+    let pre_sync_result: std::result::Result<Option<String>, anyhow::Error> =
+        if launch_command.emulator_id == "retroarch" {
+            crate::sync::retroarch_romm::pre_launch_sync(
+                &game,
+                &mut config,
+                launch_command.core_name.as_deref(),
+            )
+            .await
+            .map(|_| None)
         } else {
-            let _ = db.clear_save_sync_failure(game.id);
+            crate::sync::switch_romm::pre_launch_sync_result(&game, &mut config)
+                .await
+                .map(save_sync_transfer_message)
+        };
+    if config.romm.sync_saves {
+        record_save_sync_outcome(
+            &db,
+            game.id,
+            "pre_launch",
+            "Pre-launch",
+            &pre_sync_result,
+            &mut save_sync_warnings,
+            &mut save_sync_messages,
+        );
+    }
+
+    if launch_command.emulator_id == "eden" {
+        let profile_preparation = crate::controller::prepare_eden_profile(
+            &config.controllers,
+            Path::new(&launch_command.executable),
+        );
+        record_eden_controller_warning(&mut save_sync_warnings, &profile_preparation);
+        match profile_preparation {
+            Ok(Some(_profile_path)) => {
+                launch_command.append_argument("-input-profile");
+                launch_command.append_argument(crate::controller::EDEN_PROFILE_NAME);
+            }
+            Ok(None) => {
+                tracing::warn!("[Controller] No configured controller is connected; Eden defaults will be used");
+            }
+            Err(error) => {
+                tracing::warn!("[Controller] Eden profile preparation skipped: {error}; Eden defaults will be used");
+            }
         }
     }
 
@@ -1203,41 +1370,55 @@ async fn run_launch_pipeline(
         }
     };
 
+    if config.romm.sync_saves && should_run_post_launch_sync(&result) {
+        previous_stage = Some(LaunchStage::Running);
+        previous_stage = emit_launch_progress(
+            app.as_ref(),
+            game.id,
+            &game.name,
+            previous_stage,
+            LaunchStage::SaveSync,
+            None,
+        );
+    }
+    let post_sync_result = dispatch_post_launch_sync(&result, || async {
+        if launch_command_for_post_sync.emulator_id == "retroarch" {
+            crate::sync::retroarch_romm::post_launch_sync(
+                &game,
+                &mut config,
+                launch_command_for_post_sync.core_name.as_deref(),
+            )
+            .await
+            .map(|_| None)
+        } else {
+            crate::sync::switch_romm::post_launch_sync_result(&game, &mut config)
+                .await
+                .map(save_sync_transfer_message)
+        }
+    })
+    .await;
+    if let Some(post_sync_result) = post_sync_result {
+        if config.romm.sync_saves {
+            record_save_sync_outcome(
+                &db,
+                game.id,
+                "post_launch",
+                "Post-launch",
+                &post_sync_result,
+                &mut save_sync_warnings,
+                &mut save_sync_messages,
+            );
+        }
+    }
+
     match result {
         LaunchResult::Success { duration_minutes, exit_code, .. } => {
-            previous_stage = Some(LaunchStage::Running);
-            previous_stage = emit_launch_progress(
-                app.as_ref(),
-                game.id,
-                &game.name,
-                previous_stage,
-                LaunchStage::SaveSync,
-                None,
-            );
-            let post_sync_result = if launch_command_for_post_sync.emulator_id == "retroarch" {
-                crate::sync::retroarch_romm::post_launch_sync(
-                    &game,
-                    &mut config,
-                    launch_command_for_post_sync.core_name.as_deref(),
-                )
-                .await
-            } else {
-                crate::sync::switch_romm::post_launch_sync(&game, &mut config).await
-            };
-            if config.romm.sync_saves {
-                if let Err(e) = &post_sync_result {
-                    tracing::warn!("[SaveSync] Post-launch: {e}");
-                    save_sync_warnings.push(format!("Post-launch save sync: {e}"));
-                    let _ = db.record_save_sync_failure(game.id, "post_launch", &e.to_string());
-                } else {
-                    let _ = db.clear_save_sync_failure(game.id);
-                }
-            }
             tracing::info!("[Launch] Game exited successfully (duration: {}min, exit_code: {:?})", duration_minutes, exit_code);
             let result = LaunchGameResult {
                 success: true,
                 error: None,
                 save_sync_warnings,
+                save_sync_messages,
                 dry_run: false,
                 duration_minutes: Some(duration_minutes),
                 exit_code,
@@ -1258,6 +1439,7 @@ async fn run_launch_pipeline(
                 success: true,
                 error: None,
                 save_sync_warnings,
+                save_sync_messages,
                 dry_run: true,
                 duration_minutes: None,
                 exit_code: None,
@@ -1281,7 +1463,10 @@ async fn run_launch_pipeline(
                 previous_stage,
                 error,
             );
-            Ok(failed_launch_result(error))
+            let mut result = failed_launch_result(error);
+            result.save_sync_warnings = save_sync_warnings;
+            result.save_sync_messages = save_sync_messages;
+            Ok(result)
         }
         _ => {
             let exit_code = match &result {
@@ -1300,6 +1485,7 @@ async fn run_launch_pipeline(
                 success: false,
                 error: Some(error),
                 save_sync_warnings,
+                save_sync_messages,
                 dry_run: false,
                 duration_minutes: None,
                 exit_code,
@@ -2154,6 +2340,94 @@ pub async fn download_rom(
 
     tracing::info!("[Download] ROM download complete: {}", dest_str);
     Ok(dest_str)
+}
+
+#[tauri::command]
+pub async fn sync_switch_content(
+    app: tauri::AppHandle,
+    game_id: i64,
+) -> Result<crate::sync::switch_content::SwitchContentSyncResult, String> {
+    let Some(_active_game) = ActiveGameGuard::try_acquire(game_id) else {
+        return Err("This game already has an active action; wait for it to finish, then retry".to_string());
+    };
+    let config = AppConfig::load().map_err(|error| error.to_string())?;
+    let eden = config
+        .emulators
+        .eden
+        .as_deref()
+        .ok_or("Eden is not configured; choose the installed Eden executable in Settings, then retry")?;
+    if !eden.is_file() {
+        return Err(format!(
+            "Configured Eden executable was not found at {}; choose the installed Eden executable in Settings, then retry",
+            eden.display()
+        ));
+    }
+
+    let db = Database::open().map_err(|error| error.to_string())?;
+    let game = db
+        .get_game(game_id)
+        .map_err(|error| error.to_string())?
+        .ok_or("Game not found")?;
+    if game.source != GameSource::RomM || game.romm_id.is_none() {
+        return Err("Switch content sync requires a game linked to RomM".to_string());
+    }
+    if game.platform_id != "switch" {
+        return Err("Switch content sync is only available for Switch games".to_string());
+    }
+
+    let session = restore_romm_session().await?.ok_or(
+        "No saved authenticated RomM session is available; reconnect in Settings > RomM, then retry",
+    )?;
+    let _download_activity = crate::storage::begin_rom_download()?;
+    let client = RomMClient::new(&session.server_url).with_token(session.access_token);
+    let progress_app = app.clone();
+    let progress_game_name = game.name.clone();
+    let result = crate::sync::switch_content::sync_switch_content(&game, &client, move |progress| {
+        let _ = progress_app.emit(
+            "switch-content-sync-progress",
+            serde_json::json!({
+                "game_id": game_id,
+                "game_name": progress_game_name.clone(),
+                "stage": progress.stage,
+                "file_name": progress.file_name,
+                "category": progress.category,
+                "file_index": progress.file_index,
+                "total_files": progress.total_files,
+                "downloaded": progress.downloaded,
+                "total": progress.total,
+                "percent": progress.percent,
+            }),
+        );
+    })
+    .await;
+
+    match result {
+        Ok(result) => {
+            let _ = app.emit(
+                "switch-content-sync-complete",
+                serde_json::json!({
+                    "game_id": game_id,
+                    "game_name": game.name,
+                    "downloaded": result.downloaded,
+                    "reused": result.reused,
+                    "total_files": result.total_files,
+                }),
+            );
+            Ok(result)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let _ = app.emit(
+                "switch-content-sync-error",
+                serde_json::json!({
+                    "game_id": game_id,
+                    "game_name": game.name,
+                    "message": message,
+                }),
+            );
+            Err(message)
+        }
+    }
 }
 
 #[tauri::command]
@@ -4661,7 +4935,8 @@ mod tests {
         let result = LaunchGameResult {
             success: true,
             error: None,
-            save_sync_warnings: vec![],
+            save_sync_warnings: vec![EDEN_CONTROLLER_MISSING_WARNING.to_string()],
+            save_sync_messages: vec!["Uploaded Switch save to RomM".to_string()],
             dry_run: false,
             duration_minutes: Some(60),
             exit_code: Some(0),
@@ -4671,6 +4946,27 @@ mod tests {
         assert!(!result.dry_run);
         assert_eq!(result.duration_minutes, Some(60));
         assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.save_sync_warnings, vec![EDEN_CONTROLLER_MISSING_WARNING]);
+        assert_eq!(result.save_sync_messages, vec!["Uploaded Switch save to RomM"]);
+    }
+
+    #[test]
+    fn launch_game_result_serializes_save_sync_messages() {
+        let result = LaunchGameResult {
+            success: true,
+            error: None,
+            save_sync_warnings: vec![],
+            save_sync_messages: vec!["Uploaded Switch save to RomM".to_string()],
+            dry_run: false,
+            duration_minutes: Some(1),
+            exit_code: Some(0),
+        };
+
+        let serialized = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            serialized["save_sync_messages"],
+            serde_json::json!(["Uploaded Switch save to RomM"])
+        );
     }
 
     #[test]
@@ -4678,13 +4974,16 @@ mod tests {
         let result = LaunchGameResult {
             success: false,
             error: Some("Emulator not found".to_string()),
-            save_sync_warnings: vec![],
+            save_sync_warnings: vec![EDEN_CONTROLLER_FAILED_WARNING.to_string()],
+            save_sync_messages: vec![],
             dry_run: false,
             duration_minutes: None,
-            exit_code: None,
+            exit_code: Some(1),
         };
         assert!(!result.success);
         assert_eq!(result.error, Some("Emulator not found".to_string()));
+        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(result.save_sync_warnings, vec![EDEN_CONTROLLER_FAILED_WARNING]);
     }
 
     #[test]
@@ -4693,6 +4992,7 @@ mod tests {
             success: true,
             error: None,
             save_sync_warnings: vec![],
+            save_sync_messages: vec![],
             dry_run: true,
             duration_minutes: None,
             exit_code: None,
@@ -4710,6 +5010,297 @@ mod tests {
         assert!(!result.dry_run);
         assert!(result.duration_minutes.is_none());
         assert!(result.exit_code.is_none());
+    }
+
+    #[test]
+    fn controller_preparation_warnings_are_concise_and_observable() {
+        let missing: std::result::Result<Option<PathBuf>, anyhow::Error> = Ok(None);
+        let malformed: std::result::Result<Option<PathBuf>, anyhow::Error> =
+            Err(anyhow::anyhow!("failed at C:\\Games\\Pad.ini for USB Gamepad"));
+        let success: std::result::Result<Option<PathBuf>, anyhow::Error> = Ok(Some(
+            PathBuf::from("C:\\Games\\Wingosy.ini"),
+        ));
+
+        let mut warnings = Vec::new();
+        record_eden_controller_warning(&mut warnings, &missing);
+        record_eden_controller_warning(&mut warnings, &malformed);
+        record_eden_controller_warning(&mut warnings, &success);
+
+        assert_eq!(warnings.len(), 2);
+        assert_eq!(warnings[0], EDEN_CONTROLLER_MISSING_WARNING);
+        assert_eq!(warnings[1], EDEN_CONTROLLER_FAILED_WARNING);
+        assert!(warnings.iter().all(|warning| !warning.contains("C:\\")));
+        assert!(warnings.iter().all(|warning| !warning.contains("USB Gamepad")));
+    }
+
+    #[test]
+    fn save_sync_transfer_messages_exclude_successful_no_ops() {
+        let no_op = crate::sync::switch_romm::SwitchSaveSyncResult {
+            success: true,
+            message: "Switch save is already synchronized".to_string(),
+            local_path: None,
+            romm_save_id: Some(19),
+            slot: Some("autosave".to_string()),
+        };
+        assert_eq!(save_sync_transfer_message(Some(no_op)), None);
+
+        let restored = crate::sync::switch_romm::SwitchSaveSyncResult {
+            success: true,
+            message: "Restored Switch save from RomM".to_string(),
+            local_path: Some("save/title".to_string()),
+            romm_save_id: Some(19),
+            slot: Some("autosave".to_string()),
+        };
+        assert_eq!(
+            save_sync_transfer_message(Some(restored)).as_deref(),
+            Some("Restored Switch save from RomM")
+        );
+    }
+
+    #[test]
+    fn post_launch_sync_requires_a_started_process_for_eden_failures() {
+        let eden_command = test_launch_command("eden", &[]);
+        let retroarch_command = test_launch_command("retroarch", &[]);
+
+        assert!(should_run_post_launch_sync(&LaunchResult::Success {
+            duration_minutes: 1,
+            exit_code: Some(0),
+            command: Some(eden_command.clone()),
+        }));
+        assert!(!should_run_post_launch_sync(&LaunchResult::Success {
+            duration_minutes: 0,
+            exit_code: Some(0),
+            command: None,
+        }));
+        assert!(should_run_post_launch_sync(&LaunchResult::Success {
+            duration_minutes: 1,
+            exit_code: Some(0),
+            command: Some(retroarch_command.clone()),
+        }));
+        assert!(should_run_post_launch_sync(
+            &LaunchResult::EmulatorExitedUnsuccessfully {
+                name: "Eden".to_string(),
+                id: "eden".to_string(),
+                exit_code: Some(1),
+                command: eden_command,
+            }
+        ));
+        assert!(!should_run_post_launch_sync(
+            &LaunchResult::EmulatorExitedUnsuccessfully {
+                name: "RetroArch".to_string(),
+                id: "retroarch".to_string(),
+                exit_code: Some(1),
+                command: retroarch_command,
+            }
+        ));
+        assert!(!should_run_post_launch_sync(&LaunchResult::EmulatorStartFailed {
+            name: "Eden".to_string(),
+            id: "eden".to_string(),
+            reason: "spawn failed".to_string(),
+        }));
+        assert!(!should_run_post_launch_sync(&LaunchResult::FileNotFound(
+            "game.nsp".to_string(),
+        )));
+    }
+
+    #[tokio::test]
+    async fn post_launch_dispatch_runs_for_eden_exit_but_not_spawn_failure() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let eden_command = test_launch_command("eden", &[]);
+        let post_result = dispatch_post_launch_sync(
+            &LaunchResult::EmulatorExitedUnsuccessfully {
+                name: "Eden".to_string(),
+                id: "eden".to_string(),
+                exit_code: Some(1),
+                command: eden_command,
+            },
+            {
+                let calls = calls.clone();
+                move || async move {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Some("Uploaded newer local save".to_string()))
+                }
+            },
+        )
+        .await;
+        assert_eq!(
+            post_result.unwrap().unwrap().as_deref(),
+            Some("Uploaded newer local save")
+        );
+
+        let spawn_result = dispatch_post_launch_sync(
+            &LaunchResult::EmulatorStartFailed {
+                name: "Eden".to_string(),
+                id: "eden".to_string(),
+                reason: "spawn failed".to_string(),
+            },
+            {
+                let calls = calls.clone();
+                move || async move {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Some("must not run".to_string()))
+                }
+            },
+        )
+        .await;
+        assert!(spawn_result.is_none());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn save_sync_failure_is_nonblocking_and_clears_after_retry_success() {
+        let db = Database::open_in_memory().unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO platforms (id, name, extensions) VALUES ('test', 'Test', 'sav')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO games (id, platform_id, name, file_path) VALUES (42, 'test', 'Game', 'game.rom')",
+                [],
+            )
+            .unwrap();
+        }
+        let mut warnings = Vec::new();
+        let mut messages = Vec::new();
+        let offline: std::result::Result<Option<String>, anyhow::Error> =
+            Err(anyhow::anyhow!("offline"));
+
+        record_save_sync_outcome(
+            &db,
+            42,
+            "post_launch",
+            "Post-launch",
+            &offline,
+            &mut warnings,
+            &mut messages,
+        );
+        assert_eq!(warnings, vec!["Post-launch save sync: offline"]);
+        assert!(messages.is_empty());
+
+        let conn = db.conn.lock().unwrap();
+        let pending: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(pending, 1);
+        drop(conn);
+
+        let retry = Ok(Some("Uploaded newer local save".to_string()));
+        record_save_sync_outcome(
+            &db,
+            42,
+            "post_launch",
+            "Post-launch",
+            &retry,
+            &mut warnings,
+            &mut messages,
+        );
+        assert_eq!(messages, vec!["Uploaded newer local save"]);
+
+        let conn = db.conn.lock().unwrap();
+        let pending: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(pending, 0);
+    }
+
+    fn test_launch_command(emulator_id: &str, args: &[&str]) -> LaunchCommand {
+        let executable = "emulator.exe".to_string();
+        let args = args
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect::<Vec<_>>();
+        let full_command = format!("\"{executable}\" {}", args.join(" "));
+        LaunchCommand {
+            executable,
+            args,
+            full_command,
+            emulator_id: emulator_id.to_string(),
+            emulator_name: emulator_id.to_string(),
+            core_name: None,
+            game_name: "Test Game".to_string(),
+            rom_path: "game.rom".to_string(),
+        }
+    }
+
+    #[test]
+    fn eden_launch_args_follow_fullscreen_immersive_and_windowed_contexts() {
+        let cases = [
+            (
+                "fullscreen",
+                LaunchDisplayContext {
+                    window_fullscreen: true,
+                    immersive: false,
+                },
+                vec!["-g", "game.nsp", "-f"],
+            ),
+            (
+                "immersive",
+                LaunchDisplayContext {
+                    window_fullscreen: false,
+                    immersive: true,
+                },
+                vec!["-g", "game.nsp", "-f"],
+            ),
+            (
+                "windowed",
+                LaunchDisplayContext {
+                    window_fullscreen: false,
+                    immersive: false,
+                },
+                vec!["-g", "game.nsp"],
+            ),
+        ];
+
+        for (name, context, expected_args) in cases {
+            let mut command = test_launch_command("eden", &["-g", "game.nsp"]);
+            apply_launch_display_context(&mut command, context);
+
+            assert_eq!(
+                command.args,
+                expected_args,
+                "unexpected Eden args for {name}"
+            );
+            assert_eq!(
+                command.full_command,
+                format!("\"emulator.exe\" {}", expected_args.join(" ")),
+                "full command should match Eden args for {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn launch_display_context_reads_immersive_intent_from_existing_config() {
+        let mut config = AppConfig::default();
+        config.display.big_picture = true;
+
+        assert_eq!(
+            capture_launch_display_context(None, &config),
+            LaunchDisplayContext {
+                window_fullscreen: false,
+                immersive: true,
+            }
+        );
+    }
+
+    #[test]
+    fn launch_display_context_preserves_non_eden_commands() {
+        let mut command = test_launch_command("cemu", &["-g", "game.wud"]);
+        let original_args = command.args.clone();
+        let original_full_command = command.full_command.clone();
+
+        apply_launch_display_context(
+            &mut command,
+            LaunchDisplayContext {
+                window_fullscreen: true,
+                immersive: true,
+            },
+        );
+
+        assert_eq!(command.args, original_args);
+        assert_eq!(command.full_command, original_full_command);
     }
 
     #[test]
@@ -5001,6 +5592,17 @@ mod tests {
                 None,
             ),
             Some(LaunchStage::Launching)
+        );
+        assert_eq!(
+            emit_launch_progress(
+                None,
+                42,
+                "Cached Game",
+                Some(LaunchStage::Running),
+                LaunchStage::SaveSync,
+                None,
+            ),
+            Some(LaunchStage::SaveSync)
         );
         assert_eq!(
             serde_json::to_string(&LaunchStage::SaveSync).unwrap(),

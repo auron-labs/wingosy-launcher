@@ -818,7 +818,7 @@ fn validate_switch_firmware(path: &Path, header_key: &[u8; 32]) -> Result<usize>
     Ok(count)
 }
 
-fn eden_data_root(eden_executable: &Path, appdata: Option<&Path>) -> Result<PathBuf> {
+pub(crate) fn eden_data_root(eden_executable: &Path, appdata: Option<&Path>) -> Result<PathBuf> {
     let parent = eden_executable
         .parent()
         .context("Configured Eden executable has no parent directory")?;
