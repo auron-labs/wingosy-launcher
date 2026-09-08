@@ -23,6 +23,19 @@ on a non-Windows host. On a provisioned Windows test machine, the opt-in smoke i
 mise exec -- cargo run --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --example windows_smoke
 ```
 
+The opt-in native Wingosy navigation proof uses the debug adapter binary and is
+selected separately from the default WDIO specs. Build the adapter, then run it
+with the normal native E2E prerequisites on Windows:
+
+```text
+mise exec -- cargo build --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --locked
+bun run test:e2e:virtual-gamepad
+```
+
+The proof derives `tools/virtual-gamepad-adapter/target/debug/` from the
+repository root. A prebuilt binary can be selected with
+`WINGOSY_VIRTUAL_GAMEPAD_ADAPTER_PATH` when the default path is not suitable.
+
 ## NDJSON protocol
 
 The process reads one JSON object per line and writes one JSON response per line.

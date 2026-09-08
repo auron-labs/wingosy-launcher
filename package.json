@@ -79,6 +79,7 @@
     "test:rust:critical": "cd src-tauri && cargo test critical -- --nocapture",
     "test:rust:cores": "cd src-tauri && cargo test all_mapped_retroarch_core_buildbot_zips_are_valid -- --ignored --nocapture",
     "test:e2e:immersive": "wdio run wdio.conf.js --spec e2e-webdriver/immersive.spec.js",
+    "test:e2e:virtual-gamepad": "wdio run wdio.conf.js --spec e2e-webdriver/virtual-gamepad-navigation.spec.js",
     "version:set": "bun scripts/set-version.mjs",
     "version:bump": "bun scripts/bump-version.mjs"
   },

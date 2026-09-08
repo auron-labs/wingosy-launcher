@@ -10,7 +10,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 import { getControllerAction, isTextInputTarget, logControllerOutcome } from "./controllerDebug";
-import { getControllerAction, logControllerOutcome } from "./controllerDebug";
 import { dedupeGames } from "./gameList";
 import { getLaunchErrorPresentation } from "./launchError";
 

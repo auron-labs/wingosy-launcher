@@ -4,7 +4,7 @@ Parent: Windows virtual gamepad testing proof-of-concept specification
 
 Blocked by: 01 — Drive one system controller through a persistent adapter; 02 — Release unattended input without ending the controller session
 
-Status: ready-for-agent
+Status: resolved
 
 ## What to build
 
@@ -30,17 +30,17 @@ suites do not acquire a ViGEmBus requirement.
 
 ## Acceptance
 
-- [ ] The opt-in test is single-instance, starts the adapter once, connects a
+- [x] The opt-in test is single-instance, starts the adapter once, connects a
       ready target, reuses existing readiness/navigation seams, and fails rather
       than silently succeeding when its app, fixture, controls, or readiness is
       absent.
-- [ ] The test asserts the known initial focus, a visible focus move caused by a
+- [x] The test asserts the known initial focus, a visible focus move caused by a
       D-pad press after a bounded wait, and the expected released/neutral result
       for the selected controls. It does not substitute adapter acknowledgements
       or renderer injection for the visible proof.
-- [ ] Setup and assertion failures still trigger neutral and disconnect cleanup;
+- [x] Setup and assertion failures still trigger neutral and disconnect cleanup;
       teardown failures are reported separately with minimal existing diagnostics.
-- [ ] Implementation and meaningful available-host/static or existing-harness
+- [x] Implementation and meaningful available-host/static or existing-harness
       checks are complete. Windows execution is deferred to the final handoff;
       no Windows access is required to close this implementation ticket, while
       unresolved compile or code-test failures remain blockers.
@@ -63,3 +63,13 @@ This handoff is the final ticket's human validation request, not a separate
 human-only ticket and not a prerequisite for implementing or completing the
 automated work. Do not add a cross-platform fake controller or a mocked
 end-to-end claim to compensate for an unavailable Windows host.
+
+## Comments
+
+- 2026-09-08: Implementation agent completed the opt-in native navigation proof
+  and available-host checks. Windows/ViGEm execution remains deferred as allowed
+  by the acceptance criteria. Review is pending.
+- 2026-09-08: Independent Standards and Spec reviewers both approved the
+  implementation. Focused and full unit tests, production build, adapter tests,
+  formatting, check, and Clippy passed; Windows runtime verification remains for
+  the final human handoff.
