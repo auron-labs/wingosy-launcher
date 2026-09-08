@@ -1,17 +1,18 @@
 # Local Issue State
 
-Generated: 2026-09-07T00:05:01Z
+Generated: 2026-09-08T14:59:10+10:00
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 0 active, 16 resolved
+Tickets: 3 active, 16 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
-
-_No active tickets._
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [01-drive-system-controller](virtual-gamepad-testing/issues/01-drive-system-controller.md) | — | — | ready-for-agent | None |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [02-release-unattended-input](virtual-gamepad-testing/issues/02-release-unattended-input.md) | — | — | ready-for-agent | 01 — Drive one system controller through a persistent adapter |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [03-prove-wingosy-navigation](virtual-gamepad-testing/issues/03-prove-wingosy-navigation.md) | — | — | ready-for-agent | 01 — Drive one system controller through a persistent adapter; 02 — Release unattended input without ending the controller session |
 
 ## Resolved Tickets
 
