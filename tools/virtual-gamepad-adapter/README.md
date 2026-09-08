@@ -49,6 +49,18 @@ Repeated cleanup while already disconnected is safe. On non-Windows hosts,
 driver actions fail with an explicit unsupported-platform error while protocol
 conversion tests remain runnable.
 
+## Inactivity timeout
+
+The live process defaults to a 30-second inactivity timeout. Set
+`WINGOSY_GAMEPAD_INACTIVITY_TIMEOUT_MS` to a positive, finite integer number of
+milliseconds; zero, non-integer, non-finite, or values too large for the system
+clock fail startup.
+Each successfully dispatched `set_state` starts or resets the deadline.
+`neutral` and `disconnect` disarm it. On expiry, the connected target receives a
+complete neutral report and remains ready; no unsolicited NDJSON response is
+written. The next `status` includes a short `last_timeout` diagnostic, and a
+later valid `set_state` is accepted normally.
+
 ## Manual Windows provisioning
 
 Provision a dedicated Windows 10/11 test machine manually before using the
@@ -66,8 +78,8 @@ adapter:
    machine's security procedure, and do not direct provisioning automation to
    that retired domain.
 4. Keep competing physical or virtual controllers out of the test setup so the
-   one-controller prerequisite remains deliberate. If an abnormal exit leaves
-   an orphaned target, stop the adapter and use existing Windows/driver controls
+   one-controller prerequisite remains deliberate. An abnormal exit may leave
+   an orphaned target; stop the adapter and use existing Windows/driver controls
    or reboot before trying a fresh `connect`.
 
 No install, update, download, driver provisioning, or bundling is automated by

@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 #[cfg(test)]
 use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+const INACTIVITY_TIMEOUT_ENV: &str = "WINGOSY_GAMEPAD_INACTIVITY_TIMEOUT_MS";
+const DEFAULT_INACTIVITY_TIMEOUT_MS: u64 = 30_000;
 
 pub use protocol::{ButtonState, DpadDirection, NormalizedState, Stick};
 
@@ -43,6 +47,8 @@ pub struct Status {
     pub ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_timeout: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,7 +114,10 @@ impl ActiveController {
 
 pub struct Adapter {
     controller: Option<ActiveController>,
+    inactivity_timeout: Duration,
+    inactivity_deadline: Option<Instant>,
     last_error: Option<String>,
+    last_timeout: Option<String>,
 }
 
 impl Default for Adapter {
@@ -119,15 +128,43 @@ impl Default for Adapter {
 
 impl Adapter {
     pub fn new() -> Self {
-        Self {
-            controller: None,
-            last_error: None,
+        Self::from_timeout(Duration::from_millis(DEFAULT_INACTIVITY_TIMEOUT_MS))
+            .expect("the default inactivity timeout must be valid")
+    }
+
+    pub fn from_env() -> Result<Self, String> {
+        Self::from_timeout(inactivity_timeout_from_env()?)
+    }
+
+    fn from_timeout(timeout: Duration) -> Result<Self, String> {
+        if timeout == Duration::ZERO {
+            return Err("inactivity timeout must be greater than zero".to_owned());
         }
+        if Instant::now().checked_add(timeout).is_none() {
+            return Err("inactivity timeout is too large for the system clock".to_owned());
+        }
+
+        Ok(Self {
+            controller: None,
+            inactivity_timeout: timeout,
+            inactivity_deadline: None,
+            last_error: None,
+            last_timeout: None,
+        })
+    }
+
+    #[cfg(test)]
+    fn with_timeout(timeout: Duration) -> Self {
+        Self::from_timeout(timeout).expect("test timeout must be valid")
     }
 
     pub fn handle_line(&mut self, line: &str) -> Response {
+        self.handle_line_at(line, Instant::now())
+    }
+
+    fn handle_line_at(&mut self, line: &str, now: Instant) -> Response {
         match parse_command(line) {
-            Ok(command) => self.handle_command(command),
+            Ok(command) => self.handle_command_at(command, now),
             Err(error) => self.failure(
                 CommandName::Invalid,
                 format!("input: invalid command JSON: {error}"),
@@ -136,9 +173,13 @@ impl Adapter {
     }
 
     pub fn handle_command(&mut self, command: Command) -> Response {
+        self.handle_command_at(command, Instant::now())
+    }
+
+    fn handle_command_at(&mut self, command: Command, now: Instant) -> Response {
         match command {
             Command::Connect => self.connect(),
-            Command::SetState { state } => self.set_state(state),
+            Command::SetState { state } => self.set_state(state, now),
             Command::Neutral => self.neutral(),
             Command::Status => Response::success(CommandName::Status, self.status()),
             Command::Disconnect => self.disconnect(),
@@ -146,6 +187,7 @@ impl Adapter {
     }
 
     pub fn cleanup(&mut self) -> Result<(), CleanupError> {
+        self.inactivity_deadline = None;
         match self.controller.take() {
             Some(controller) => controller.cleanup(),
             None => Ok(()),
@@ -170,23 +212,39 @@ impl Adapter {
         }
     }
 
-    fn set_state(&mut self, state: NormalizedState) -> Response {
+    fn set_state(&mut self, state: NormalizedState, now: Instant) -> Response {
         let command = CommandName::SetState;
+        if self.controller.is_none() {
+            return self.failure(command, "set_state: controller is not connected".to_owned());
+        }
+        let deadline = match now.checked_add(self.inactivity_timeout) {
+            Some(deadline) => deadline,
+            None => {
+                return self.failure(
+                    command,
+                    "set_state: configured inactivity timeout is too large".to_owned(),
+                )
+            }
+        };
         let result = match self.controller.as_mut() {
             Some(controller) => controller
                 .set_state(&state)
                 .map_err(|error| format!("set_state: {error}")),
-            None => Err("set_state: controller is not connected".to_owned()),
+            None => unreachable!("controller presence was checked before dispatch"),
         };
 
         match result {
-            Ok(()) => self.success(command),
+            Ok(()) => {
+                self.inactivity_deadline = Some(deadline);
+                self.success(command)
+            }
             Err(error) => self.failure(command, error),
         }
     }
 
     fn neutral(&mut self) -> Response {
         let command = CommandName::Neutral;
+        self.inactivity_deadline = None;
         let result = match self.controller.as_mut() {
             Some(controller) => controller
                 .neutral()
@@ -198,6 +256,42 @@ impl Adapter {
             Ok(()) => self.success(command),
             Err(error) => self.failure(command, error),
         }
+    }
+
+    pub fn service_timeout(&mut self) {
+        self.service_timeout_at(Instant::now());
+    }
+
+    fn service_timeout_at(&mut self, now: Instant) {
+        let Some(deadline) = self.inactivity_deadline else {
+            return;
+        };
+        if now < deadline {
+            return;
+        }
+
+        self.inactivity_deadline = None;
+        let Some(controller) = self.controller.as_mut() else {
+            return;
+        };
+        self.last_timeout = Some(match controller.neutral() {
+            Ok(()) => "inactivity timeout: neutral report dispatched".to_owned(),
+            Err(error) => format!("inactivity timeout: neutral report failed: {error}"),
+        });
+    }
+
+    pub fn timeout_remaining(&self) -> Option<Duration> {
+        self.timeout_remaining_at(Instant::now())
+    }
+
+    fn timeout_remaining_at(&self, now: Instant) -> Option<Duration> {
+        self.inactivity_deadline.map(|deadline| {
+            if now < deadline {
+                deadline.duration_since(now)
+            } else {
+                Duration::ZERO
+            }
+        })
     }
 
     fn disconnect(&mut self) -> Response {
@@ -214,6 +308,7 @@ impl Adapter {
             connected: self.controller.is_some(),
             ready: self.controller.is_some(),
             last_error: self.last_error.clone(),
+            last_timeout: self.last_timeout.clone(),
         }
     }
 
@@ -235,11 +330,15 @@ mod tests {
     const COMPLETE_STATE_LINE: &str = r#"{"command":"set_state","state":{"buttons":{"a":true,"b":false,"x":true,"y":false,"start":true,"back":false,"guide":true,"left_thumb":false,"right_thumb":true,"left_shoulder":true,"right_shoulder":false},"dpad":"right","left_stick":{"x":__LEFT_X__,"y":1},"right_stick":{"x":1,"y":-1},"left_trigger":__LEFT_TRIGGER__,"right_trigger":1}}"#;
 
     fn recording_adapter() -> (Adapter, Rc<RefCell<Vec<protocol::NativeX360Report>>>) {
+        recording_adapter_with_timeout(Duration::from_secs(30))
+    }
+
+    fn recording_adapter_with_timeout(
+        timeout: Duration,
+    ) -> (Adapter, Rc<RefCell<Vec<protocol::NativeX360Report>>>) {
         let (sink, reports) = controller::recording_sink();
-        let adapter = Adapter {
-            controller: Some(ActiveController::Recording(Controller::new(sink))),
-            last_error: None,
-        };
+        let mut adapter = Adapter::with_timeout(timeout);
+        adapter.controller = Some(ActiveController::Recording(Controller::new(sink)));
         (adapter, reports)
     }
 
@@ -247,6 +346,13 @@ mod tests {
         COMPLETE_STATE_LINE
             .replace("__LEFT_X__", left_x)
             .replace("__LEFT_TRIGGER__", left_trigger)
+    }
+
+    fn native_report_for_set_state(line: &str) -> protocol::NativeX360Report {
+        match parse_command(line).expect("test command must parse") {
+            Command::SetState { state } => state.to_native_report().expect("test state is valid"),
+            _ => panic!("test command must set state"),
+        }
     }
 
     #[test]
@@ -280,6 +386,89 @@ mod tests {
         assert!(!trigger_response.ok);
         assert!(reports.borrow().is_empty());
     }
+
+    #[test]
+    fn inactivity_timeout_neutralizes_completely_and_accepts_later_state() {
+        let timeout = Duration::from_millis(100);
+        let start = Instant::now();
+        let (mut adapter, reports) = recording_adapter_with_timeout(timeout);
+        let first_line = set_state_line("0.25", "0.5");
+        let reset_line = set_state_line("-0.5", "0");
+        let later_line = set_state_line("0.75", "1");
+        let first_report = native_report_for_set_state(&first_line);
+        let reset_report = native_report_for_set_state(&reset_line);
+        let later_report = native_report_for_set_state(&later_line);
+
+        assert!(adapter.handle_line_at(&first_line, start).ok);
+        adapter.service_timeout_at(start + Duration::from_millis(99));
+        assert_eq!(reports.borrow().as_slice(), &[first_report]);
+
+        assert!(
+            adapter
+                .handle_line_at(&reset_line, start + Duration::from_millis(99))
+                .ok
+        );
+        adapter.service_timeout_at(start + Duration::from_millis(198));
+        assert_eq!(reports.borrow().as_slice(), &[first_report, reset_report]);
+
+        adapter.service_timeout_at(start + Duration::from_millis(199));
+        assert_eq!(
+            reports.borrow().as_slice(),
+            &[
+                first_report,
+                reset_report,
+                protocol::NativeX360Report::neutral()
+            ]
+        );
+        let status = adapter.handle_command_at(Command::Status, start + Duration::from_millis(200));
+        assert!(status.ok);
+        assert!(status.status.connected);
+        assert!(status.status.ready);
+        assert_eq!(
+            status.status.last_timeout.as_deref(),
+            Some("inactivity timeout: neutral report dispatched")
+        );
+
+        assert!(
+            adapter
+                .handle_line_at(&later_line, start + Duration::from_millis(200))
+                .ok
+        );
+        assert_eq!(
+            reports.borrow().as_slice(),
+            &[
+                first_report,
+                reset_report,
+                protocol::NativeX360Report::neutral(),
+                later_report
+            ]
+        );
+    }
+}
+
+fn inactivity_timeout_from_env() -> Result<Duration, String> {
+    let value = match std::env::var(INACTIVITY_TIMEOUT_ENV) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => {
+            return Ok(Duration::from_millis(DEFAULT_INACTIVITY_TIMEOUT_MS))
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!(
+                "{INACTIVITY_TIMEOUT_ENV} must be valid UTF-8 milliseconds"
+            ))
+        }
+    };
+    let milliseconds = value.parse::<u64>().map_err(|_| {
+        format!(
+            "{INACTIVITY_TIMEOUT_ENV} must be a finite positive integer number of milliseconds, got `{value}`"
+        )
+    })?;
+    if milliseconds == 0 {
+        return Err(format!(
+            "{INACTIVITY_TIMEOUT_ENV} must be greater than zero milliseconds"
+        ));
+    }
+    Ok(Duration::from_millis(milliseconds))
 }
 
 fn parse_command(line: &str) -> Result<Command, String> {
