@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-08T04:47:25Z
+Generated: 2026-09-08T07:27:47Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 2 active, 18 resolved
+Tickets: 2 active, 21 resolved
 
 ## Active Tickets
 
@@ -35,3 +35,6 @@ Tickets: 2 active, 18 resolved
 | [ui-audit](ui-audit) | [12-settings-updates](ui-audit/issues/12-settings-updates.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |
 | [ui-audit](ui-audit) | [13-copy-jargon-coming-soon-sweep](ui-audit/issues/13-copy-jargon-coming-soon-sweep.md) | — | — | resolved | 05 — Game details page overhaul; 10 — RomM and Integrations; 12 — Updates. |
 | [ui-audit](ui-audit) | [14-focus-keyboard-affordances](ui-audit/issues/14-focus-keyboard-affordances.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [01-drive-system-controller](virtual-gamepad-testing/issues/01-drive-system-controller.md) | — | — | resolved | None |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [02-release-unattended-input](virtual-gamepad-testing/issues/02-release-unattended-input.md) | — | — | resolved | 01 — Drive one system controller through a persistent adapter |
+| [virtual-gamepad-testing](virtual-gamepad-testing/spec.md) | [03-prove-wingosy-navigation](virtual-gamepad-testing/issues/03-prove-wingosy-navigation.md) | — | — | resolved | 01 — Drive one system controller through a persistent adapter; 02 — Release unattended input without ending the controller session |

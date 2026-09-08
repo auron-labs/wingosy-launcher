@@ -47,6 +47,12 @@ function focusFirstGame(grid) {
   firstGame?.focus?.();
 }
 
+function focusGameControl(game) {
+  const control = game?.querySelector?.("button") || game;
+  control?.focus?.();
+  return control;
+}
+
 function useColumnCount() {
   const [columns, setColumns] = useState(() =>
     typeof window === "undefined" ? 6 : getColumnsForWidth(window.innerWidth)
@@ -322,7 +328,7 @@ export default function ImmersiveLibrary({
     const el = gridRef.current?.querySelector?.(
       `[data-immersive-index="${next}"]`,
     );
-    el?.focus?.();
+    const focusTarget = focusGameControl(el);
     try {
       el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     } catch {
@@ -337,7 +343,7 @@ export default function ImmersiveLibrary({
         targetIndex: next,
       });
     } else {
-      const focused = document.activeElement === el;
+      const focused = document.activeElement === focusTarget;
       logControllerOutcome(action, "library", focused ? "handled" : "ignored", {
         reason: focused ? "focus-moved" : "focus-target-not-focused",
         beforeFocus,

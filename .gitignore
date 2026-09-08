@@ -5,6 +5,7 @@ coverage/
 
 # Rust
 src-tauri/target/
+tools/virtual-gamepad-adapter/target/
 **/*.rs.bk
 
 # IDE

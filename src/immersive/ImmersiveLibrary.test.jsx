@@ -237,7 +237,7 @@ describe("ImmersiveLibrary keyboard navigation", () => {
     expect(onSelectedIndexChange).not.toHaveBeenCalled();
   });
 
-  it("logs correlated focus descriptors when a navigation target cannot take focus", () => {
+  it("focuses the game control and logs correlated focus descriptors", () => {
     vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     renderLibrary(makeGames(3));
@@ -245,17 +245,22 @@ describe("ImmersiveLibrary keyboard navigation", () => {
     root.focus();
 
     controllerKeyDown(root, "ArrowRight");
+    expect(document.activeElement).toBe(
+      screen
+        .getByTestId("immersive-grid")
+        .querySelector('[data-immersive-index="1"] button'),
+    );
 
     expect(info).toHaveBeenCalledWith(
-      "[Wingosy][debug][controller] receiver ignored",
+      "[Wingosy][debug][controller] receiver handled",
       expect.objectContaining({
         actionId: 21,
         receiver: "library",
         key: "ArrowRight",
-        outcome: "ignored",
-        reason: "focus-target-not-focused",
+        outcome: "handled",
+        reason: "focus-moved",
         beforeFocus: expect.objectContaining({ testId: "immersive-library" }),
-        afterFocus: expect.objectContaining({ testId: "immersive-library" }),
+        afterFocus: expect.objectContaining({ tag: "button", role: "button" }),
         targetFocus: expect.objectContaining({ tag: "div", index: "1" }),
       }),
     );
