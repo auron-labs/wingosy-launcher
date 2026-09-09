@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::api::{
     download::{DownloadManager, DownloadProgress},
-    RomMClient,
+    RomMClient, RomMRom,
 };
 use crate::config::{AppConfig, RetroArchInstallKind, RomMConfig, UpdateChannel};
 use crate::database::Database;
@@ -892,6 +892,65 @@ struct PreparedRom {
     expected_size: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RemoteRomDownloadRoute {
+    RomArchive { rom_id: i32 },
+    File { file_id: i32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteRomDownloadSource {
+    route: RemoteRomDownloadRoute,
+    file_name: String,
+    expected_size: Option<u64>,
+}
+
+fn select_remote_rom_download_source(rom: &RomMRom) -> RemoteRomDownloadSource {
+    if let Some((file_id, file_name, expected_size)) = rom
+        .files
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .find_map(|file| {
+            let is_base_game = file
+                .category
+                .as_deref()
+                .is_some_and(|category| category.eq_ignore_ascii_case("game"));
+            let file_id = file.id?;
+            let file_name = file
+                .file_name
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())?;
+
+            is_base_game.then(|| {
+                (
+                    file_id,
+                    file_name.to_string(),
+                    file.file_size_bytes.filter(|size| *size > 0),
+                )
+            })
+        })
+    {
+        return RemoteRomDownloadSource {
+            route: RemoteRomDownloadRoute::File { file_id },
+            file_name,
+            expected_size,
+        };
+    }
+
+    let file_name = if rom.fs_name.is_empty() {
+        rom.name.clone()
+    } else {
+        rom.fs_name.clone()
+    };
+
+    RemoteRomDownloadSource {
+        route: RemoteRomDownloadRoute::RomArchive { rom_id: rom.id },
+        file_name,
+        expected_size: (rom.fs_size_bytes > 0).then_some(rom.fs_size_bytes as u64),
+    }
+}
+
 fn fill_expected_size(
     mut progress: DownloadProgress,
     expected_size: Option<u64>,
@@ -923,15 +982,18 @@ where
     let romm_id = game.romm_id.ok_or("Game has no RomM ID")?;
     let client = RomMClient::new(server_url).with_token(token.to_string());
     let rom = client.get_rom(romm_id).await.map_err(|e| e.to_string())?;
-    let expected_size = (rom.fs_size_bytes > 0).then_some(rom.fs_size_bytes as u64);
-    let file_name = if rom.fs_name.is_empty() {
-        rom.name.clone()
-    } else {
-        rom.fs_name.clone()
+    let source = select_remote_rom_download_source(&rom);
+    let expected_size = source.expected_size;
+    let download_url = match source.route {
+        RemoteRomDownloadRoute::RomArchive { rom_id } => {
+            client.rom_download_url(rom_id, &source.file_name)
+        }
+        RemoteRomDownloadRoute::File { file_id } => {
+            client.rom_file_download_url(file_id, &source.file_name)
+        }
     };
     let dest_dir = config.roms_dir().join(&game.platform_id);
-    let dest_path = dest_dir.join(ensure_rom_extension(&file_name, &game.platform_id));
-    let download_url = client.rom_download_url(romm_id, &file_name);
+    let dest_path = dest_dir.join(ensure_rom_extension(&source.file_name, &game.platform_id));
 
     DownloadManager::new()
         .download_file_atomic(
@@ -4383,6 +4445,68 @@ pub async fn install_signed_app_update(app: tauri::AppHandle, channel: String) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_rom_download_selects_base_game_child_instead_of_archive() {
+        let rom: RomMRom = serde_json::from_value(serde_json::json!({
+            "id": 141,
+            "name": "Cuphead",
+            "fs_name": "Cuphead",
+            "fs_size_bytes": 3_842_882_345_i64,
+            "files": [
+                {
+                    "id": 140,
+                    "rom_id": 141,
+                    "file_name": "Cuphead [0100A5C00D162000][v0].nsp",
+                    "file_size_bytes": 3_481_715_536_u64,
+                    "category": "game"
+                },
+                {
+                    "id": 141,
+                    "rom_id": 141,
+                    "file_name": "Cuphead [0100A5C00D162800][v655360].nsp",
+                    "file_size_bytes": 361_166_809_u64,
+                    "category": "update"
+                }
+            ]
+        }))
+        .expect("Cuphead-shaped RomM metadata should deserialize");
+
+        let source = select_remote_rom_download_source(&rom);
+
+        assert_eq!(
+            source.route,
+            RemoteRomDownloadRoute::File { file_id: 140 }
+        );
+        assert_eq!(
+            source.file_name,
+            "Cuphead [0100A5C00D162000][v0].nsp"
+        );
+        assert_eq!(source.expected_size, Some(3_481_715_536));
+    }
+
+    #[test]
+    fn remote_rom_download_falls_back_to_archive_without_base_game_child() {
+        let rom: RomMRom = serde_json::from_value(serde_json::json!({
+            "id": 7,
+            "name": "Legacy Game",
+            "fs_name": "Legacy Game.zip",
+            "fs_size_bytes": 42_u64,
+            "files": []
+        }))
+        .expect("legacy RomM metadata should deserialize");
+
+        let source = select_remote_rom_download_source(&rom);
+
+        assert_eq!(
+            source,
+            RemoteRomDownloadSource {
+                route: RemoteRomDownloadRoute::RomArchive { rom_id: 7 },
+                file_name: "Legacy Game.zip".to_string(),
+                expected_size: Some(42),
+            }
+        );
+    }
 
     #[test]
     fn setup_merge_preserves_paired_config_and_applies_setup_values() {

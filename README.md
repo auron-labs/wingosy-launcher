@@ -35,13 +35,15 @@ navigation. For a RetroArch gameplay binding issue, use **Input → RetroPad Bin
 
 ## Run from source
 
-Development requires Bun 1.3.14+, a current Rust toolchain, and the Visual
-Studio C++ Build Tools. Make sure `bun` and `cargo` are both
+Development requires Bun 1.3.14+, a current Rust toolchain, the Visual
+Studio C++ Build Tools, and CMake (used to compile the bundled SDL library).
+Make sure `bun`, `cargo`, and `cmake` are all
 available in the same PowerShell window:
 
 ```powershell
 bun --version
 cargo -v
+cmake --version
 ```
 
 Clone, install, and launch the native desktop app:
@@ -58,7 +60,7 @@ until the **Wingosy Launcher** window opens. `bun run dev:web` starts only the
 browser frontend; use `bun run dev` (or `bun run tauri dev`) for the Windows
 desktop application.
 
-If PowerShell reports that `bun` or `cargo` is not recognized, install the
+If PowerShell reports that `bun`, `cargo`, or `cmake` is not recognized, install the
 missing tool or reopen the terminal after updating `Path`. See
 [CONTRIBUTING.md](CONTRIBUTING.md#setup) for detailed setup and troubleshooting.
 

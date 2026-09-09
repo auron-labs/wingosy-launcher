@@ -4,11 +4,11 @@
 
 ## Setup
 
-Prerequisites: **Windows 10/11**, **Bun 1.3.14+** (pinned in `package.json` as `packageManager`), **Rust stable** (Tauri v2 / updater plugin), **VS Build Tools (C++)**.
+Prerequisites: **Windows 10/11**, **Bun 1.3.14+** (pinned in `package.json` as `packageManager`), **Rust stable** (Tauri v2 / updater plugin), **VS Build Tools (C++)**, and **CMake** (for the statically bundled SDL library).
 
 ### PATH on Windows
 
-`bun` and `cargo` must be on your `Path`. Bun normally installs under
+`bun`, `cargo`, and `cmake` must be on your `Path`. Bun normally installs under
 `%USERPROFILE%\.bun\bin`, and Rust under `%USERPROFILE%\.cargo\bin`. If a shell
 still cannot find them, prepend both manually for that session:
 
@@ -21,6 +21,15 @@ Verify in that same terminal:
 ```powershell
 bun --version
 cargo -v
+cmake --version
+```
+
+Visual Studio Build Tools may install CMake without adding it to `Path`. For a
+default Build Tools 2022 installation, add it for the current PowerShell session:
+
+```powershell
+$env:Path = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;$env:Path"
+cmake --version
 ```
 
 ### Troubleshooting: `tauri dev` exits or “app isn’t running”
@@ -29,6 +38,7 @@ cargo -v
 |----------------|----------------------|------------|
 | `bun` is not recognized | Bun is not on `Path` for this terminal | Use the `$env:Path = ...` line above, or open a **new** terminal after installing Bun; confirm with `bun --version`. |
 | `failed to get cargo metadata: program not found` | **Cargo** is not on `Path` (Tauri needs Rust) | Add `%USERPROFILE%\.cargo\bin` (see line above), then `cargo -v`. Install Rust via `winget` / rustup if needed. |
+| `sdl3-sys` asks “is cmake not installed?” | **CMake** is not on `Path` (SDL is compiled from source) | Add the Visual Studio CMake directory shown above, reopen the terminal after a persistent `Path` change, then confirm with `cmake --version`. |
 | No window yet, only compile logs | First **debug** build of `src-tauri` can take **30–120+ seconds** | Wait until you see **`Finished` `dev` profile** and the log line **Starting Wingosy Launcher**; check the taskbar for the window. |
 | Only the browser / `localhost:5173` | You ran **`bun run dev:web`** instead of the full app | Use **`bun run tauri dev`** (or **`bun run dev`**, which is the same) so the **native** window opens. |
 | Can’t drag the frameless window / title bar feels “dead” | Vite **HMR** doesn’t reload **`tauri.conf.json`** or the **Rust** shell; `-webkit-app-region` can also lag until a full reload | **Stop** `tauri dev` (Ctrl+C), start it again. After changing **`src-tauri/tauri.conf.json`** or **`src-tauri/capabilities/`**, restart so the native binary picks up the new config. |

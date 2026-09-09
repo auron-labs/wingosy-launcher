@@ -12,6 +12,7 @@
     "core:window:allow-close",
     "core:window:allow-set-fullscreen",
     "core:window:allow-toggle-maximize",
+    "mcp-bridge:default",
     "shell:default",
     "shell:allow-open",
     "dialog:default",
