@@ -20,6 +20,18 @@ describe("immersive launch errors", () => {
     expect(canRetryLaunch("No compatible RetroArch core is installed for ps2")).toBe(false);
   });
 
+  it("does not offer Retry when no emulator is configured for the platform", () => {
+    const presentation = getLaunchErrorPresentation(
+      "No emulator configured for platform: snes",
+      "Super Nintendo Entertainment System",
+    );
+
+    expect(presentation.message).toBe(
+      "This game cannot start because no compatible emulator is installed for Super Nintendo Entertainment System.",
+    );
+    expect(presentation.retryable).toBe(false);
+  });
+
   it("allows Retry for a failure that may succeed on another attempt", () => {
     expect(canRetryLaunch("The emulator closed before it could start")).toBe(true);
   });

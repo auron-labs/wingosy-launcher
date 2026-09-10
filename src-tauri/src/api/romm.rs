@@ -2,8 +2,12 @@ use anyhow::{Context, Result};
 use chrono::Datelike;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 const WINGOSY_CLIENT: &str = "wingosy-launcher";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct RomMClient {
@@ -16,7 +20,9 @@ impl RomMClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         let client = Client::builder()
             .cookie_store(true)
-            .timeout(std::time::Duration::from_secs(120)) // 2 minute timeout for slow servers
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .unwrap_or_else(|_| Client::new());
 

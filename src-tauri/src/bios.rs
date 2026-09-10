@@ -514,6 +514,31 @@ async fn prepare_eden_firmware_for_launch(
     }
 
     let root = config.bios_dir();
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    if let Ok(Some((prod_keys_path, firmware_zip_path))) = switch_firmware_files(&root) {
+        match install_switch_firmware_from_files(
+            &prod_keys_path,
+            &firmware_zip_path,
+            eden_executable,
+            appdata.as_deref(),
+        ) {
+            Ok(Some(_)) => {
+                return Ok(BiosDownloadSummary {
+                    downloaded: 0,
+                    skipped: 2,
+                    paths: vec![
+                        prod_keys_path.to_string_lossy().into_owned(),
+                        firmware_zip_path.to_string_lossy().into_owned(),
+                    ],
+                });
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                "[BIOS] Cached Switch firmware is unusable; refreshing from RomM: {error}"
+            ),
+        }
+    }
+
     let (client, records) = fetch_firmware(config).await?;
     let Some((prod_keys_record, firmware_zip_record)) = switch_records(&records)? else {
         anyhow::bail!("No Switch prod.keys or firmware archive was found in the configured RomM");
@@ -538,7 +563,6 @@ async fn prepare_eden_firmware_for_launch(
             .push(downloaded_path.to_string_lossy().into_owned());
     }
 
-    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
     let prod_keys_path = switch_target_path(&root, prod_keys_record)?;
     let firmware_zip_path = switch_target_path(&root, firmware_zip_record)?;
     install_switch_firmware_from_files(
@@ -1261,6 +1285,26 @@ mod tests {
 
         assert!(error.contains("Configured Eden executable is unavailable"));
         assert!(error.contains(executable_display.as_str()));
+    }
+
+    #[tokio::test]
+    async fn eden_launch_preparation_uses_cached_firmware_without_romm() {
+        let temp = tempfile::tempdir().unwrap();
+        let bios = temp.path().join("bios");
+        let (eden_executable, eden_user) = eden_test_executable(&temp);
+        write_switch_test_artifacts(&bios, VALID_HEADER_KEY, VALID_PROD_KEYS);
+        let mut config = AppConfig::default();
+        config.library.bios_directory = Some(bios);
+
+        let result = prepare_bios_for_launch(&config, "eden", "switch", &eden_executable)
+            .await
+            .unwrap();
+
+        assert_eq!(result.skipped, 2);
+        assert!(eden_user.join("keys/prod.keys").is_file());
+        assert!(eden_user
+            .join("nand/system/Contents/registered/0100000000000001.nca")
+            .is_file());
     }
 
     #[test]

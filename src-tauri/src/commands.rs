@@ -585,13 +585,13 @@ pub(crate) fn for_each_window_restoration_action(
     action(WindowRestorationAction::Focus);
 }
 
-struct RetroArchWindowRestoration<R: Runtime> {
+struct WindowRestoration<R: Runtime> {
     app: AppHandle<R>,
     was_fullscreen: Option<bool>,
     restored: bool,
 }
 
-impl<R: Runtime> RetroArchWindowRestoration<R> {
+impl<R: Runtime> WindowRestoration<R> {
     fn capture(app: Option<&AppHandle<R>>) -> Option<Self> {
         let app = app?.clone();
         let window = app.get_webview_window("main")?;
@@ -642,7 +642,7 @@ impl<R: Runtime> RetroArchWindowRestoration<R> {
     }
 }
 
-impl<R: Runtime> Drop for RetroArchWindowRestoration<R> {
+impl<R: Runtime> Drop for WindowRestoration<R> {
     fn drop(&mut self) {
         self.restore();
     }
@@ -1392,11 +1392,7 @@ async fn run_launch_pipeline(
     let running_game_id = game.id;
     let running_game_name = game.name.clone();
     let launch_command_for_post_sync = launch_command.clone();
-    let mut window_restoration = if launch_command.emulator_id == "retroarch" {
-        RetroArchWindowRestoration::capture(app.as_ref())
-    } else {
-        None
-    };
+    let mut window_restoration = WindowRestoration::capture(app.as_ref());
     let result = match launcher
         .launch_command_with_lifecycle(
             &game,
@@ -5428,7 +5424,7 @@ mod tests {
     }
 
     #[test]
-    fn retroarch_window_restoration_reasserts_fullscreen_after_focus() {
+    fn window_restoration_reasserts_fullscreen_after_focus() {
         let mut actions = Vec::new();
         for_each_window_restoration_action(Some(true), |action| actions.push(action));
 

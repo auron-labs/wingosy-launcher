@@ -752,7 +752,7 @@ describe("ImmersiveGameDetails launch controls", () => {
     const onOpenSettings = vi.fn();
     const onLaunch = vi.fn().mockResolvedValue({
       success: false,
-      error: "No compatible RetroArch core is installed for ps2",
+      error: "No emulator configured for platform: ps2",
     });
     renderDetails(onLaunch, launchableGame, { onOpenSettings, platformLabel: "PlayStation 2" });
 

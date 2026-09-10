@@ -98,39 +98,39 @@ Finish a computer-use smoke test of the recently added UI audit, immersive libra
 - [x] Verify a no-results search state and its Clear action. — PASS: `zzzzzz-no-match` showed “No games match your search”; Clear restored the 60-item page.
 - [x] Combine search with a platform filter and verify both constraints apply. — PASS: `cupHEAD` plus SNES produced no matches; switching the same search to Nintendo Switch returned only Cuphead.
 - [x] Open remote-only Cuphead details and verify **Download** is the sole contained primary action; Play must not appear as the primary action while the game is unavailable locally. — BLOCKED after the required successful download changed Cuphead to Synced; returning it to remote-only would require the separately confirmed destructive Delete action.
-- [ ] Trigger a safe missing-emulator/core launch path with a remote SNES title; verify a dimmed, plain-language dialog with Open Settings and no misleading Retry action.
+- [x] Trigger a safe missing-emulator/core launch path with a remote SNES title; verify a dimmed, plain-language dialog with Open Settings and no misleading Retry action. — FAIL (Medium): Play on remote-only ActRaiser downloaded the game, then displayed a non-dimmed top alert reading `No emulator configured for platform: snes` with `Open Settings` and a misleading `Retry` action.
 - [x] Restore the user's previous fullscreen/immersive setting after coverage is complete. — PASS: Escape returned to the desktop Library and General again showed Immersive mode Off / Fullscreen disabled.
 
 ### 4. Eden integration
 
-- [x] Determine whether Eden is already installed/detected. If installation is needed, stop for action-time user confirmation before installing or running the newly downloaded emulator. — PASS: Settings reported zero installed emulators; Cuphead content sync returned “Eden is not configured; choose the installed Eden executable in Settings”. Installation now requires user confirmation.
+- [x] Determine whether Eden is already installed/detected. If installation is needed, stop for action-time user confirmation before installing or running the newly downloaded emulator. — PASS: after user confirmation, Wingosy installed Eden at its managed path and Settings reported `1 installed` with Eden available to Launch.
 - [x] Verify Cuphead is fully downloaded before launch testing. — PASS: Cuphead is Synced and the local base-game NSP is exactly `3481715536` bytes.
-- [x] Run **Sync Updates & DLC** for Cuphead and verify download, storage, and registration status in the UI. — BLOCKED before transfer by the missing Eden configuration; the UI gave a plain-language corrective message and explicit retry instruction.
-- [ ] Verify content sync is prevented or safely handled while Eden is running.
-- [ ] Launch Cuphead through Wingosy and verify Eden follows Wingosy fullscreen/windowed state.
-- [ ] Verify returning from Eden restores Wingosy focus and display state.
-- [ ] If keys/firmware are absent, record the launch limitation and do not alter them.
-- [ ] Create or modify a disposable Cuphead save, exit Eden, and verify the save syncs back through Wingosy/RomM.
-- [ ] Relaunch and verify the synced save is restored to the Eden profile.
-- [ ] Exercise save-sync failure/retry messaging if a safe, reversible failure can be induced without changing the PC or server configuration.
+- [x] Run **Sync Updates & DLC** for Cuphead and verify download, storage, and registration status in the UI. — PASS after Eden installation: with Eden closed, Wingosy reported `Synced Switch content for 0100A5C00D162000: 0 downloaded, 1 reused. Eden will scan it on its next launch.`
+- [x] Verify content sync is prevented or safely handled while Eden is running. — PASS: with the `eden` process running, **Sync Updates & DLC** was blocked with “Eden is running; close Eden completely, then retry” and an explicit retry instruction.
+- [x] Launch Cuphead through Wingosy and verify Eden follows Wingosy fullscreen/windowed state. — PASS: the first runtime launch with Wingosy `fullscreen=false` emitted an Eden command without `-f`; a second launch with Wingosy `isFullscreen=true` emitted the otherwise identical command ending in `-f`. Both launches created a live Eden process, and Eden logged Cuphead booting with update `v0.10.0` / version `1.3.7`.
+- [ ] Verify returning from Eden restores Wingosy focus and display state. — PARTIAL: after a forced Eden process stop, Wingosy became visible but `isFocused=false`; normal Eden exit remains untested because Eden exposed no controllable window handle.
+- [x] If keys/firmware are absent, record the launch limitation and do not alter them. — PASS: prerequisites were present enough for Cuphead 1.3.7 to boot with update v0.10.0; only filenames/existence were inspected and nothing was altered.
+- [ ] Create or modify a disposable Cuphead save, exit Eden, and verify the save syncs back through Wingosy/RomM. — PARTIAL/BLOCKED: Eden created or updated `cuphead_settings_data_v1.sav` and `cuphead_ach.sav`, but manual **Sync to RomM** hung after the RomM port went down.
+- [ ] Relaunch and verify the synced save is restored to the Eden profile. — BLOCKED pending RomM service availability.
+- [x] Exercise save-sync failure/retry messaging if a safe, reversible failure can be induced without changing the PC or server configuration. — FAIL (High): with the RomM host pingable but TCP `14400` closed, **Sync to RomM** stayed `Uploading…` for more than two minutes and **List Saves** stayed `Loading` with controls disabled and no timeout/error; after app restart, a retry launch stayed at `Preparing BIOS` with no timeout.
 
 ### 5. Virtual gamepad and controller capture
 
-- [ ] After reboot, rerun the adapter smoke example and confirm the ViGEm target reaches Ready.
-- [ ] If Ready, run `bun run test:e2e:virtual-gamepad` and verify unattended navigation input reaches Wingosy.
-- [ ] Use the virtual controller to navigate immersive mode, including filters, search, details, Back, and focus recovery.
-- [ ] In Settings → Emulators, capture the virtual controller for Eden and verify the generated Eden profile is selected.
-- [ ] Launch Cuphead and verify buttons/sticks reach Eden through the managed profile.
-- [ ] If `TargetNotReady` persists, mark all controller-input checks Blocked and report the exact error; do not reinstall drivers or modify Windows settings without permission.
+- [x] After reboot, rerun the adapter smoke example and confirm the ViGEm target reaches Ready. — BLOCKED (environment): after the 4:22 pm reboot, `cargo run --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --example windows_smoke` failed with `Bus(TargetNotReady { serial_no: 8 })`.
+- [x] If Ready, run `bun run test:e2e:virtual-gamepad` and verify unattended navigation input reaches Wingosy. — BLOCKED: the prerequisite ViGEm target did not reach Ready, so the conditional E2E run was not started.
+- [x] Use the virtual controller to navigate immersive mode, including filters, search, details, Back, and focus recovery. — BLOCKED: no Ready virtual controller is exposed to Wingosy.
+- [x] In Settings → Emulators, capture the virtual controller for Eden and verify the generated Eden profile is selected. — BLOCKED: no Ready virtual controller is exposed, and Eden is not installed/configured.
+- [x] Launch Cuphead and verify buttons/sticks reach Eden through the managed profile. — BLOCKED: the virtual controller target is not Ready and Eden is not installed/configured.
+- [x] If `TargetNotReady` persists, mark all controller-input checks Blocked and report the exact error; do not reinstall drivers or modify Windows settings without permission. — PASS: all controller-input checks were marked Blocked with the exact post-reboot error; no driver reinstall or Windows-setting change was attempted.
 
 ### 6. Final regression and cleanup
 
-- [ ] Recheck desktop Library search/filter/details after leaving immersive mode.
-- [ ] Remove Cuphead from Favorites to clean up the temporary fixture.
-- [ ] Restore Dark theme, UI sounds Off, the original update policy, and the original immersive/fullscreen setting.
-- [ ] Leave downloaded Cuphead/update/save data in place unless the user explicitly confirms deletion.
-- [ ] Record each remaining case as Pass, Fail, or Blocked with observable evidence and concise reproduction steps for failures.
-- [ ] Report severity for defects: Critical (data loss/crash/security), High (major path broken), Medium (partial feature/workaround), Low (cosmetic/edge case).
+- [x] Recheck desktop Library search/filter/details after leaving immersive mode. — PASS: mixed-case search `cupHEAD` returned exactly Cuphead; Favorites retained Cuphead; details showed Synced, Play/Re-download/Sync Updates & DLC, screenshots, and Saves.
+- [x] Remove Cuphead from Favorites to clean up the temporary fixture. — PASS: removed it and verified the control changed to `Add Cuphead to favorites`.
+- [x] Restore Dark theme, UI sounds Off, the original update policy, and the original immersive/fullscreen setting. — PASS: General shows Immersive off and Fullscreen disabled; Appearance has Dark pressed; Sound has UI sounds Off with preview controls disabled; Updates has Check and notify pressed.
+- [x] Leave downloaded Cuphead/update/save data in place unless the user explicitly confirms deletion. — PASS: no downloaded Cuphead, update, or save data was deleted.
+- [x] Record each remaining case as Pass, Fail, or Blocked with observable evidence and concise reproduction steps for failures. — PASS: existing Medium missing-emulator guidance failure and the environment/Eden blocks are recorded above with evidence.
+- [x] Report severity for defects: Critical (data loss/crash/security), High (major path broken), Medium (partial feature/workaround), Low (cosmetic/edge case). — PASS: the missing-emulator guidance issue is classified Medium; environment and Eden prerequisites are classified Blocked.
 
 ## Findings and blockers so far
 
@@ -138,6 +138,11 @@ Finish a computer-use smoke test of the recently added UI audit, immersive libra
 2. **Resolved — RomM sync metadata**: a fresh manual sync displayed `9 Sept 2026, 5:08 pm`, `141 games`, and the success alert `Synced 141 games from RomM!`.
 3. **Resolved — Tauri MCP control**: native webview control was restored after the approved addition of `app.withGlobalTauri: true`; direct DOM, screenshot, and interaction calls now work.
 4. **Resolved — Cuphead ROM download size mismatch**: RomM's ROM-level content endpoint returned a ZIP containing the base game and update, while Wingosy saved it as `.nsp` and validated the ZIP size against the aggregate unwrapped file size. Wingosy now selects the authenticated child file categorized as `game`, uses that file's name and size, and retains the archive endpoint only as a legacy fallback. The Cuphead retest saved `Cuphead [0100A5C00D162000][v0].nsp` at exactly `3481715536` bytes and reached Synced.
+5. **Medium — Missing-emulator launch guidance**: launching remote-only ActRaiser downloaded it, then rendered a top alert instead of the required dimmed dialog. The copy was plain-language and `Open Settings` was present, but a misleading `Retry` action was also shown.
+6. **Blocked — Post-reboot virtual controller target**: the adapter smoke example still returned `Bus(TargetNotReady { serial_no: 8 })`; all dependent controller-input checks remain untestable without driver/system remediation.
+7. **Pass — Windowed Eden/Cuphead launch**: Cuphead 1.3.7 booted through Wingosy with update v0.10.0; the windowed command omitted `-f` as expected while Wingosy reported `fullscreen=false`.
+8. **Medium — Eden focus restoration (tentative)**: after forcibly stopping Eden, Wingosy became visible but was not focused (`isFocused=false`); normal Eden exit was not testable because Eden had no controllable window handle.
+9. **High — Save-sync outage timeout/error handling**: when RomM TCP `14400` was closed, **Sync to RomM** remained `Uploading…` beyond two minutes and **List Saves** remained `Loading` with disabled controls and no failure/retry message; a post-restart launch likewise remained at `Preparing BIOS` without a timeout.
 
 ## Exit criteria
 
