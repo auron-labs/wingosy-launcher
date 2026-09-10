@@ -2,33 +2,82 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::thread::sleep;
     use std::time::Duration;
-    use vigem_rust::{Client, X360Button, X360Report};
+    use wingosy_virtual_gamepad_adapter::{
+        Adapter, ButtonState, Command, DpadDirection, NormalizedState, Response, Stick,
+    };
 
-    let client = Client::builder().max_targets(1).connect()?;
-    let pending = client.new_x360_target().plug()?;
-    let target = pending.wait_for_ready()?;
+    fn state(a: bool, dpad: DpadDirection) -> NormalizedState {
+        NormalizedState {
+            buttons: ButtonState {
+                a,
+                b: false,
+                x: false,
+                y: false,
+                start: false,
+                back: false,
+                guide: false,
+                left_thumb: false,
+                right_thumb: false,
+                left_shoulder: false,
+                right_shoulder: false,
+            },
+            dpad,
+            left_stick: Stick { x: 0.0, y: 0.0 },
+            right_stick: Stick { x: 0.0, y: 0.0 },
+            left_trigger: 0.0,
+            right_trigger: 0.0,
+        }
+    }
+
+    fn require_ok(response: Response, operation: &str) -> Result<(), std::io::Error> {
+        if response.ok {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "{operation} failed: {}",
+                response.error.as_deref().unwrap_or("unknown adapter error")
+            )))
+        }
+    }
+
+    let mut adapter = Adapter::new();
+    require_ok(adapter.handle_command(Command::Connect), "connect")?;
     let pause = Duration::from_millis(150);
 
-    let mut report = X360Report::default();
-    report.buttons.insert(X360Button::A);
-    target.update(&report)?;
+    require_ok(
+        adapter.handle_command(Command::SetState {
+            state: state(true, DpadDirection::Neutral),
+        }),
+        "A press",
+    )?;
     sleep(pause);
 
-    report.buttons.remove(X360Button::A);
-    target.update(&report)?;
+    require_ok(
+        adapter.handle_command(Command::SetState {
+            state: state(false, DpadDirection::Neutral),
+        }),
+        "A release",
+    )?;
     sleep(pause);
 
-    report.buttons.insert(X360Button::DPAD_UP);
-    target.update(&report)?;
+    require_ok(
+        adapter.handle_command(Command::SetState {
+            state: state(false, DpadDirection::Up),
+        }),
+        "D-pad up press",
+    )?;
     sleep(pause);
 
-    report.buttons.remove(X360Button::DPAD_UP);
-    target.update(&report)?;
+    require_ok(
+        adapter.handle_command(Command::SetState {
+            state: state(false, DpadDirection::Neutral),
+        }),
+        "D-pad up release",
+    )?;
     sleep(pause);
 
-    target.update(&X360Report::default())?;
-    target.unplug()?;
-    drop(client);
+    require_ok(adapter.handle_command(Command::Neutral), "neutral")?;
+    require_ok(adapter.handle_command(Command::Disconnect), "disconnect")?;
     Ok(())
 }
 

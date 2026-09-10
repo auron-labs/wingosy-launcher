@@ -2,7 +2,35 @@ use crate::controller::ReportSink;
 use crate::protocol::NativeX360Report;
 
 #[cfg(windows)]
-use vigem_rust::{Client, TargetHandle, X360Button, X360Report, Xbox360};
+use std::thread;
+#[cfg(windows)]
+use std::time::Duration;
+#[cfg(windows)]
+use vigem_rust::{BusError, Client, ClientError, TargetHandle, X360Button, X360Report, Xbox360};
+
+#[cfg(windows)]
+const TARGET_READY_RETRY_ATTEMPTS: u32 = 16;
+#[cfg(windows)]
+const TARGET_READY_RETRY_DELAY: Duration = Duration::from_millis(2);
+
+#[cfg(windows)]
+fn dispatch_with_ready_retry(
+    mut dispatch: impl FnMut() -> Result<(), ClientError>,
+) -> Result<(), ClientError> {
+    let mut attempts = 0u32;
+    loop {
+        attempts += 1;
+        match dispatch() {
+            Ok(()) => return Ok(()),
+            Err(ClientError::Bus(BusError::TargetNotReady { .. }))
+                if attempts < TARGET_READY_RETRY_ATTEMPTS =>
+            {
+                thread::sleep(TARGET_READY_RETRY_DELAY);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 pub(crate) struct DriverTarget {
     #[cfg(windows)]
@@ -73,9 +101,47 @@ impl ReportSink for DriverTarget {
             thumb_rx: report.thumb_rx,
             thumb_ry: report.thumb_ry,
         };
-        self.target
-            .update(&report)
-            .map_err(|error| error.to_string())
+        dispatch_with_ready_retry(|| self.target.update(&report)).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn retries_transient_target_not_ready_errors() {
+        let attempts = Cell::new(0u32);
+
+        let result = dispatch_with_ready_retry(|| {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            if attempt < 3 {
+                Err(ClientError::Bus(BusError::TargetNotReady { serial_no: 7 }))
+            } else {
+                Ok(())
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn does_not_retry_non_transient_errors() {
+        let attempts = Cell::new(0u32);
+
+        let result = dispatch_with_ready_retry(|| {
+            attempts.set(attempts.get() + 1);
+            Err(ClientError::TargetDoesNotExist { serial_no: 7 })
+        });
+
+        assert!(matches!(
+            result,
+            Err(ClientError::TargetDoesNotExist { serial_no: 7 })
+        ));
+        assert_eq!(attempts.get(), 1);
     }
 }
 

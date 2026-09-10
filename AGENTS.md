@@ -16,3 +16,6 @@ Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
 
 Instructions for human smoke-testing needs to be the bare-minimum to pass the ticket. Do not add on unneccessary constraints or steps just for the sake of it.
 
+## Tauri UI testing
+
+Use Tauri MCP as the primary automation path for Wingosy smoke tests. Connect its driver session to the running development app, and use the webview DOM, interaction, keyboard, screenshot, IPC, and window tools to exercise observable behaviour. Use native Computer Use only when a check cannot be covered through Tauri MCP.
