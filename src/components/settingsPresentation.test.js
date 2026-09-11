@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatOptionalStorageBytes, formatStorageBytes } from "./settingsPresentation";
+
+import {
+  formatOptionalStorageBytes,
+  formatStorageBytes,
+} from "./settingsPresentation";
 
 describe("settings presentation", () => {
   it("formats storage sizes with readable units", () => {
@@ -10,6 +14,8 @@ describe("settings presentation", () => {
 
   it("does not turn unavailable metadata into a misleading zero", () => {
     expect(formatOptionalStorageBytes(null)).toBe("Not reported");
-    expect(formatOptionalStorageBytes(undefined, "Size unavailable")).toBe("Size unavailable");
+    expect(formatOptionalStorageBytes(undefined, "Size unavailable")).toBe(
+      "Size unavailable"
+    );
   });
 });

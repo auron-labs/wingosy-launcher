@@ -1,18 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Snackbar from "@mui/material/Snackbar";
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import RomDownloadsView from "../components/RomDownloadsView";
 import Settings from "../components/Settings";
+/** @typedef {import("./immersive-types").AmbientAudioConfig} AmbientAudioConfig */
+/** @typedef {import("./immersive-types").GamesPage} GamesPage */
+/** @typedef {import("./immersive-types").ImmersiveConfig} ImmersiveConfig */
+/** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
+/** @typedef {import("./immersive-types").LaunchResult} LaunchResult */
+/** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
+import { isText } from "../utils/value-guards";
 import AmbientAudioPlayer from "./AmbientAudioPlayer";
-import ImmersiveLibrary from "./ImmersiveLibrary";
+import {
+  getControllerAction,
+  isTextInputTarget,
+  logControllerOutcome,
+} from "./controllerDebug";
+import { dedupeGames } from "./gameList";
 import ImmersiveGameDetails from "./ImmersiveGameDetails";
 import ImmersiveHintBar from "./ImmersiveHintBar";
-import RomDownloadsView from "../components/RomDownloadsView";
-import { invoke } from "@tauri-apps/api/core";
+import ImmersiveLibrary from "./ImmersiveLibrary";
+import { getLaunchErrorPresentation } from "./launchError";
 import { useFullscreen } from "./useFullscreen";
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
-import { getControllerAction, isTextInputTarget, logControllerOutcome } from "./controllerDebug";
-import { dedupeGames } from "./gameList";
-import { getLaunchErrorPresentation } from "./launchError";
 
 const GAMES_PER_PAGE = 60;
 const LOAD_AHEAD = 12;
@@ -22,63 +34,94 @@ const GAMEPAD_DEADZONE_MAX = 0.8;
 
 function normalizeControllerDeadzone(value) {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return DEFAULT_GAMEPAD_DEADZONE;
-  return Math.max(GAMEPAD_DEADZONE_MIN, Math.min(GAMEPAD_DEADZONE_MAX, numeric));
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_GAMEPAD_DEADZONE;
+  }
+  return Math.max(
+    GAMEPAD_DEADZONE_MIN,
+    Math.min(GAMEPAD_DEADZONE_MAX, numeric)
+  );
 }
 
-export default function ImmersiveModeApp({
+/**
+ * @param {{onExit?: () => void|Promise<void>, rommToken?: string|null, rommUrl?: string|null, onRommConnect?: (...args: never[]) => void, requestedFullscreen?: boolean}} props
+ */
+const ImmersiveModeApp = ({
   onExit,
   rommToken,
   rommUrl,
   onRommConnect,
   /** Mirrors `cfg.display.fullscreen` from App — request OS fullscreen when entering Immersive mode. */
   requestedFullscreen = false,
-}) {
+}) => {
   const [view, setView] = useState("library"); // library | details | settings | downloads
-  const [games, setGames] = useState([]);
+  const [games, setGames] = useState(/** @type {ImmersiveGame[]} */ ([]));
   const [gameTotal, setGameTotal] = useState(0);
-  const [platforms, setPlatforms] = useState([]);
+  const [platforms, setPlatforms] = useState(
+    /** @type {PlatformEntry[]} */ ([])
+  );
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedGame, setSelectedGame] = useState(null);
+  const [selectedGame, setSelectedGame] = useState(
+    /** @type {ImmersiveGame|null} */ (null)
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [saveSyncMessages, setSaveSyncMessages] = useState([]);
+  const [error, setError] = useState(/** @type {string|null} */ (null));
+  const [saveSyncMessages, setSaveSyncMessages] = useState(
+    /** @type {string[]} */ ([])
+  );
   const [loadedGameCount, setLoadedGameCount] = useState(0);
   const [displayCfg, setDisplayCfg] = useState(() => ({
     big_picture: true,
     fullscreen: requestedFullscreen,
   }));
-  const [controllerDeadzone, setControllerDeadzone] = useState(DEFAULT_GAMEPAD_DEADZONE);
-  const [audioCfg, setAudioCfg] = useState(null);
-  const [retroachievementsEnabled, setRetroachievementsEnabled] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState("general");
+  const [controllerDeadzone, setControllerDeadzone] = useState(
+    DEFAULT_GAMEPAD_DEADZONE
+  );
+  const [audioCfg, setAudioCfg] = useState(
+    /** @type {AmbientAudioConfig|null} */ (null)
+  );
+  const [retroachievementsEnabled, setRetroachievementsEnabled] =
+    useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] =
+    useState("general");
   const hasLoadedOnce = useRef(false);
   const launchInFlightRef = useRef(false);
   const libraryRequestId = useRef(0);
   const nextPageRef = useRef(2);
-  const nextPageInFlightRef = useRef(null);
-  const selectedGameIdRef = useRef(null);
-  const focusedGameIdRef = useRef(null);
-  const gamesRef = useRef([]);
+  const nextPageInFlightRef = useRef(
+    /** @type {{page: number, requestId: number}|null} */ (null)
+  );
+  const selectedGameIdRef = useRef(/** @type {number|string|null} */ (null));
+  const focusedGameIdRef = useRef(/** @type {number|string|null} */ (null));
+  const gamesRef = useRef(/** @type {ImmersiveGame[]} */ ([]));
   const loadedGameCountRef = useRef(0);
   const [showHints, setShowHints] = useState(true);
 
   // Match desktop `GameDetails` Chip: platform?.name || game.platform_id (not short_name-first / uppercase).
   const platformDisplayNameById = useMemo(() => {
     const map = new Map();
-    for (const [p] of platforms) map.set(p.id, p.name || p.id);
+    for (const [p] of platforms) {
+      map.set(p.id, p.name || p.id);
+    }
     return map;
   }, [platforms]);
 
   const persistDisplay = useCallback(async (next) => {
     const cfg = await invoke("get_config");
     cfg.display = cfg.display || {};
-    if (typeof next.big_picture === "boolean") cfg.display.big_picture = next.big_picture;
-    if (typeof next.fullscreen === "boolean") cfg.display.fullscreen = next.fullscreen;
+    if (typeof next.big_picture === "boolean") {
+      cfg.display.big_picture = next.big_picture;
+    }
+    if (typeof next.fullscreen === "boolean") {
+      cfg.display.fullscreen = next.fullscreen;
+    }
     await invoke("save_config", { config: cfg });
-    setDisplayCfg({ big_picture: Boolean(cfg.display.big_picture), fullscreen: Boolean(cfg.display.fullscreen) });
+    setDisplayCfg({
+      big_picture: Boolean(cfg.display.big_picture),
+      fullscreen: Boolean(cfg.display.fullscreen),
+    });
     return cfg;
   }, []);
 
@@ -94,98 +137,121 @@ export default function ImmersiveModeApp({
   });
 
   const { unsupportedGamepad } = useGamepadKeyboardMapper({
-    enabled: true,
     deadzone: controllerDeadzone,
+    enabled: true,
   });
 
-  const loadData = useCallback(async (platformId = selectedPlatform, query = searchQuery) => {
-    const requestId = ++libraryRequestId.current;
-    nextPageInFlightRef.current = null;
-    try {
-      setLoading(true);
-      setError(null);
-      const [gamesPage, platformsData, cfg] = await Promise.all([
-        invoke("get_games_page", {
-          platformId: platformId || null,
-          searchQuery: query?.trim() || null,
-          page: 1,
-          pageSize: GAMES_PER_PAGE,
-        }),
-        invoke("get_platforms_with_games"),
-        invoke("get_config"),
-      ]);
-      if (requestId !== libraryRequestId.current) return [];
-      const pageGames = gamesPage?.games || [];
-      const gamesData = dedupeGames(pageGames);
-      const total = gamesPage?.total ?? pageGames.length;
-      const pageGameIds = new Set(pageGames.map((game) => game.id));
-      // Refresh page one without dropping bounded pages already in memory.
-      const refreshedGames = dedupeGames([
-        ...gamesData,
-        ...gamesRef.current.filter((game) => !pageGameIds.has(game.id)),
-      ]).slice(0, Math.max(total, gamesData.length));
-      const loadedCount = Math.max(loadedGameCountRef.current, pageGames.length);
-      loadedGameCountRef.current = loadedCount;
-      setLoadedGameCount(loadedCount);
-      gamesRef.current = refreshedGames;
-      setGames(refreshedGames);
-      setGameTotal(total);
-      nextPageRef.current = Math.floor(Math.max(0, loadedCount - 1) / GAMES_PER_PAGE) + 2;
-      const preservedGameId = selectedGameIdRef.current ?? focusedGameIdRef.current;
-      const selectedIndexInGames = refreshedGames.findIndex(
-        (game) => game.id === preservedGameId,
-      );
-      if (selectedIndexInGames >= 0) setSelectedIndex(selectedIndexInGames);
-      setSelectedGame((current) => {
-        if (!current) return current;
-        return (
-          refreshedGames.find(
-            (game) => game.id === (selectedGameIdRef.current ?? current.id),
-          ) || current
+  const loadData = useCallback(
+    async (platformId = selectedPlatform, query = searchQuery) => {
+      const requestId = ++libraryRequestId.current;
+      nextPageInFlightRef.current = null;
+      try {
+        setLoading(true);
+        setError(null);
+        const [gamesPage, platformsData, cfg] = await Promise.all([
+          invoke("get_games_page", {
+            page: 1,
+            pageSize: GAMES_PER_PAGE,
+            platformId: platformId || null,
+            searchQuery: query?.trim() || null,
+          }),
+          invoke("get_platforms_with_games"),
+          invoke("get_config"),
+        ]);
+        if (requestId !== libraryRequestId.current) {
+          return [];
+        }
+        const pageGames = gamesPage?.games ?? [];
+        const gamesData = dedupeGames(pageGames);
+        const total = gamesPage?.total ?? pageGames.length;
+        const pageGameIds = new Set(pageGames.map((game) => game.id));
+        // Refresh page one without dropping bounded pages already in memory.
+        const refreshedGames = dedupeGames([
+          ...gamesData,
+          ...gamesRef.current.filter((game) => !pageGameIds.has(game.id)),
+        ]).slice(0, Math.max(total, gamesData.length));
+        const loadedCount = Math.max(
+          loadedGameCountRef.current,
+          pageGames.length
         );
-      });
-      setPlatforms(platformsData);
-      setDisplayCfg({
-        big_picture: Boolean(cfg.display?.big_picture),
-        fullscreen: Boolean(cfg.display?.fullscreen),
-      });
-      setControllerDeadzone(
-        normalizeControllerDeadzone(
-          cfg.display?.controller_deadzone ?? DEFAULT_GAMEPAD_DEADZONE,
-        ),
-      );
-      setAudioCfg(cfg.audio || {});
-      setRetroachievementsEnabled(Boolean(cfg.display?.retroachievements_enabled));
-      return refreshedGames;
-    } catch (err) {
-      if (requestId === libraryRequestId.current) {
-        setError(err?.message || String(err));
+        loadedGameCountRef.current = loadedCount;
+        setLoadedGameCount(loadedCount);
+        gamesRef.current = refreshedGames;
+        setGames(refreshedGames);
+        setGameTotal(total);
+        nextPageRef.current =
+          Math.floor(Math.max(0, loadedCount - 1) / GAMES_PER_PAGE) + 2;
+        const preservedGameId =
+          selectedGameIdRef.current ?? focusedGameIdRef.current;
+        const selectedIndexInGames = refreshedGames.findIndex(
+          (game) => game.id === preservedGameId
+        );
+        if (selectedIndexInGames !== -1) {
+          setSelectedIndex(selectedIndexInGames);
+        }
+        setSelectedGame((current) => {
+          if (!current) {
+            return current;
+          }
+          return (
+            refreshedGames.find(
+              (game) => game.id === (selectedGameIdRef.current ?? current.id)
+            ) || current
+          );
+        });
+        setPlatforms(platformsData);
+        setDisplayCfg({
+          big_picture: Boolean(cfg.display?.big_picture),
+          fullscreen: Boolean(cfg.display?.fullscreen),
+        });
+        setControllerDeadzone(
+          normalizeControllerDeadzone(
+            cfg.display?.controller_deadzone ?? DEFAULT_GAMEPAD_DEADZONE
+          )
+        );
+        setAudioCfg(cfg.audio ?? null);
+        setRetroachievementsEnabled(
+          Boolean(cfg.display?.retroachievements_enabled)
+        );
+        return refreshedGames;
+      } catch (error) {
+        if (requestId === libraryRequestId.current) {
+          setError(error?.message || String(error));
+        }
+      } finally {
+        if (requestId === libraryRequestId.current) {
+          setLoading(false);
+        }
       }
-    } finally {
-      if (requestId === libraryRequestId.current) {
-        setLoading(false);
-      }
-    }
-  }, [searchQuery, selectedPlatform]);
+    },
+    [searchQuery, selectedPlatform]
+  );
 
   const loadNextPage = useCallback(() => {
-    if (nextPageInFlightRef.current || loadedGameCountRef.current >= gameTotal) return;
+    if (
+      nextPageInFlightRef.current ||
+      loadedGameCountRef.current >= gameTotal
+    ) {
+      return;
+    }
 
     const requestId = libraryRequestId.current;
     const page = nextPageRef.current;
-    const request = { requestId, page };
+    const request = { page, requestId };
     nextPageInFlightRef.current = request;
     void (async () => {
       try {
         const result = await invoke("get_games_page", {
-          platformId: selectedPlatform || null,
-          searchQuery: searchQuery?.trim() || null,
           page,
           pageSize: GAMES_PER_PAGE,
+          platformId: selectedPlatform || null,
+          searchQuery: searchQuery?.trim() || null,
         });
-        if (requestId !== libraryRequestId.current) return;
+        if (requestId !== libraryRequestId.current) {
+          return;
+        }
 
-        const pageGames = result?.games || [];
+        const pageGames = result?.games ?? [];
         const loadedCount = loadedGameCountRef.current + pageGames.length;
         loadedGameCountRef.current = loadedCount;
         setLoadedGameCount(loadedCount);
@@ -196,9 +262,9 @@ export default function ImmersiveModeApp({
         });
         setGameTotal(result.total ?? loadedCount);
         nextPageRef.current = page + 1;
-      } catch (err) {
+      } catch (error) {
         if (requestId === libraryRequestId.current) {
-          setError(err?.message || String(err));
+          setError(error?.message || String(error));
         }
       } finally {
         if (nextPageInFlightRef.current === request) {
@@ -213,10 +279,22 @@ export default function ImmersiveModeApp({
   }, [loadData]);
 
   useEffect(() => {
-    if (view !== "library" || loading || loadedGameCount >= gameTotal) return;
-    if (selectedIndex < games.length - LOAD_AHEAD) return;
+    if (view !== "library" || loading || loadedGameCount >= gameTotal) {
+      return;
+    }
+    if (selectedIndex < games.length - LOAD_AHEAD) {
+      return;
+    }
     loadNextPage();
-  }, [gameTotal, games.length, loadNextPage, loadedGameCount, loading, selectedIndex, view]);
+  }, [
+    gameTotal,
+    games.length,
+    loadNextPage,
+    loadedGameCount,
+    loading,
+    selectedIndex,
+    view,
+  ]);
 
   useEffect(() => {
     if (!hasLoadedOnce.current) {
@@ -246,7 +324,9 @@ export default function ImmersiveModeApp({
     } catch {
       // ignore
     }
-    if (onExit) onExit();
+    if (onExit) {
+      onExit();
+    }
   }, [onExit, persistDisplay, setFullscreen]);
 
   function openSettings(section = "general") {
@@ -254,44 +334,65 @@ export default function ImmersiveModeApp({
     setView("settings");
   }
 
-  const handleLaunchGame = useCallback(async (gameId) => {
-    if (launchInFlightRef.current) return null;
-    launchInFlightRef.current = true;
-    try {
-      const result = await invoke("prepare_and_launch_game", { gameId });
-      const messages = Array.isArray(result.save_sync_messages)
-        ? result.save_sync_messages.filter((message) => message?.trim())
-        : [];
-      setSaveSyncMessages(messages);
-      if (!result.success && result.error) {
+  const handleLaunchGame = useCallback(
+    async (gameId) => {
+      if (launchInFlightRef.current) {
+        return null;
+      }
+      launchInFlightRef.current = true;
+      try {
+        const result = await invoke("prepare_and_launch_game", { gameId });
+        const messages = Array.isArray(result.save_sync_messages)
+          ? result.save_sync_messages
+              .filter(isText)
+              .map((message) => message.trim())
+          : [];
+        setSaveSyncMessages(messages);
+        if (!result.success && result.error) {
+          const game = games.find((item) => item.id === gameId);
+          const platformLabel = platforms.find(
+            ([platform]) => platform.id === game?.platform_id
+          )?.[0]?.name;
+          const presentation = getLaunchErrorPresentation(
+            result.error,
+            platformLabel
+          );
+          setError(`${presentation.message} ${presentation.guidance}`);
+        } else if (result.save_sync_warnings?.length) {
+          setError(result.save_sync_warnings.join("\n"));
+        }
+        await loadData();
+        return result;
+      } catch (error) {
         const game = games.find((item) => item.id === gameId);
-        const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
-        const presentation = getLaunchErrorPresentation(result.error, platformLabel);
+        const platformLabel = platforms.find(
+          ([platform]) => platform.id === game?.platform_id
+        )?.[0]?.name;
+        const presentation = getLaunchErrorPresentation(error, platformLabel);
         setError(`${presentation.message} ${presentation.guidance}`);
-      } else if (result.save_sync_warnings?.length) setError(result.save_sync_warnings.join("\n"));
-      await loadData();
-      return result;
-    } catch (err) {
-      const game = games.find((item) => item.id === gameId);
-      const platformLabel = platforms.find(([platform]) => platform.id === game?.platform_id)?.[0]?.name;
-      const presentation = getLaunchErrorPresentation(err, platformLabel);
-      setError(`${presentation.message} ${presentation.guidance}`);
-      setSaveSyncMessages([]);
-      return { success: false, error: err?.message || String(err) };
-    } finally {
-      launchInFlightRef.current = false;
-    }
-  }, [games, loadData, platforms]);
+        setSaveSyncMessages([]);
+        return { success: false, error: error?.message || String(error) };
+      } finally {
+        launchInFlightRef.current = false;
+      }
+    },
+    [games, loadData, platforms]
+  );
 
   useEffect(() => {
     function getHotkeySuppressionReason(e) {
-      const selector = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+      const selector =
+        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
       const overlay = document.querySelector(selector);
-      if (overlay) return `${overlay.getAttribute("role") || "overlay"} open`;
+      if (overlay) {
+        return `${overlay.getAttribute("role") || "overlay"} open`;
+      }
       const t = e.target;
       if (t && typeof t.closest === "function") {
         const targetOverlay = t.closest(selector);
-        if (targetOverlay) return `${targetOverlay.getAttribute("role") || "overlay"} open`;
+        if (targetOverlay) {
+          return `${targetOverlay.getAttribute("role") || "overlay"} open`;
+        }
       }
       return null;
     }
@@ -299,12 +400,16 @@ export default function ImmersiveModeApp({
     function onKeyDown(e) {
       const action = getControllerAction(e);
       if (isTextInputTarget(e.target)) {
-        logControllerOutcome(action, "shell", "suppressed", { reason: "text-input-focused" });
+        logControllerOutcome(action, "shell", "suppressed", {
+          reason: "text-input-focused",
+        });
         return;
       }
       const suppressionReason = getHotkeySuppressionReason(e);
       if (suppressionReason) {
-        logControllerOutcome(action, "shell", "suppressed", { reason: suppressionReason });
+        logControllerOutcome(action, "shell", "suppressed", {
+          reason: suppressionReason,
+        });
         return;
       }
       if (e.key === "F11") {
@@ -315,12 +420,16 @@ export default function ImmersiveModeApp({
       if (e.key === "h" || e.key === "H") {
         e.preventDefault();
         setShowHints((v) => !v);
-        logControllerOutcome(action, "shell", "handled", { reason: "toggle-hints" });
+        logControllerOutcome(action, "shell", "handled", {
+          reason: "toggle-hints",
+        });
         return;
       }
       if (e.key === "Escape") {
         if (e.repeat) {
-          logControllerOutcome(action, "shell", "suppressed", { reason: "keyboard-repeat" });
+          logControllerOutcome(action, "shell", "suppressed", {
+            reason: "keyboard-repeat",
+          });
           return;
         }
         e.preventDefault();
@@ -328,26 +437,38 @@ export default function ImmersiveModeApp({
           setView("library");
           selectedGameIdRef.current = null;
           setSelectedGame(null);
-          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
+          logControllerOutcome(action, "shell", "handled", {
+            reason: "return-to-library",
+          });
         } else if (view === "settings") {
           setView("library");
           loadData();
-          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
+          logControllerOutcome(action, "shell", "handled", {
+            reason: "return-to-library",
+          });
         } else if (view === "downloads") {
           setView("library");
-          logControllerOutcome(action, "shell", "handled", { reason: "return-to-library" });
+          logControllerOutcome(action, "shell", "handled", {
+            reason: "return-to-library",
+          });
         } else {
           handleExit();
-          logControllerOutcome(action, "shell", "handled", { reason: "exit-immersive" });
+          logControllerOutcome(action, "shell", "handled", {
+            reason: "exit-immersive",
+          });
         }
         return;
       }
       if (action) {
-        logControllerOutcome(action, "shell", "ignored", { reason: "not-shell-action" });
+        logControllerOutcome(action, "shell", "ignored", {
+          reason: "not-shell-action",
+        });
       }
     }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [toggleFullscreen, view, loadData, handleExit]);
 
   async function handleToggleFavorite(gameId) {
@@ -355,14 +476,18 @@ export default function ImmersiveModeApp({
       const newState = await invoke("toggle_favorite", { gameId });
       setGames((prev) => {
         const nextGames = prev.map((g) =>
-          g.id === gameId ? { ...g, is_favorite: newState } : g,
+          g.id === gameId ? { ...g, is_favorite: newState } : g
         );
         gamesRef.current = nextGames;
         return nextGames;
       });
-      if (selectedGame?.id === gameId) setSelectedGame((prev) => ({ ...prev, is_favorite: newState }));
-    } catch (err) {
-      setError(err?.message || String(err));
+      if (selectedGame?.id === gameId) {
+        setSelectedGame((prev) =>
+          prev ? { ...prev, is_favorite: newState } : prev
+        );
+      }
+    } catch (error) {
+      setError(error?.message || String(error));
     }
   }
 
@@ -373,44 +498,55 @@ export default function ImmersiveModeApp({
     setView("details");
   }
 
-  const handleSelectedPlatformChange = useCallback((platformId) => {
-    const nextPlatform = platformId || null;
-    if (nextPlatform === selectedPlatform) return;
+  const handleSelectedPlatformChange = useCallback(
+    (platformId) => {
+      const nextPlatform = platformId || null;
+      if (nextPlatform === selectedPlatform) {
+        return;
+      }
 
-    // Invalidate page-one and lazy-page responses before the new selection is rendered.
-    libraryRequestId.current += 1;
-    nextPageInFlightRef.current = null;
-    gamesRef.current = [];
-    focusedGameIdRef.current = null;
-    selectedGameIdRef.current = null;
-    setGames([]);
-    setGameTotal(0);
-    setSelectedIndex(0);
-    setLoading(true);
-    setError(null);
-    setSelectedPlatform(nextPlatform);
-  }, [selectedPlatform]);
+      // Invalidate page-one and lazy-page responses before the new selection is rendered.
+      libraryRequestId.current += 1;
+      nextPageInFlightRef.current = null;
+      gamesRef.current = [];
+      focusedGameIdRef.current = null;
+      selectedGameIdRef.current = null;
+      setGames([]);
+      setGameTotal(0);
+      setSelectedIndex(0);
+      setLoading(true);
+      setError(null);
+      setSelectedPlatform(nextPlatform);
+    },
+    [selectedPlatform]
+  );
 
-  const handleSearchChange = useCallback((query) => {
-    if (query === searchQuery) return;
+  const handleSearchChange = useCallback(
+    (query) => {
+      if (query === searchQuery) {
+        return;
+      }
 
-    // Invalidate page-one and lazy-page responses before the new query is rendered.
-    libraryRequestId.current += 1;
-    nextPageInFlightRef.current = null;
-    nextPageRef.current = 2;
-    gamesRef.current = [];
-    focusedGameIdRef.current = null;
-    selectedGameIdRef.current = null;
-    setGames([]);
-    setGameTotal(0);
-    setSelectedIndex(0);
-    setLoading(true);
-    setError(null);
-    setSearchQuery(query);
-  }, [searchQuery]);
+      // Invalidate page-one and lazy-page responses before the new query is rendered.
+      libraryRequestId.current += 1;
+      nextPageInFlightRef.current = null;
+      nextPageRef.current = 2;
+      gamesRef.current = [];
+      focusedGameIdRef.current = null;
+      selectedGameIdRef.current = null;
+      setGames([]);
+      setGameTotal(0);
+      setSelectedIndex(0);
+      setLoading(true);
+      setError(null);
+      setSearchQuery(query);
+    },
+    [searchQuery]
+  );
 
   const handleSelectedIndexChange = useCallback((nextIndex, game) => {
-    focusedGameIdRef.current = game?.id ?? gamesRef.current[nextIndex]?.id ?? null;
+    focusedGameIdRef.current =
+      game?.id ?? gamesRef.current[nextIndex]?.id ?? null;
     setSelectedIndex(nextIndex);
   }, []);
 
@@ -419,20 +555,26 @@ export default function ImmersiveModeApp({
     main = (
       <Box
         sx={{
+          bgcolor: "background.default",
           flex: 1,
           minHeight: 0,
           minWidth: 0,
-          overflowY: "auto",
           overflowX: "hidden",
+          overflowY: "auto",
           overscrollBehavior: "contain",
-          bgcolor: "background.default",
         }}
       >
         <RomDownloadsView
           immersive
-          onBack={() => setView("library")}
-          onOpenGameDetails={() => setView("library")}
-          onOpenCloudLibrary={() => setView("library")}
+          onBack={() => {
+            setView("library");
+          }}
+          onOpenGameDetails={() => {
+            setView("library");
+          }}
+          onOpenCloudLibrary={() => {
+            setView("library");
+          }}
         />
       </Box>
     );
@@ -440,13 +582,13 @@ export default function ImmersiveModeApp({
     main = (
       <Box
         sx={{
+          bgcolor: "background.default",
+          display: "flex",
           flex: 1,
+          flexDirection: "column",
           minHeight: 0,
           minWidth: 0,
           overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          bgcolor: "background.default",
         }}
       >
         <Settings
@@ -469,7 +611,9 @@ export default function ImmersiveModeApp({
     );
   } else if (view === "details" && selectedGame) {
     const platformLabel =
-      platformDisplayNameById.get(selectedGame.platform_id) || selectedGame.platform_id || "";
+      platformDisplayNameById.get(selectedGame.platform_id) ||
+      selectedGame.platform_id ||
+      "";
     main = (
       <ImmersiveGameDetails
         game={selectedGame}
@@ -481,12 +625,18 @@ export default function ImmersiveModeApp({
         }}
         onLaunch={handleLaunchGame}
         onToggleFavorite={handleToggleFavorite}
-        onOpenSettings={() => openSettings("emulators")}
-        onOpenIntegrations={() => openSettings("integrations")}
+        onOpenSettings={() => {
+          openSettings("emulators");
+        }}
+        onOpenIntegrations={() => {
+          openSettings("integrations");
+        }}
         onGameUpdate={async (gameId) => {
           const refreshedGames = await loadData();
           const updated = refreshedGames?.find((g) => g.id === gameId);
-          if (updated) setSelectedGame(updated);
+          if (updated) {
+            setSelectedGame(updated);
+          }
         }}
         rommToken={rommToken}
         rommUrl={rommUrl}
@@ -508,8 +658,12 @@ export default function ImmersiveModeApp({
         onSelectedIndexChange={handleSelectedIndexChange}
         onSelectGame={handleSelectGame}
         onExitImmersive={handleExit}
-        onOpenSettings={() => openSettings()}
-        onOpenDownloads={() => setView("downloads")}
+        onOpenSettings={() => {
+          openSettings();
+        }}
+        onOpenDownloads={() => {
+          setView("downloads");
+        }}
       />
     );
   }
@@ -517,24 +671,36 @@ export default function ImmersiveModeApp({
   return (
     <Box
       sx={{
+        bgcolor: "background.default",
+        display: "flex",
         flex: 1,
+        flexDirection: "column",
         minHeight: 0,
         minWidth: 0,
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
       }}
     >
       <AmbientAudioPlayer audio={audioCfg} />
-      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{main}</Box>
-      <ImmersiveHintBar view={view} visible={showHints} unsupportedGamepad={unsupportedGamepad} />
+      <Box
+        sx={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0 }}
+      >
+        {main}
+      </Box>
+      <ImmersiveHintBar
+        view={view}
+        visible={showHints}
+        unsupportedGamepad={unsupportedGamepad}
+      />
       <Snackbar
         open={saveSyncMessages.length > 0}
         autoHideDuration={7000}
-        onClose={() => setSaveSyncMessages([])}
+        onClose={() => {
+          setSaveSyncMessages([]);
+        }}
         message={saveSyncMessages.join("\n")}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        anchorOrigin={{ horizontal: "left", vertical: "bottom" }}
       />
     </Box>
   );
-}
+};
+
+export default ImmersiveModeApp;

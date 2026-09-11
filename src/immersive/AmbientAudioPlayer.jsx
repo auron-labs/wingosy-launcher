@@ -1,34 +1,47 @@
-import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { isTauri } from "../utils/isTauri";
+import { useEffect, useRef, useState } from "react";
 
-function toAudioUrl(path) {
-  if (!path) return null;
-  if (/^https?:\/\//i.test(path)) return path;
-  if (!isTauri()) return null;
+import { isTauri } from "../utils/isTauri";
+import { isText } from "../utils/value-guards";
+
+/** @typedef {import("./immersive-types").AmbientAudioConfig} AmbientAudioConfig */
+
+/** @param {string|null|undefined} path */
+const toAudioUrl = (path) => {
+  if (!path) {
+    return null;
+  }
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  if (!isTauri()) {
+    return null;
+  }
   try {
     return convertFileSrc(path);
   } catch {
     return null;
   }
-}
+};
 
-function shuffleArray(arr) {
+/** @param {string[]} arr */
+const shuffleArray = (arr) => {
   const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
+  for (let i = a.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
+};
 
 /**
  * Argosy-style ambient BGM for Immersive mode (config from `get_config().audio`).
+ * @param {{audio?: AmbientAudioConfig|null}} props
  */
-export default function AmbientAudioPlayer({ audio }) {
-  const elRef = useRef(null);
-  const tracksRef = useRef([]);
-  const [tracks, setTracks] = useState([]);
+const AmbientAudioPlayer = ({ audio }) => {
+  const elRef = useRef(/** @type {HTMLAudioElement|null} */ (null));
+  const tracksRef = useRef(/** @type {string[]} */ ([]));
+  const [tracks, setTracks] = useState(/** @type {string[]} */ ([]));
   const [ix, setIx] = useState(0);
 
   useEffect(() => {
@@ -36,7 +49,8 @@ export default function AmbientAudioPlayer({ audio }) {
   }, [tracks]);
 
   const enabled = Boolean(audio?.ambient_enabled && audio?.ambient_path);
-  const vol = typeof audio?.ambient_volume === "number" ? audio.ambient_volume : 35;
+  const vol =
+    typeof audio?.ambient_volume === "number" ? audio.ambient_volume : 35;
   const path = audio?.ambient_path || null;
   const isFolder = Boolean(audio?.ambient_is_folder);
   const shuffle = Boolean(audio?.ambient_shuffle);
@@ -56,12 +70,16 @@ export default function AmbientAudioPlayer({ audio }) {
       }
       try {
         const files = await invoke("list_ambient_audio_files", { dir: path });
-        if (cancel) return;
-        const list = Array.isArray(files) ? files : [];
-        setTracks(shuffle ? shuffleArray(list) : [...list].sort());
+        if (cancel) {
+          return;
+        }
+        const list = Array.isArray(files) ? files.filter(isText) : [];
+        setTracks(shuffle ? shuffleArray(list) : list.toSorted());
         setIx(0);
       } catch {
-        if (!cancel) setTracks([]);
+        if (!cancel) {
+          setTracks([]);
+        }
       }
     })();
     return () => {
@@ -75,13 +93,17 @@ export default function AmbientAudioPlayer({ audio }) {
 
   useEffect(() => {
     const el = elRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     el.volume = Math.min(1, Math.max(0, vol / 100));
   }, [vol]);
 
   useEffect(() => {
     const el = elRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
 
     if (!enabled || !src) {
       el.pause();
@@ -102,12 +124,18 @@ export default function AmbientAudioPlayer({ audio }) {
 
     el.loop = tracksRef.current.length <= 1;
     el.src = src;
-    void el.play().catch(() => {});
+    void el.play().catch(() => undefined);
     el.addEventListener("ended", onEnded);
     return () => el.removeEventListener("ended", onEnded);
   }, [enabled, src, tracks.length]);
 
-  if (!enabled || !src) return null;
+  if (!enabled || !src) {
+    return null;
+  }
 
-  return <audio ref={elRef} preload="auto" style={{ display: "none" }} aria-hidden />;
-}
+  return (
+    <audio ref={elRef} preload="auto" style={{ display: "none" }} aria-hidden />
+  );
+};
+
+export default AmbientAudioPlayer;

@@ -2,8 +2,16 @@ import { debugLog } from "../utils/debugLog";
 
 const CONTROLLER_ACTION_PROPERTY = "__wingosyControllerAction";
 
-export function attachControllerAction(event, action) {
-  if (!action) return event;
+/**
+ * @typedef {{actionId: number, controllerIndex: number, deferred: boolean, elapsedSincePreviousMs: number|null, key: string, phase: string}} ControllerAction
+ * @typedef {Event & {__wingosyControllerAction?: ControllerAction, nativeEvent?: {__wingosyControllerAction?: ControllerAction}}} ControllerEvent
+ */
+
+/** @param {KeyboardEvent} event @param {ControllerAction|null} action @returns {KeyboardEvent} */
+export const attachControllerAction = (event, action) => {
+  if (action === null) {
+    return event;
+  }
 
   try {
     Object.defineProperty(event, CONTROLLER_ACTION_PROPERTY, {
@@ -17,48 +25,75 @@ export function attachControllerAction(event, action) {
   }
 
   return event;
-}
+};
 
-export function getControllerAction(event) {
-  return event?.[CONTROLLER_ACTION_PROPERTY] || event?.nativeEvent?.[CONTROLLER_ACTION_PROPERTY] || null;
-}
+/** @param {ControllerEvent} event - Keyboard/controller event. @returns {ControllerAction|null} */
+export const getControllerAction = (event) =>
+  event.__wingosyControllerAction ??
+  event.nativeEvent?.__wingosyControllerAction ??
+  null;
 
-export function isTextInputTarget(target) {
-  return Boolean(
-    target?.closest?.('input, textarea, select, [contenteditable="true"], [role="textbox"]'),
-  );
-}
+/** @param {EventTarget|null} target - Event target to inspect. */
+export const isTextInputTarget = (target) =>
+  target instanceof Element &&
+  target.closest(
+    'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+  ) !== null;
 
-export function logControllerOutcome(action, receiver, outcome, details = {}) {
-  if (!action) return;
+/** @param {ControllerAction|null} action @param {string} receiver @param {string} outcome @param {Record<string, unknown>} [details] */
+export const logControllerOutcome = (
+  action,
+  receiver,
+  outcome,
+  details = {}
+) => {
+  if (action === null) {
+    return;
+  }
 
   debugLog("controller", `receiver ${outcome}`, {
     ...action,
-    receiver,
     outcome,
+    receiver,
     ...details,
   });
-}
+};
 
-export function describeControllerElement(element) {
-  if (!element || typeof element.getAttribute !== "function") return null;
+/** @param {HTMLElement|null} element - Element to describe. */
+export const describeControllerElement = (element) => {
+  if (element === null) {
+    return null;
+  }
 
-  const tag = typeof element.tagName === "string" ? element.tagName.toLowerCase() : null;
-  if (!tag) return null;
+  const tag = element.tagName.toLowerCase();
+  if (tag === "") {
+    return null;
+  }
 
-  const implicitRole = tag === "button" ? "button" : tag === "a" ? "link" : null;
+  let implicitRole = null;
+  if (tag === "button") {
+    implicitRole = "button";
+  } else if (tag === "a") {
+    implicitRole = "link";
+  }
   const descriptor = {
+    role: element.getAttribute("role") ?? implicitRole,
     tag,
-    role: element.getAttribute("role") || implicitRole,
   };
-  const testId = element.getAttribute("data-testid");
+  const testId = element.dataset.testid;
   const action =
-    element.getAttribute("aria-label") || element.getAttribute("data-controller-action");
-  const index = element.getAttribute("data-immersive-index");
+    element.getAttribute("aria-label") ?? element.dataset.controllerAction;
+  const index = element.dataset.immersiveIndex;
 
-  if (testId) descriptor.testId = testId;
-  if (action) descriptor.action = action;
-  if (index !== null) descriptor.index = index;
+  if (testId !== undefined && testId !== "") {
+    descriptor.testId = testId;
+  }
+  if (action !== null && action !== undefined && action !== "") {
+    descriptor.action = action;
+  }
+  if (index !== undefined && index !== "") {
+    descriptor.index = index;
+  }
 
   return descriptor;
-}
+};

@@ -3,7 +3,9 @@ export function isVerboseDebugEnabled() {
 }
 
 export function debugLog(scope, message, details) {
-  if (!isVerboseDebugEnabled()) return;
+  if (!isVerboseDebugEnabled()) {
+    return;
+  }
 
   const prefix = `[Wingosy][debug][${scope}] ${message}`;
   if (details === undefined) {
@@ -16,12 +18,18 @@ export function debugLog(scope, message, details) {
 const CONSOLE_LEVELS = ["log", "info", "debug", "warn", "error"];
 
 function formatConsoleArgument(value) {
-  if (typeof value === "string") return value;
-  if (value instanceof Error) return `${value.name}: ${value.message}`;
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof Error) {
+    return `${value.name}: ${value.message}`;
+  }
 
   try {
     return JSON.stringify(value, (key, nestedValue) => {
-      if (/token|password|secret|authorization/i.test(key)) return "[redacted]";
+      if (/token|password|secret|authorization/i.test(key)) {
+        return "[redacted]";
+      }
       return nestedValue;
     });
   } catch {
@@ -32,7 +40,9 @@ function formatConsoleArgument(value) {
 export function installNativeConsoleForwarding(invoke) {
   for (const level of CONSOLE_LEVELS) {
     const original = console[level];
-    if (typeof original !== "function") continue;
+    if (typeof original !== "function") {
+      continue;
+    }
 
     console[level] = (...args) => {
       original.apply(console, args);

@@ -1,9 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { useGamepadKeyboardMapper } from "./useGamepadKeyboardMapper";
 
 function HookProbe({ deadzone = 0.35, enabled = true } = {}) {
-  const { unsupportedGamepad } = useGamepadKeyboardMapper({ deadzone, enabled });
+  const { unsupportedGamepad } = useGamepadKeyboardMapper({
+    deadzone,
+    enabled,
+  });
   return <span data-testid="unsupported">{String(unsupportedGamepad)}</span>;
 }
 
@@ -14,11 +18,13 @@ function RoutingProbe() {
 
 function makeGamepad(mapping, buttonIndex = 0, index = 0, axes = []) {
   const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
-  if (buttonIndex !== null) buttons[buttonIndex].pressed = true;
-  return { index, mapping, buttons, axes };
+  if (buttonIndex !== null) {
+    buttons[buttonIndex].pressed = true;
+  }
+  return { axes, buttons, index, mapping };
 }
 
-describe("useGamepadKeyboardMapper", () => {
+describe(useGamepadKeyboardMapper, () => {
   let frames;
   let nextFrameId;
   let pads;
@@ -32,7 +38,10 @@ describe("useGamepadKeyboardMapper", () => {
     nextFrameId = 1;
     pads = [];
     getGamepads = vi.fn(() => pads);
-    originalGetGamepadsDescriptor = Object.getOwnPropertyDescriptor(navigator, "getGamepads");
+    originalGetGamepadsDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "getGamepads"
+    );
     Object.defineProperty(navigator, "getGamepads", {
       configurable: true,
       value: getGamepads,
@@ -54,7 +63,11 @@ describe("useGamepadKeyboardMapper", () => {
     vi.unstubAllEnvs();
     window.removeEventListener("keydown", keydown);
     if (originalGetGamepadsDescriptor) {
-      Object.defineProperty(navigator, "getGamepads", originalGetGamepadsDescriptor);
+      Object.defineProperty(
+        navigator,
+        "getGamepads",
+        originalGetGamepadsDescriptor
+      );
     } else {
       delete navigator.getGamepads;
     }
@@ -64,7 +77,9 @@ describe("useGamepadKeyboardMapper", () => {
 
   function runFrame() {
     const next = frames.entries().next().value;
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     const [id, callback] = next;
     frames.delete(id);
     act(() => callback(0));
@@ -77,8 +92,10 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
-    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
+    expect(keydown).toHaveBeenCalledOnce();
+    expect(keydown).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "Enter" })
+    );
     expect(screen.getByTestId("unsupported")).toHaveTextContent("false");
   });
 
@@ -94,16 +111,17 @@ describe("useGamepadKeyboardMapper", () => {
 
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] controller connected",
-      expect.objectContaining({ index: 1, mapping: "standard" }),
+      expect.objectContaining({ index: 1, mapping: "standard" })
     );
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] recognized input/action",
-      expect.objectContaining({ key: "Enter", deferred: false }),
+      expect.objectContaining({ deferred: false, key: "Enter" })
     );
     expect(
       info.mock.calls.filter(
-        ([message]) => message === "[Wingosy][debug][controller] recognized input/action",
-      ),
+        ([message]) =>
+          message === "[Wingosy][debug][controller] recognized input/action"
+      )
     ).toHaveLength(1);
 
     pads = [];
@@ -111,9 +129,11 @@ describe("useGamepadKeyboardMapper", () => {
 
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] controller disconnected",
-      expect.objectContaining({ index: 1 }),
+      expect.objectContaining({ index: 1 })
     );
-    expect(info).toHaveBeenCalledWith("[Wingosy][debug][controller] no controller detected");
+    expect(info).toHaveBeenCalledWith(
+      "[Wingosy][debug][controller] no controller detected"
+    );
   });
 
   it("logs a deferred recognized action once", () => {
@@ -128,16 +148,17 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     const actionLogs = info.mock.calls.filter(
-      ([message]) => message === "[Wingosy][debug][controller] recognized input/action",
+      ([message]) =>
+        message === "[Wingosy][debug][controller] recognized input/action"
     );
-    expect(actionLogs).toEqual([
+    expect(actionLogs).toStrictEqual([
       [
         "[Wingosy][debug][controller] recognized input/action",
-        expect.objectContaining({ key: "Enter", deferred: false }),
+        expect.objectContaining({ deferred: false, key: "Enter" }),
       ],
       [
         "[Wingosy][debug][controller] recognized input/action",
-        expect.objectContaining({ key: "ArrowRight", deferred: true }),
+        expect.objectContaining({ deferred: true, key: "ArrowRight" }),
       ],
     ]);
   });
@@ -160,15 +181,17 @@ describe("useGamepadKeyboardMapper", () => {
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] controller changed at same index",
       {
+        current: expect.objectContaining({ index: 1, id: "Controller B" }),
         index: 1,
         previous: expect.objectContaining({ index: 1, id: "Controller A" }),
-        current: expect.objectContaining({ index: 1, id: "Controller B" }),
-      },
+      }
     );
     expect(
       info.mock.calls.filter(
-        ([message]) => message === "[Wingosy][debug][controller] controller changed at same index",
-      ),
+        ([message]) =>
+          message ===
+          "[Wingosy][debug][controller] controller changed at same index"
+      )
     ).toHaveLength(1);
   });
 
@@ -181,20 +204,20 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     const routed = info.mock.calls.find(
-      ([message]) => message === "[Wingosy][debug][controller] action routed",
+      ([message]) => message === "[Wingosy][debug][controller] action routed"
     );
     expect(routed?.[1]).toMatchObject({
       actionId: expect.any(Number),
-      key: "Enter",
       controllerIndex: 3,
-      phase: "edge",
-      elapsedSincePreviousMs: null,
-      expectedTarget: "library-root",
-      expectedTargetMissing: false,
       destinations: expect.arrayContaining([
         expect.objectContaining({ type: "window" }),
         expect.objectContaining({ type: "library-root" }),
       ]),
+      elapsedSincePreviousMs: null,
+      expectedTarget: "library-root",
+      expectedTargetMissing: false,
+      key: "Enter",
+      phase: "edge",
     });
   });
 
@@ -207,13 +230,13 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     const routed = info.mock.calls.find(
-      ([message]) => message === "[Wingosy][debug][controller] action routed",
+      ([message]) => message === "[Wingosy][debug][controller] action routed"
     );
     expect(routed?.[1]).toMatchObject({
-      key: "Enter",
+      destinations: [expect.objectContaining({ type: "window" })],
       expectedTarget: "library-root",
       expectedTargetMissing: true,
-      destinations: [expect.objectContaining({ type: "window" })],
+      key: "Enter",
     });
   });
 
@@ -230,25 +253,30 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     const actions = info.mock.calls
-      .filter(([message]) => message === "[Wingosy][debug][controller] recognized input/action")
+      .filter(
+        ([message]) =>
+          message === "[Wingosy][debug][controller] recognized input/action"
+      )
       .map(([, details]) => details);
-    expect(actions).toEqual([
+    expect(actions).toStrictEqual([
       expect.objectContaining({
         actionId: 1,
-        key: "ArrowUp",
         controllerIndex: 3,
-        phase: "edge",
         elapsedSincePreviousMs: null,
+        key: "ArrowUp",
+        phase: "edge",
       }),
       expect.objectContaining({
         actionId: 2,
-        key: "ArrowUp",
         controllerIndex: 3,
-        phase: "repeat",
         elapsedSincePreviousMs: 240,
+        key: "ArrowUp",
+        phase: "repeat",
       }),
     ]);
-    expect(info.mock.calls.some(([message]) => message.includes("poll"))).toBe(false);
+    expect(
+      info.mock.calls.some(([message]) => message.includes("poll"))
+    ).toBeFalsy();
   });
 
   it("logs unsupported mappings and unmapped input only when their state changes", () => {
@@ -263,7 +291,7 @@ describe("useGamepadKeyboardMapper", () => {
 
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] unsupported/unmapped controller: no standard mapping available",
-      { unsupported: true },
+      { unsupported: true }
     );
     expect(info).toHaveBeenCalledTimes(2);
 
@@ -275,7 +303,7 @@ describe("useGamepadKeyboardMapper", () => {
 
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] unsupported/unmapped input",
-      { pads: [{ index: 1, pressedButtons: [2], activeAxes: [] }] },
+      { pads: [{ activeAxes: [], index: 1, pressedButtons: [2] }] }
     );
     expect(info).toHaveBeenCalledTimes(5);
   });
@@ -286,8 +314,10 @@ describe("useGamepadKeyboardMapper", () => {
 
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
-    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
+    expect(keydown).toHaveBeenCalledOnce();
+    expect(keydown).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "Enter" })
+    );
     expect(screen.getByTestId("unsupported")).toHaveTextContent("false");
   });
 
@@ -316,8 +346,10 @@ describe("useGamepadKeyboardMapper", () => {
 
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
-    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
+    expect(keydown).toHaveBeenCalledOnce();
+    expect(keydown).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "Enter" })
+    );
   });
 
   it("clears held input when the active pad disconnects and allows takeover", () => {
@@ -327,7 +359,7 @@ describe("useGamepadKeyboardMapper", () => {
     render(<HookProbe />);
 
     runFrame();
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     pads = [];
     runFrame();
@@ -336,7 +368,9 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     expect(keydown).toHaveBeenCalledTimes(2);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "ArrowUp" })
+    );
   });
 
   it("does not replay a held direction when the active pad reconnects", () => {
@@ -350,7 +384,7 @@ describe("useGamepadKeyboardMapper", () => {
     pads = [pad];
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     pad.buttons[12].pressed = false;
     runFrame();
@@ -358,7 +392,9 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     expect(keydown).toHaveBeenCalledTimes(2);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "ArrowUp" })
+    );
   });
 
   it("keeps the active pad sticky and takes over after it disconnects", () => {
@@ -371,14 +407,18 @@ describe("useGamepadKeyboardMapper", () => {
     second.buttons[12].pressed = true;
     runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "Enter" }));
+    expect(keydown).toHaveBeenCalledOnce();
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "Enter" })
+    );
 
     pads = [null, second];
     runFrame();
 
     expect(keydown).toHaveBeenCalledTimes(2);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "ArrowUp" })
+    );
   });
 
   it("ignores stick noise below the configured deadzone", () => {
@@ -393,19 +433,24 @@ describe("useGamepadKeyboardMapper", () => {
   it.each([
     ["D-pad", 12, []],
     ["left stick", null, [0, -1]],
-  ])("emits exactly one navigation event for a quick %s tap", (_label, buttonIndex, axes) => {
-    const pad = makeGamepad("standard", buttonIndex, 1, axes);
-    pads = [pad];
-    render(<HookProbe />);
+  ])(
+    "emits exactly one navigation event for a quick %s tap",
+    (_label, buttonIndex, axes) => {
+      const pad = makeGamepad("standard", buttonIndex, 1, axes);
+      pads = [pad];
+      render(<HookProbe />);
 
-    runFrame();
-    pad.buttons[12].pressed = false;
-    pad.axes[1] = 0;
-    runFrame();
+      runFrame();
+      pad.buttons[12].pressed = false;
+      pad.axes[1] = 0;
+      runFrame();
 
-    expect(keydown).toHaveBeenCalledTimes(1);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
-  });
+      expect(keydown).toHaveBeenCalledOnce();
+      expect(keydown).toHaveBeenLastCalledWith(
+        expect.objectContaining({ key: "ArrowUp" })
+      );
+    }
+  );
 
   it("stops a held direction immediately when released at the repeat boundary", () => {
     const pad = makeGamepad("standard", 12, 1);
@@ -416,16 +461,18 @@ describe("useGamepadKeyboardMapper", () => {
     now += 240;
     pad.buttons[12].pressed = false;
     runFrame();
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     now += 110;
     runFrame();
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     pad.buttons[12].pressed = true;
     runFrame();
     expect(keydown).toHaveBeenCalledTimes(2);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "ArrowUp" })
+    );
   });
 
   it("waits for the initial directional delay before using the repeat interval", () => {
@@ -435,7 +482,7 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
     now += 239;
     runFrame();
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     now += 1;
     runFrame();
@@ -449,7 +496,9 @@ describe("useGamepadKeyboardMapper", () => {
     runFrame();
 
     expect(keydown).toHaveBeenCalledTimes(3);
-    expect(keydown).toHaveBeenLastCalledWith(expect.objectContaining({ key: "ArrowUp" }));
+    expect(keydown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: "ArrowUp" })
+    );
   });
 
   it("resets held input when disabled and re-enabled", () => {
@@ -458,7 +507,7 @@ describe("useGamepadKeyboardMapper", () => {
     const view = render(<HookProbe />);
 
     runFrame();
-    expect(keydown).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledOnce();
 
     view.rerender(<HookProbe enabled={false} />);
     view.rerender(<HookProbe />);

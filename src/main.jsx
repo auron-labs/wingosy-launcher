@@ -1,12 +1,14 @@
+import { invoke } from "@tauri-apps/api/core";
 import React from "react";
-import ReactDOM from "react-dom/client";
+
 import "./index.css";
 import "./tauri-drag.css";
 import "./iconifySetup";
+import ReactDOM from "react-dom/client";
+
 import App from "./App";
-import { AppThemeProvider } from "./ThemeContext";
 import { RomDownloadsProvider } from "./RomDownloadsContext";
-import { invoke } from "@tauri-apps/api/core";
+import { AppThemeProvider } from "./ThemeContext";
 import {
   debugLog,
   installNativeConsoleForwarding,
@@ -19,11 +21,16 @@ if (isTauri() && isVerboseDebugEnabled()) {
 }
 
 debugLog("startup", "frontend initialized", {
-  runtime: isTauri() ? "tauri" : "browser",
   gamepadApi: typeof navigator.getGamepads === "function",
+  runtime: isTauri() ? "tauri" : "browser",
 });
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+const rootElement = document.querySelector("#root");
+if (!rootElement) {
+  throw new Error("Missing root element");
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AppThemeProvider>
       <RomDownloadsProvider>

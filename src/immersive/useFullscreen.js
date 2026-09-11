@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { setFullscreenReliable } from "../windowFullscreen";
+import { useCallback, useEffect, useState } from "react";
+
 import { isTauri } from "../utils/isTauri";
+import { setFullscreenReliable } from "../windowFullscreen";
 
 const appWindow = isTauri() ? getCurrentWindow() : null;
 
@@ -14,7 +15,9 @@ export function useFullscreen(options = {}) {
 
   const sync = useCallback(async () => {
     try {
-      if (!appWindow) return;
+      if (!appWindow) {
+        return;
+      }
       const v = await appWindow.isFullscreen();
       setIsFullscreen(Boolean(v));
     } catch {
@@ -34,14 +37,18 @@ export function useFullscreen(options = {}) {
         if (appWindow) {
           const v = await appWindow.isFullscreen();
           setIsFullscreen(Boolean(v));
-          if (onChange) onChange(Boolean(v));
+          if (onChange) {
+            onChange(Boolean(v));
+          }
           return;
         }
       } catch {
         // Fall back to the requested state if the native window cannot be queried.
       }
       setIsFullscreen(value);
-      if (onChange) onChange(value);
+      if (onChange) {
+        onChange(value);
+      }
     },
     [onChange]
   );
@@ -62,5 +69,5 @@ export function useFullscreen(options = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
-  return { isFullscreen, setFullscreen, toggleFullscreen, sync };
+  return { isFullscreen, setFullscreen, sync, toggleFullscreen };
 }

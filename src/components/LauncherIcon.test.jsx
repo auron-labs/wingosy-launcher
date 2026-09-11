@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
-import LauncherIcon from "./LauncherIcon";
-import { MuiTestProvider } from "../test/muiHarness";
+import { describe, it, expect } from "vitest";
 
-describe("LauncherIcon", () => {
+import { MuiTestProvider } from "../test/muiHarness";
+import LauncherIcon from "./LauncherIcon";
+
+describe(LauncherIcon, () => {
   it("renders the launcher image", () => {
     const { container } = render(
       <MuiTestProvider>

@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import SyncStatusChip from "./SyncStatusChip";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { MuiTestProvider } from "../test/muiHarness";
+import SyncStatusChip from "./SyncStatusChip";
 
 afterEach(cleanup);
 
-describe("SyncStatusChip", () => {
+describe(SyncStatusChip, () => {
   it("uses the shared labeled and tooltipped treatment for server health", async () => {
     render(
       <MuiTestProvider>
@@ -13,12 +14,16 @@ describe("SyncStatusChip", () => {
       </MuiTestProvider>
     );
 
-    const status = screen.getByRole("status", { name: "RomM status: Connected" });
+    const status = screen.getByRole("status", {
+      name: "RomM status: Connected",
+    });
     expect(status).toHaveTextContent("Connected");
     expect(status).toHaveClass("MuiChip-outlined");
 
     fireEvent.mouseOver(status);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("https://romm.example");
+    await expect(screen.findByRole("tooltip")).resolves.toHaveTextContent(
+      "https://romm.example"
+    );
   });
 
   it("keeps the details-page sync wording in the same shared pattern", () => {
@@ -28,8 +33,10 @@ describe("SyncStatusChip", () => {
       </MuiTestProvider>
     );
 
-    expect(screen.getByRole("status", { name: "Sync status: Downloaded, not synced" })).toHaveTextContent(
-      "Downloaded, not synced"
-    );
+    expect(
+      screen.getByRole("status", {
+        name: "Sync status: Downloaded, not synced",
+      })
+    ).toHaveTextContent("Downloaded, not synced");
   });
 });

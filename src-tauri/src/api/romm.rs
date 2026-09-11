@@ -472,7 +472,8 @@ impl RomMClient {
         
         let mut request = self
             .client
-            .get(format!("{}/api/roms/{}/saves", self.base_url, rom_id));
+            .get(format!("{}/api/saves", self.base_url))
+            .query(&[("rom_id", rom_id.to_string())]);
 
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
@@ -538,10 +539,10 @@ impl RomMClient {
         Ok(())
     }
 
-    pub async fn download_save(&self, rom_id: i32, save_id: i32) -> Result<Vec<u8>> {
+    pub async fn download_save(&self, _rom_id: i32, save_id: i32) -> Result<Vec<u8>> {
         let mut request = self.client.get(format!(
-            "{}/api/roms/{}/saves/{}/content",
-            self.base_url, rom_id, save_id
+            "{}/api/saves/{}/content",
+            self.base_url, save_id
         ));
 
         if let Some(auth) = self.auth_header() {
@@ -549,12 +550,7 @@ impl RomMClient {
         }
 
         let response = request.send().await.context("Failed to download save")?;
-
-        response
-            .bytes()
-            .await
-            .map(|b| b.to_vec())
-            .context("Failed to read save data")
+        read_save_response(response, "Save download returned an error").await
     }
 
     /// RomM 4.7+ device-aware save list (Argosy-compatible).
@@ -633,16 +629,15 @@ impl RomMClient {
         serde_json::from_str(&text).context("parse upload save response")
     }
 
-    /// Download save bytes via device-aware content route (falls back to legacy ROM route).
+    /// Download save bytes via the device-aware content route.
     pub async fn download_save_content_device(
         &self,
         save: &RomMSave,
         device_id: &str,
     ) -> Result<Vec<u8>> {
-        let file_name = urlencoding::encode(&save.file_name);
         let mut request = self.client.get(format!(
-            "{}/api/saves/{}/content/{}",
-            self.base_url, save.id, file_name
+            "{}/api/saves/{}/content",
+            self.base_url, save.id
         ))
         .query(&[("device_id", device_id), ("optimistic", "false")]);
 
@@ -650,14 +645,43 @@ impl RomMClient {
             request = request.header("Authorization", auth);
         }
 
-        let response = request.send().await;
-        if let Ok(resp) = response {
-            if resp.status().is_success() {
-                return resp.bytes().await.map(|b| b.to_vec()).context("read save body");
-            }
+        let response = request
+            .send()
+            .await
+            .context("Failed to download device-aware save")?;
+        if response.status().is_success() {
+            return read_save_response(response, "Failed to read save body").await;
         }
 
-        self.download_save(save.rom_id, save.id).await
+        // RomM 4.7+ uses the endpoint above. Keep old clients usable when a
+        // proxy/server reports that endpoint as unavailable, but never treat
+        // its error document as save content.
+        let status = response.status();
+        if !sync_negotiate_is_unsupported(status) {
+            return read_save_response(response, "Device-aware save download returned an error")
+                .await;
+        }
+        tracing::debug!(
+            "Device-aware save download returned {}; trying legacy route",
+            status
+        );
+        self.download_save_legacy(save.rom_id, save.id).await
+    }
+
+    async fn download_save_legacy(&self, rom_id: i32, save_id: i32) -> Result<Vec<u8>> {
+        let mut request = self.client.get(format!(
+            "{}/api/roms/{}/saves/{}/content",
+            self.base_url, rom_id, save_id
+        ));
+        if let Some(auth) = self.auth_header() {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to download save from legacy route")?;
+        read_save_response(response, "Legacy save download returned an error").await
     }
 
     /// Confirm a device-aware download only after the caller has successfully
@@ -751,6 +775,16 @@ impl RomMClient {
     pub fn is_authenticated(&self) -> bool {
         self.token.is_some()
     }
+}
+
+async fn read_save_response(response: reqwest::Response, context: &'static str) -> Result<Vec<u8>> {
+    response
+        .error_for_status()
+        .context(context)?
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .context("Failed to read save data")
 }
 
 fn sync_negotiate_is_unsupported(status: reqwest::StatusCode) -> bool {

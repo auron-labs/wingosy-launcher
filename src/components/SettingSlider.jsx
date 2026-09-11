@@ -6,34 +6,43 @@ import Typography from "@mui/material/Typography";
  * Settings slider with a persistent value readout. The readout stays visible
  * while the slider is disabled so the saved value remains discoverable.
  */
-export default function SettingSlider({
+/** @param {import("@mui/material/Slider").SliderProps & {label: string, value: number|number[], formatValue?: (currentValue: number) => string, valueTestId?: string, sliderSx?: import("@mui/material/Slider").SliderProps["sx"], sliderSlotProps?: import("@mui/material/Slider").SliderProps["slotProps"]}} props Slider presentation and input props. */
+const SettingSlider = ({
   label,
   value,
-  formatValue = (currentValue) => String(currentValue),
-  valueTestId = undefined,
-  sliderSx = undefined,
-  sliderSlotProps = undefined,
+  formatValue = String,
+  valueTestId,
+  sliderSx,
+  sliderSlotProps,
   ...sliderProps
-}) {
+}) => {
   const displayValue = Array.isArray(value) ? value[0] : value;
 
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+      <Box
+        sx={{
+          alignItems: "center",
+          display: "flex",
+          gap: 2,
+          justifyContent: "space-between",
+        }}
+      >
         <Typography variant="caption" color="text.secondary">
           {label}
         </Typography>
         <Typography
           variant="body2"
           sx={{
+            bgcolor: "action.hover",
+            borderRadius: 1,
+            color:
+              sliderProps.disabled === true ? "text.disabled" : "text.primary",
+            fontWeight: 600,
             minWidth: 48,
             px: 1,
             py: 0.25,
-            borderRadius: 1,
             textAlign: "right",
-            fontWeight: 600,
-            color: sliderProps.disabled ? "text.disabled" : "text.primary",
-            bgcolor: "action.hover",
           }}
           data-testid={valueTestId}
         >
@@ -49,4 +58,6 @@ export default function SettingSlider({
       />
     </Box>
   );
-}
+};
+
+export default SettingSlider;

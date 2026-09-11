@@ -1,230 +1,275 @@
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
-import Dialog from "@mui/material/Dialog";
-import IconButton from "@mui/material/IconButton";
-import Button from "@mui/material/Button";
-import Link from "@mui/material/Link";
-import Divider from "@mui/material/Divider";
 import CloseIcon from "@mui/icons-material/Close";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import LockIcon from "@mui/icons-material/Lock";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import Link from "@mui/material/Link";
+import Typography from "@mui/material/Typography";
+
 import KeyboardHint from "../KeyboardHint";
 
-/** Argosy TrophyAmber */
+/** @typedef {import("./game-details-types").GameDetailsAchievementsAchievement} Achievement */
+
 const TROPHY_AMBER = "#FFB300";
+const EMPTY_ACHIEVEMENTS = [];
+
+/** @param {React.MouseEvent} event @param {(() => void)|null} callback */
+const handleNavigation = (event, callback) => {
+  if (!callback) {
+    return;
+  }
+  event.preventDefault();
+  callback();
+};
 
 /**
- * AchievementListOverlay — full-screen list with UNLOCKED / LOCKED sections (Argosy layout).
- * `achievements`: { id, title, description, points, unlocked }[]
+ * @param {object} props
+ * @param {string} props.title Empty state heading.
+ * @param {React.ReactNode} props.description Empty state explanation.
+ * @param {string|null} [props.action] Optional action label.
+ * @param {(() => void)|null} [props.onOpenIntegrations] Settings navigation callback.
  */
-export default function AchievementListOverlay({
-  open,
-  onClose,
-  gameTitle,
-  retroAchievementsEnabled,
+const AchievementEmptyState = ({
+  action = null,
+  description,
   onOpenIntegrations = null,
-  achievements = [],
-}) {
-  const unlocked = achievements.filter((a) => a.unlocked);
-  const locked = achievements.filter((a) => !a.unlocked);
-  const total = achievements.length;
-  const uCount = unlocked.length;
-  const pct = total > 0 ? Math.floor((uCount * 100) / total) : 0;
+  title,
+}) => (
+  <Box
+    data-testid="achievement-empty-state"
+    sx={{
+      alignItems: "center",
+      display: "flex",
+      flexDirection: "column",
+      gap: 1.5,
+      justifyContent: "center",
+      minHeight: "min(52vh, 520px)",
+      px: 2,
+      textAlign: "center",
+    }}
+  >
+    <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 72, opacity: 0.8 }} />
+    <Typography component="h2" variant="h5">
+      {title}
+    </Typography>
+    <Typography color="text.secondary" sx={{ maxWidth: 560 }} variant="body1">
+      {description}
+    </Typography>
+    {action ? (
+      <Button
+        component="a"
+        href="#settings/integrations"
+        onClick={(event) => {
+          handleNavigation(event, onOpenIntegrations);
+        }}
+        sx={{ mt: 1 }}
+        variant="outlined"
+      >
+        {action}
+      </Button>
+    ) : null}
+  </Box>
+);
 
+/** @param {{achievement: Achievement, locked: boolean}} props Renders one achievement row. */
+const AchievementRow = ({ achievement, locked }) => (
+  <Box
+    sx={{
+      alignItems: "flex-start",
+      bgcolor: locked ? "action.hover" : "action.selected",
+      borderRadius: 2,
+      display: "flex",
+      gap: 2,
+      mb: 1,
+      px: 1.5,
+      py: 1.5,
+    }}
+  >
+    <Box
+      sx={{
+        alignItems: "center",
+        bgcolor: "background.paper",
+        borderRadius: 1,
+        display: "flex",
+        flexShrink: 0,
+        height: 56,
+        justifyContent: "center",
+        width: 56,
+      }}
+    >
+      {locked ? (
+        <LockIcon color="disabled" />
+      ) : (
+        <EmojiEventsIcon sx={{ color: TROPHY_AMBER }} />
+      )}
+    </Box>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography sx={{ fontWeight: 600 }} variant="body2">
+        {achievement.title}
+      </Typography>
+      {achievement.description ? (
+        <Typography color="text.secondary" variant="caption">
+          {achievement.description}
+        </Typography>
+      ) : null}
+    </Box>
+    <Typography color="text.secondary" variant="caption">
+      {achievement.points ?? 0} pts
+    </Typography>
+  </Box>
+);
+
+/** @param {{achievements: Achievement[]}} props Renders unlocked and locked lists. */
+const AchievementSections = ({ achievements }) => {
+  const unlocked = achievements.filter((achievement) => achievement.unlocked);
+  const locked = achievements.filter((achievement) => !achievement.unlocked);
+  return (
+    <>
+      {unlocked.length > 0 && (
+        <>
+          <Typography
+            sx={{ color: TROPHY_AMBER, fontWeight: 700, letterSpacing: 1 }}
+            variant="overline"
+          >
+            UNLOCKED ({unlocked.length})
+          </Typography>
+          {unlocked.map((achievement) => (
+            <AchievementRow
+              achievement={achievement}
+              key={achievement.id}
+              locked={false}
+            />
+          ))}
+        </>
+      )}
+      {locked.length > 0 && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }} variant="overline">
+            LOCKED ({locked.length})
+          </Typography>
+          {locked.map((achievement) => (
+            <AchievementRow
+              achievement={achievement}
+              key={achievement.id}
+              locked
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
+};
+
+/** @param {{enabled: boolean, achievements: Achievement[], onOpenIntegrations: (() => void)|null}} props */
+const AchievementContent = ({ achievements, enabled, onOpenIntegrations }) => {
+  if (!enabled) {
+    return (
+      <AchievementEmptyState
+        action="Open Integrations settings"
+        description={
+          <>
+            Turn on RetroAchievements to load achievement data when supported.
+            Visit{" "}
+            <Link
+              href="#settings/integrations"
+              onClick={(event) => {
+                handleNavigation(event, onOpenIntegrations);
+              }}
+            >
+              Settings → Integrations
+            </Link>{" "}
+            to enable it.
+          </>
+        }
+        onOpenIntegrations={onOpenIntegrations}
+        title="RetroAchievements is turned off"
+      />
+    );
+  }
+  if (achievements.length === 0) {
+    return (
+      <AchievementEmptyState
+        description="No RetroAchievements data is available for this game yet."
+        title="No achievements yet"
+      />
+    );
+  }
+  return <AchievementSections achievements={achievements} />;
+};
+
+/**
+ * Full-screen achievement list overlay.
+ * @param {object} props
+ * @param {boolean} props.open Whether the dialog is visible.
+ * @param {() => void} props.onClose Close callback.
+ * @param {string} props.gameTitle Game name shown in the header.
+ * @param {boolean} props.retroAchievementsEnabled Integration state.
+ * @param {(() => void)|null} [props.onOpenIntegrations] Settings navigation callback.
+ * @param {Achievement[]} [props.achievements] Achievement rows.
+ */
+const AchievementListOverlay = ({
+  achievements = EMPTY_ACHIEVEMENTS,
+  gameTitle,
+  onClose,
+  onOpenIntegrations = null,
+  open,
+  retroAchievementsEnabled,
+}) => {
+  const unlockedCount = achievements.filter((achievement) => achievement.unlocked).length;
+  const total = achievements.length;
+  const progress = total > 0 ? Math.floor((unlockedCount * 100) / total) : 0;
   return (
     <Dialog
-      open={open}
-      onClose={onClose}
       fullScreen
-      slotProps={{
-        paper: {
-          sx: { bgcolor: "background.default" },
-        },
-      }}
+      onClose={onClose}
+      open={open}
+      slotProps={{ paper: { sx: { bgcolor: "background.default" } } }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <Box
           sx={{
-            display: "flex",
             alignItems: "center",
+            borderBottom: 1,
+            borderColor: "divider",
+            display: "flex",
             gap: 2,
             px: 2,
             py: 2,
-            borderBottom: 1,
-            borderColor: "divider",
           }}
         >
           <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 28 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
+            <Typography noWrap sx={{ fontWeight: 600 }} variant="subtitle1">
               {gameTitle}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography color="text.secondary" variant="body2">
               Achievements
             </Typography>
           </Box>
           {retroAchievementsEnabled && total > 0 ? (
-            <Typography variant="subtitle1" color="primary">
-              {uCount}/{total} ({pct}%)
+            <Typography color="primary" variant="subtitle1">
+              {unlockedCount}/{total} ({progress}%)
             </Typography>
           ) : null}
           <KeyboardHint>Esc to close</KeyboardHint>
-          <IconButton onClick={onClose} aria-label="Close">
+          <IconButton aria-label="Close" onClick={onClose}>
             <CloseIcon />
           </IconButton>
         </Box>
-
         <Box sx={{ flex: 1, overflow: "auto", px: 3, py: 2 }}>
-          {!retroAchievementsEnabled ? (
-            <AchievementEmptyState
-              title="RetroAchievements is turned off"
-              description={
-                <>
-                  Turn on RetroAchievements to load achievement data when supported. Visit{" "}
-                  <Link
-                    href="#settings/integrations"
-                    onClick={(event) => handleNavigation(event, onOpenIntegrations)}
-                  >
-                    Settings → Integrations
-                  </Link>{" "}
-                  to enable it.
-                </>
-              }
-              action="Open Integrations settings"
-              onOpenIntegrations={onOpenIntegrations}
-            />
-          ) : total === 0 ? (
-            <AchievementEmptyState
-              title="No achievements yet"
-              description="No RetroAchievements data is available for this game yet."
-            />
-          ) : (
-            <>
-              {unlocked.length > 0 && (
-                <>
-                  <Typography
-                    variant="overline"
-                    sx={{ color: TROPHY_AMBER, fontWeight: 700, letterSpacing: 1 }}
-                  >
-                    UNLOCKED ({unlocked.length})
-                  </Typography>
-                  {unlocked.map((a) => (
-                    <AchievementRow key={a.id} achievement={a} locked={false} />
-                  ))}
-                </>
-              )}
-              {locked.length > 0 && (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography
-                    variant="overline"
-                    color="text.secondary"
-                    sx={{ fontWeight: 700, letterSpacing: 1 }}
-                  >
-                    LOCKED ({locked.length})
-                  </Typography>
-                  {locked.map((a) => (
-                    <AchievementRow key={a.id} achievement={a} locked />
-                  ))}
-                </>
-              )}
-            </>
-          )}
+          <AchievementContent
+            achievements={achievements}
+            enabled={retroAchievementsEnabled}
+            onOpenIntegrations={onOpenIntegrations}
+          />
         </Box>
-
       </Box>
     </Dialog>
   );
-}
+};
 
-function AchievementEmptyState({ title, description, action = null, onOpenIntegrations = null }) {
-  return (
-    <Box
-      data-testid="achievement-empty-state"
-      sx={{
-        minHeight: "min(52vh, 520px)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        gap: 1.5,
-        px: 2,
-      }}
-    >
-      <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 72, opacity: 0.8 }} />
-      <Typography variant="h5" component="h2">
-        {title}
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 560 }}>
-        {description}
-      </Typography>
-      {action ? (
-        <Button
-          component="a"
-          href="#settings/integrations"
-          onClick={(event) => handleNavigation(event, onOpenIntegrations)}
-          variant="outlined"
-          sx={{ mt: 1 }}
-        >
-          {action}
-        </Button>
-      ) : null}
-    </Box>
-  );
-}
-
-function handleNavigation(event, callback) {
-  if (!callback) return;
-  event.preventDefault();
-  callback();
-}
-
-function AchievementRow({ achievement, locked }) {
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        gap: 2,
-        py: 1.5,
-        alignItems: "flex-start",
-        borderRadius: 2,
-        bgcolor: locked ? "action.hover" : "action.selected",
-        mb: 1,
-        px: 1.5,
-      }}
-    >
-      <Box
-        sx={{
-          width: 56,
-          height: 56,
-          borderRadius: 1,
-          bgcolor: "background.paper",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        {locked ? (
-          <LockIcon color="disabled" />
-        ) : (
-          <EmojiEventsIcon sx={{ color: TROPHY_AMBER }} />
-        )}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {achievement.title}
-        </Typography>
-        {achievement.description ? (
-          <Typography variant="caption" color="text.secondary">
-            {achievement.description}
-          </Typography>
-        ) : null}
-      </Box>
-      <Typography variant="caption" color="text.secondary">
-        {achievement.points ?? 0} pts
-      </Typography>
-    </Box>
-  );
-}
+export default AchievementListOverlay;

@@ -1,29 +1,46 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import Box from "@mui/material/Box";
-import TextField from "@mui/material/TextField";
-import InputAdornment from "@mui/material/InputAdornment";
-import Typography from "@mui/material/Typography";
-import Stack from "@mui/material/Stack";
-import Alert from "@mui/material/Alert";
-import CircularProgress from "@mui/material/CircularProgress";
-import Button from "@mui/material/Button";
-import Pagination from "@mui/material/Pagination";
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
-import Select from "@mui/material/Select";
-import MenuItem from "@mui/material/MenuItem";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
-import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import SearchIcon from "@mui/icons-material/Search";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import FormControl from "@mui/material/FormControl";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
+import Pagination from "@mui/material/Pagination";
+import Select from "@mui/material/Select";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { useRomDownloads } from "../RomDownloadsContext";
+import {
+  filterAndSortGames,
+  GAME_FILTER_OPTIONS,
+  GAME_SORT_OPTIONS,
+} from "../utils/gameFilters";
+import {
+  tauriDragRegionProps,
+  tauriDragRegionSx,
+  tauriNoDragProps,
+  tauriNoDragSx,
+} from "../utils/isTauri";
 import GameCard from "./GameCard";
 import KeyboardHint from "./KeyboardHint";
-import { tauriDragRegionProps, tauriDragRegionSx, tauriNoDragProps, tauriNoDragSx } from "../utils/isTauri";
-import { useRomDownloads } from "../RomDownloadsContext";
-import { filterAndSortGames, GAME_FILTER_OPTIONS, GAME_SORT_OPTIONS } from "../utils/gameFilters";
 
+/** @typedef {{id: number|string, name: string, platform_id?: string, cover_path?: string|null, local_file_path?: string|null, source?: string, romm_id?: number|null, is_favorite?: boolean, last_played_at?: string|null, play_time_minutes?: number|null}} LibraryGame */
+/** @typedef {"name"|"recent"|"play_time"} LibrarySortBy */
+/** @typedef {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} LibraryFilterBy */
+/** @typedef {{gameId: number|string, retryable: boolean, guidance?: string, message: string}|null} LibraryLaunchError */
+/** @typedef {{games: LibraryGame[], total: number, page: number, pageSize: number, onPageChange: (page: number) => void, loading: boolean, searchQuery: string, onSearchChange: (value: string) => void, onSelectGame: (game: LibraryGame) => void, onToggleFavorite: (gameId: number|string) => void, onLaunchGame: (gameId: number|string) => void, onNavigateLibrarySettings: () => void, onNavigateRommSettings: () => void, onOpenSettings?: (() => void)|null, onRetryLaunch?: (() => void)|null, launchError?: LibraryLaunchError, error?: string|null, onDismissError: () => void, sortBy?: LibrarySortBy|null, filterBy?: LibraryFilterBy|null, onSortChange?: ((value: LibrarySortBy) => void)|null, onFilterChange?: ((value: LibraryFilterBy) => void)|null}} LibraryProps */
+
+/** @param {LibraryProps} props */
 export default function Library({
   games,
   total,
@@ -49,30 +66,51 @@ export default function Library({
   onFilterChange = null,
 }) {
   const { getProgress, getLaunchProgress } = useRomDownloads();
-  const [localSortBy, setLocalSortBy] = useState("name");
-  const [localFilterBy, setLocalFilterBy] = useState("all");
+  const [localSortBy, setLocalSortBy] = useState(
+    /** @type {LibrarySortBy} */ ("name")
+  );
+  const [localFilterBy, setLocalFilterBy] = useState(
+    /** @type {LibraryFilterBy} */ ("all")
+  );
   const sortBy = controlledSortBy ?? localSortBy;
   const filterBy = controlledFilterBy ?? localFilterBy;
   const usesExternalFilter = controlledFilterBy !== null;
-  const searchInputRef = useRef(null);
-  const visibleGames = useMemo(
-    () => filterAndSortGames(games, { searchQuery, filterBy, sortBy }),
-    [games, searchQuery, filterBy, sortBy],
+  const searchInputRef = useRef(
+    /** @type {HTMLInputElement|null} */ (null)
   );
-  const resultCount = usesExternalFilter || filterBy === "all" ? total : visibleGames.length;
-  const pageCount = usesExternalFilter || filterBy === "all" ? Math.ceil(total / pageSize) : 1;
+  const visibleGames = useMemo(
+    () => filterAndSortGames(games, { filterBy, searchQuery, sortBy }),
+    [games, searchQuery, filterBy, sortBy]
+  );
+  const resultCount =
+    usesExternalFilter || filterBy === "all" ? total : visibleGames.length;
+  const pageCount =
+    usesExternalFilter || filterBy === "all" ? Math.ceil(total / pageSize) : 1;
 
   useEffect(() => {
     function focusSearch(event) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f") return;
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== "f"
+      ) {
+        return;
+      }
       event.preventDefault();
       searchInputRef.current?.focus();
       searchInputRef.current?.select?.();
     }
 
     window.addEventListener("keydown", focusSearch);
-    return () => window.removeEventListener("keydown", focusSearch);
+    return () => {
+      window.removeEventListener("keydown", focusSearch);
+    };
   }, []);
+
+  useEffect(() => {
+    if (controlledFilterBy === "favorites") {
+      searchInputRef.current?.focus();
+    }
+  }, [controlledFilterBy]);
 
   const hasLocalFilter = filterBy !== "all";
   const hasSearch = Boolean(searchQuery);
@@ -94,20 +132,22 @@ export default function Library({
           severity="error"
           onClose={onDismissError}
           sx={{ mb: 2 }}
-          action={launchError ? (
-            <Stack direction="row" spacing={0.5}>
-              {onOpenSettings ? (
-                <Button color="inherit" size="small" onClick={onOpenSettings}>
-                  Open Settings
-                </Button>
-              ) : null}
-              {launchError.retryable && onRetryLaunch ? (
-                <Button color="inherit" size="small" onClick={onRetryLaunch}>
-                  Retry
-                </Button>
-              ) : null}
-            </Stack>
-          ) : undefined}
+          action={
+            launchError ? (
+              <Stack direction="row" spacing={0.5}>
+                {onOpenSettings ? (
+                  <Button color="inherit" size="small" onClick={onOpenSettings}>
+                    Open Settings
+                  </Button>
+                ) : null}
+                {launchError.retryable && onRetryLaunch ? (
+                  <Button color="inherit" size="small" onClick={onRetryLaunch}>
+                    Retry
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : undefined
+          }
         >
           {error}
           {launchError?.guidance ? (
@@ -119,12 +159,12 @@ export default function Library({
       )}
 
       <Stack
-        direction={{ xs: "column", sm: "row" }}
+        direction={{ sm: "row", xs: "column" }}
         spacing={2}
         sx={{
-          mb: 3,
-          alignItems: { xs: "stretch", sm: "center" },
+          alignItems: { sm: "center", xs: "stretch" },
           justifyContent: "space-between",
+          mb: 3,
         }}
       >
         <Typography
@@ -138,11 +178,11 @@ export default function Library({
         <Box
           {...tauriDragRegionProps()}
           sx={{
-            display: { xs: "none", sm: "block" },
-            flex: 1,
-            minWidth: 16,
-            minHeight: 40,
             alignSelf: "stretch",
+            display: { sm: "block", xs: "none" },
+            flex: 1,
+            minHeight: 40,
+            minWidth: 16,
             ...tauriDragRegionSx,
           }}
         />
@@ -153,22 +193,23 @@ export default function Library({
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           sx={{
-            width: "100%",
-            maxWidth: { sm: 420 },
             flexShrink: 0,
+            maxWidth: { sm: 420 },
+            width: "100%",
             ...tauriNoDragSx,
           }}
           inputRef={searchInputRef}
           slotProps={{
             input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
               endAdornment: (
                 <InputAdornment position="end">
-                  <Tooltip title={hasSearch ? "Clear search" : "Clear search (no search entered)"}>
+                  <Tooltip
+                    title={
+                      hasSearch
+                        ? "Clear search"
+                        : "Clear search (no search entered)"
+                    }
+                  >
                     <span>
                       <IconButton
                         aria-label="Clear search"
@@ -183,24 +224,41 @@ export default function Library({
                   </Tooltip>
                 </InputAdornment>
               ),
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
             },
           }}
         />
       </Stack>
 
       <Stack
-        direction={{ xs: "column", sm: "row" }}
+        direction={{ sm: "row", xs: "column" }}
         spacing={1.5}
-        sx={{ mb: 3, alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between" }}
+        sx={{
+          alignItems: { sm: "center", xs: "stretch" },
+          justifyContent: "space-between",
+          mb: 3,
+        }}
       >
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minHeight: 32 }}>
-          <Typography variant="body2" color="text.secondary" data-testid="library-result-count">
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: "center", minHeight: 32 }}
+        >
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            data-testid="library-result-count"
+          >
             {resultCount} result{resultCount === 1 ? "" : "s"}
           </Typography>
           <KeyboardHint>Ctrl+F / ⌘F to search</KeyboardHint>
         </Stack>
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+        <Stack direction={{ sm: "row", xs: "column" }} spacing={1}>
           <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
             <InputLabel id="library-sort-label">Sort by</InputLabel>
             <Select
@@ -208,7 +266,9 @@ export default function Library({
               id="library-sort"
               value={sortBy}
               label="Sort by"
-              onChange={(event) => handleSortChange(event.target.value)}
+              onChange={(event) => {
+                handleSortChange(event.target.value);
+              }}
             >
               {GAME_SORT_OPTIONS.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
@@ -224,7 +284,9 @@ export default function Library({
               id="library-filter"
               value={filterBy}
               label="Filter"
-              onChange={(event) => handleFilterChange(event.target.value)}
+              onChange={(event) => {
+                handleFilterChange(event.target.value);
+              }}
             >
               {GAME_FILTER_OPTIONS.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
@@ -239,12 +301,12 @@ export default function Library({
       {loading ? (
         <Box
           sx={{
+            alignItems: "center",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-            height: "60vh",
             gap: 2,
+            height: "60vh",
+            justifyContent: "center",
           }}
         >
           <CircularProgress color="primary" />
@@ -272,7 +334,12 @@ export default function Library({
               : "Scan a local ROM folder or sync from your RomM server."}
           </Typography>
           {hasLocalFilter ? (
-            <Button variant="outlined" onClick={() => handleFilterChange("all")}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                handleFilterChange("all");
+              }}
+            >
               Show all games
             </Button>
           ) : (

@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
-import { alpha, useTheme } from "@mui/material/styles";
-import RemoveIcon from "@mui/icons-material/Remove";
-import CropSquareIcon from "@mui/icons-material/CropSquare";
 import CloseIcon from "@mui/icons-material/Close";
+import CropSquareIcon from "@mui/icons-material/CropSquare";
+import RemoveIcon from "@mui/icons-material/Remove";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import { alpha, useTheme } from "@mui/material/styles";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri, tauriDragRegionProps, tauriDragRegionSx, tauriNoDragProps, tauriNoDragSx } from "../utils/isTauri";
+import { useCallback, useEffect, useState } from "react";
+
+import {
+  isTauri,
+  tauriDragRegionProps,
+  tauriDragRegionSx,
+  tauriNoDragProps,
+  tauriNoDragSx,
+} from "../utils/isTauri";
 
 const appWindow = isTauri() ? getCurrentWindow() : null;
 
@@ -23,9 +30,13 @@ export default function WindowChrome() {
   const [fullscreen, setFullscreen] = useState(false);
 
   const syncFullscreen = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      return;
+    }
     try {
-      if (!appWindow) return;
+      if (!appWindow) {
+        return;
+      }
       setFullscreen(Boolean(await appWindow.isFullscreen()));
     } catch {
       // web preview / tests
@@ -33,7 +44,9 @@ export default function WindowChrome() {
   }, []);
 
   useEffect(() => {
-    if (!isTauri()) return undefined;
+    if (!isTauri()) {
+      return undefined;
+    }
 
     let unlistenResize;
     let cancelled = false;
@@ -42,7 +55,9 @@ export default function WindowChrome() {
       await syncFullscreen();
       try {
         unlistenResize = await appWindow.onResized(() => {
-          if (!cancelled) syncFullscreen();
+          if (!cancelled) {
+            syncFullscreen();
+          }
         });
       } catch {
         // ignore
@@ -91,34 +106,34 @@ export default function WindowChrome() {
       data-testid="window-chrome"
       {...tauriDragRegionProps()}
       sx={{
-        height: CHROME_HEIGHT,
-        flexShrink: 0,
-        display: "flex",
         alignItems: "center",
+        bgcolor: chromeBg,
+        display: "flex",
+        flexShrink: 0,
+        height: CHROME_HEIGHT,
         pl: 1.25,
         pr: 0.25,
-        bgcolor: chromeBg,
         ...tauriDragRegionSx,
       }}
     >
       <Box
         sx={{
+          alignItems: "center",
+          cursor: "default",
+          display: "flex",
           flex: 1,
           height: "100%",
-          display: "flex",
-          alignItems: "center",
           minWidth: 0,
-          cursor: "default",
         }}
       >
         <Typography
           variant="caption"
           sx={{
+            color: "text.secondary",
             fontWeight: 600,
             letterSpacing: "0.06em",
-            color: "text.secondary",
-            userSelect: "none",
             ml: 0.5,
+            userSelect: "none",
           }}
         >
           Wingosy Launcher
@@ -126,7 +141,12 @@ export default function WindowChrome() {
       </Box>
       <Box
         {...tauriNoDragProps()}
-        sx={{ display: "flex", alignItems: "center", flexShrink: 0, ...tauriNoDragSx }}
+        sx={{
+          alignItems: "center",
+          display: "flex",
+          flexShrink: 0,
+          ...tauriNoDragSx,
+        }}
       >
         <Tooltip title="Minimize">
           <IconButton

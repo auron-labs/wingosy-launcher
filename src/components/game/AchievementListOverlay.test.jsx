@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import AchievementListOverlay from "./AchievementListOverlay";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { MuiTestProvider } from "../../test/muiHarness";
+import AchievementListOverlay from "./AchievementListOverlay";
 
 afterEach(cleanup);
 
@@ -24,11 +25,17 @@ describe("AchievementListOverlay empty state", () => {
     renderOverlay();
 
     expect(screen.getByTestId("achievement-empty-state")).toBeInTheDocument();
-    expect(screen.getByText("RetroAchievements is turned off")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Integrations settings" })).toBeInTheDocument();
+    expect(
+      screen.getByText("RetroAchievements is turned off")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open Integrations settings" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Esc to close")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Back" })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/0\/0/)).not.toBeInTheDocument();
   });
 
@@ -36,8 +43,12 @@ describe("AchievementListOverlay empty state", () => {
     const onOpenIntegrations = vi.fn();
     renderOverlay({ onOpenIntegrations });
 
-    fireEvent.click(screen.getByRole("link", { name: "Settings → Integrations" }));
-    fireEvent.click(screen.getByRole("link", { name: "Open Integrations settings" }));
+    fireEvent.click(
+      screen.getByRole("link", { name: "Settings → Integrations" })
+    );
+    fireEvent.click(
+      screen.getByRole("link", { name: "Open Integrations settings" })
+    );
 
     expect(onOpenIntegrations).toHaveBeenCalledTimes(2);
   });

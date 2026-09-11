@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getBiosTotals, orderBiosGroupsByLibraryRelevance } from "./biosPresentation";
+
+import {
+  getBiosTotals,
+  orderBiosGroupsByLibraryRelevance,
+} from "./biosPresentation";
 
 describe("BIOS presentation", () => {
   it("counts unavailable RomM files separately from downloadable files", () => {
@@ -9,10 +13,10 @@ describe("BIOS presentation", () => {
       { is_downloaded: false, missing_from_fs: true },
     ]);
 
-    expect(totals).toEqual({
-      listed: 3,
+    expect(totals).toStrictEqual({
       available: 2,
       downloaded: 1,
+      listed: 3,
       missing: 1,
       unavailable: 1,
     });
@@ -20,9 +24,9 @@ describe("BIOS presentation", () => {
 
   it("puts platforms used by the library before unrelated firmware", () => {
     const groups = [
-      { slug: "ps2", name: "PlayStation 2" },
-      { slug: "gba", name: "Game Boy Advance" },
-      { slug: "nes", name: "Nintendo Entertainment System" },
+      { name: "PlayStation 2", slug: "ps2" },
+      { name: "Game Boy Advance", slug: "gba" },
+      { name: "Nintendo Entertainment System", slug: "nes" },
     ];
 
     const ordered = orderBiosGroupsByLibraryRelevance(groups, [
@@ -30,15 +34,22 @@ describe("BIOS presentation", () => {
       [{ id: "nes" }, 2],
     ]);
 
-    expect(ordered.map((group) => group.slug)).toEqual(["gba", "nes", "ps2"]);
+    expect(ordered.map((group) => group.slug)).toStrictEqual([
+      "gba",
+      "nes",
+      "ps2",
+    ]);
   });
 
   it("falls back to alphabetical platform order without library context", () => {
     const ordered = orderBiosGroupsByLibraryRelevance([
-      { slug: "ps2", name: "PlayStation 2" },
-      { slug: "dreamcast", name: "Sega Dreamcast" },
+      { name: "PlayStation 2", slug: "ps2" },
+      { name: "Sega Dreamcast", slug: "dreamcast" },
     ]);
 
-    expect(ordered.map((group) => group.name)).toEqual(["PlayStation 2", "Sega Dreamcast"]);
+    expect(ordered.map((group) => group.name)).toStrictEqual([
+      "PlayStation 2",
+      "Sega Dreamcast",
+    ]);
   });
 });

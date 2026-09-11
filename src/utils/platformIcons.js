@@ -3,66 +3,69 @@
  * (`src/data/consoleIconSet.json`, Simple Icons-derived, CC0).
  * Regenerate: `bun add -d @iconify-json/simple-icons` then `bun scripts/extract-console-icons.mjs`.
  */
+import { isText } from "./value-guards";
 
 export const PLATFORM_COLORS = {
-  nes: "#e60012",
-  snes: "#7b5aa6",
-  n64: "#00a651",
-  gc: "#6a5acd",
-  wii: "#00a4e4",
-  wiiu: "#009ac7",
-  switch: "#e60012",
-  gb: "#8b956d",
-  gbc: "#8b008b",
-  gba: "#6b5a9e",
-  nds: "#b8b8b8",
   "3ds": "#d12228",
-  psx: "#003087",
+  arcade: "#ff6b00",
+  default: "#6366f1",
+  dreamcast: "#f47920",
+  gb: "#8b956d",
+  gba: "#6b5a9e",
+  gbc: "#8b008b",
+  gc: "#6a5acd",
+  genesis: "#1a5c9b",
+  n64: "#00a651",
+  nds: "#b8b8b8",
+  nes: "#e60012",
+  pc: "#00bcf2",
   ps2: "#003087",
   ps3: "#003087",
   ps4: "#003087",
   ps5: "#003087",
   psp: "#003087",
   psvita: "#003087",
-  genesis: "#1a5c9b",
+  psx: "#003087",
   saturn: "#0072c6",
-  dreamcast: "#f47920",
+  snes: "#7b5aa6",
+  switch: "#e60012",
+  wii: "#00a4e4",
+  wiiu: "#009ac7",
   xbox: "#107c10",
   xbox360: "#107c10",
-  arcade: "#ff6b00",
-  pc: "#00bcf2",
-  default: "#6366f1",
 };
 
 /** Short labels when no bundled icon and RomM logo missing or failed (clearer than slicing names). */
-export const PLATFORM_INITIALS = {
-  nes: "NES",
-  snes: "SNES",
-  n64: "N64",
-  gc: "GC",
-  wii: "Wii",
-  wiiu: "Wii U",
-  switch: "NS",
-  gb: "GB",
-  gbc: "GBC",
-  gba: "GBA",
-  nds: "DS",
-  "3ds": "3DS",
-  psx: "PS1",
-  ps2: "PS2",
-  ps3: "PS3",
-  ps4: "PS4",
-  ps5: "PS5",
-  psp: "PSP",
-  psvita: "Vita",
-  genesis: "MD",
-  saturn: "SAT",
-  dreamcast: "DC",
-  xbox: "XB",
-  xbox360: "360",
-  arcade: "ARC",
-  pc: "PC",
-};
+const PLATFORM_INITIALS = new Map(
+  Object.entries({
+    "3ds": "3DS",
+    arcade: "ARC",
+    dreamcast: "DC",
+    gb: "GB",
+    gba: "GBA",
+    gbc: "GBC",
+    gc: "GC",
+    genesis: "MD",
+    n64: "N64",
+    nds: "DS",
+    nes: "NES",
+    pc: "PC",
+    ps2: "PS2",
+    ps3: "PS3",
+    ps4: "PS4",
+    ps5: "PS5",
+    psp: "PSP",
+    psvita: "Vita",
+    psx: "PS1",
+    saturn: "SAT",
+    snes: "SNES",
+    switch: "NS",
+    wii: "Wii",
+    wiiu: "Wii U",
+    xbox: "XB",
+    xbox360: "360",
+  })
+);
 
 /**
  * Icon slug in `consoleIconSet.json` (Simple Icons names).
@@ -72,70 +75,91 @@ export const PLATFORM_INITIALS = {
  * a compact platform mark is less misleading than showing the same logo for
  * NES, SNES, N64, Game Boy, and DS.
  */
-export const PLATFORM_PACK_SLUG = {
-  gc: "nintendogamecube",
-  switch: "nintendoswitch",
-  "3ds": "nintendo3ds",
-  psx: "playstation",
-  ps2: "playstation2",
-  ps3: "playstation3",
-  ps4: "playstation4",
-  ps5: "playstation5",
-  psp: "playstationportable",
-  psvita: "playstationvita",
-  xbox: "xbox",
-  arcade: "retroarch",
-  pc: "windows",
-};
+const PLATFORM_PACK_SLUG = new Map(
+  Object.entries({
+    "3ds": "nintendo3ds",
+    arcade: "retroarch",
+    gc: "nintendogamecube",
+    pc: "windows",
+    ps2: "playstation2",
+    ps3: "playstation3",
+    ps4: "playstation4",
+    ps5: "playstation5",
+    psp: "playstationportable",
+    psvita: "playstationvita",
+    psx: "playstation",
+    switch: "nintendoswitch",
+    xbox: "xbox",
+  })
+);
 
 const PACK_PREFIX = "wingosy-console";
 
 /** Wingosy ids that differ from RomM's platform asset filenames. */
-export const ROMM_PLATFORM_ASSET_SLUG = {
-  gc: "ngc",
-  dreamcast: "dc",
-};
+const ROMM_PLATFORM_ASSET_SLUG = new Map(
+  Object.entries({
+    dreamcast: "dc",
+    gc: "ngc",
+  })
+);
 
 /**
  * RomM's platform component tries SVG first and then ICO. Return the same
  * candidates so Wingosy displays the console/device artwork from RomM rather
  * than the wide `logo_path` wordmarks returned by older API responses.
+ * @param {string|null} [platformId] Wingosy platform identifier.
+ * @param {string|null} [serverUrl] Configured RomM address.
  */
-export function rommPlatformIconCandidates(platformId, serverUrl) {
-  const id =
-    typeof platformId === "string" ? platformId.trim().toLowerCase() : "";
-  const base =
-    typeof serverUrl === "string"
-      ? serverUrl.trim().replace(/\/+$/, "")
-      : "";
-  if (!id || !base) return [];
+export const rommPlatformIconCandidates = (platformId, serverUrl) => {
+  const id = isText(platformId) ? platformId.trim().toLowerCase() : "";
+  const base = isText(serverUrl) ? serverUrl.trim().replace(/\/+$/u, "") : "";
+  if (!id || !base) {
+    return [];
+  }
 
-  const slug = ROMM_PLATFORM_ASSET_SLUG[id] || id;
+  const slug = ROMM_PLATFORM_ASSET_SLUG.get(id) ?? id;
   const encodedSlug = encodeURIComponent(slug);
   return [
     `${base}/assets/platforms/${encodedSlug}.svg`,
     `${base}/assets/platforms/${encodedSlug}.ico`,
   ];
-}
+};
 
-/** Iconify id for the bundled pack, or null if unknown. */
-export function packIconId(platformId) {
-  const slug = PLATFORM_PACK_SLUG[platformId];
-  if (!slug) return null;
+/**
+ * Iconify id for the bundled pack, or null if unknown.
+ * @param {string} platformId Wingosy platform identifier.
+ */
+export const packIconId = (platformId) => {
+  const slug = PLATFORM_PACK_SLUG.get(platformId);
+  if (slug === undefined) {
+    return null;
+  }
   return `${PACK_PREFIX}:${slug}`;
-}
+};
 
-export function platformInitials(platform) {
-  const id = platform.id;
-  if (PLATFORM_INITIALS[id]) return PLATFORM_INITIALS[id];
-  const raw = (platform.short_name || platform.name || id).trim();
-  if (raw.length <= 4) return raw.toUpperCase();
-  const parts = raw.split(/[\s-]+/).filter(Boolean);
+/** @typedef {{id: string, name?: string|null, short_name?: string|null, logo_path?: string|null}} IconPlatform */
+
+/** @param {IconPlatform} platform Platform needing a text label. */
+export const platformInitials = (platform) => {
+  const { id } = platform;
+  const knownLabel = PLATFORM_INITIALS.get(id);
+  if (knownLabel !== undefined) {
+    return knownLabel;
+  }
+  const raw = (
+    (platform.short_name ?? "") ||
+    (platform.name ?? "") ||
+    id
+  ).trim();
+  if (raw.length <= 4) {
+    return raw.toUpperCase();
+  }
+  const parts = raw.split(/[\s-]+/u).filter(Boolean);
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
   return raw.slice(0, 3).toUpperCase();
-}
+};
 
 /**
  * Select a legible sidebar icon for a platform.
@@ -143,22 +167,25 @@ export function platformInitials(platform) {
  * This is the local fallback after RomM's square platform assets are exhausted.
  * Do not use `logo_path`: older RomM versions often return a wide, dark wordmark
  * there rather than the console/device artwork used by RomM's own platform list.
+ * @param {IconPlatform} platform Platform needing an icon.
  */
-export function platformIconSource(platform) {
-  const bundledId = packIconId(platform?.id);
-  if (bundledId) {
+export const platformIconSource = (platform) => {
+  const bundledId = packIconId(platform.id);
+  if (bundledId !== null) {
     return { kind: "bundled", value: bundledId };
   }
 
-  if (PLATFORM_INITIALS[platform?.id]) {
-    return { kind: "initials", value: PLATFORM_INITIALS[platform.id] };
-  }
-
   return { kind: "initials", value: platformInitials(platform) };
-}
+};
 
-export function platformBadgeLabel(platformId) {
-  if (!platformId) return "";
-  if (PLATFORM_INITIALS[platformId]) return PLATFORM_INITIALS[platformId];
+/** @param {string|null} [platformId] Platform identifier shown on a game card. */
+export const platformBadgeLabel = (platformId) => {
+  if (platformId === null || platformId === undefined || platformId === "") {
+    return "";
+  }
+  const knownLabel = PLATFORM_INITIALS.get(platformId);
+  if (knownLabel !== undefined) {
+    return knownLabel;
+  }
   return platformId.toUpperCase().slice(0, 6);
-}
+};

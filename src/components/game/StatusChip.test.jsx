@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import StatusChip from "./StatusChip";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { MuiTestProvider } from "../../test/muiHarness";
+import StatusChip from "./StatusChip";
 
 afterEach(cleanup);
 
-describe("StatusChip", () => {
+describe(StatusChip, () => {
   it("uses the same compact outlined treatment for status badges", () => {
     const { container } = render(
       <MuiTestProvider>
@@ -34,7 +35,7 @@ describe("StatusChip", () => {
 
     fireEvent.mouseOver(screen.getByText("Downloaded, not synced"));
 
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+    await expect(screen.findByRole("tooltip")).resolves.toHaveTextContent(
       "has not been synchronized with RomM"
     );
   });

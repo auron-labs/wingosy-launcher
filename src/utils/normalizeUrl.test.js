@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
+
 import normalizeUrl from "./normalizeUrl.js";
 
-describe("normalizeUrl", () => {
+describe(normalizeUrl, () => {
   it("returns falsy input unchanged", () => {
     expect(normalizeUrl("")).toBe("");
-    expect(normalizeUrl(null)).toBe(null);
-    expect(normalizeUrl(undefined)).toBe(undefined);
+    expect(normalizeUrl(null)).toBeNull();
+    expect(normalizeUrl()).toBeUndefined();
   });
 
   it("trims and strips trailing slashes", () => {
@@ -15,7 +16,9 @@ describe("normalizeUrl", () => {
 
   it("preserves existing http/https", () => {
     expect(normalizeUrl("http://localhost:8080")).toBe("http://localhost:8080");
-    expect(normalizeUrl("https://romm.example/api")).toBe("https://romm.example/api");
+    expect(normalizeUrl("https://romm.example/api")).toBe(
+      "https://romm.example/api"
+    );
   });
 
   it("uses http for localhost and loopback", () => {

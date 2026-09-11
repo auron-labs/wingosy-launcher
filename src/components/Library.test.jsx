@@ -1,85 +1,97 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import Library from "./Library";
-import { MuiTestProvider } from "../test/muiHarness";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({
+import { MuiTestProvider } from "../test/muiHarness";
+import Library from "./Library";
+
+vi.mock(import("@tauri-apps/api/core"), () => ({
   convertFileSrc: (path) => path,
 }));
 
-vi.mock("../ThemeContext", () => ({
+vi.mock(import("../ThemeContext"), () => ({
   useAppTheme: () => ({
     colors: {
+      focusGlow: "rgba(92,107,192,0.4)",
       primary: "#5C6BC0",
       primaryLight: "#8E99F3",
-      focusGlow: "rgba(92,107,192,0.4)",
     },
   }),
 }));
 
-vi.mock("../RomDownloadsContext", () => ({
-  useRomDownloads: () => ({ getProgress: () => null, getLaunchProgress: () => null }),
+vi.mock(import("../RomDownloadsContext"), () => ({
+  useRomDownloads: () => ({
+    getLaunchProgress: () => null,
+    getProgress: () => null,
+  }),
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+});
 
 const games = [
   {
     id: 1,
+    is_favorite: false,
+    local_file_path: "/roms/zelda.nsp",
     name: "Zelda",
     platform_id: "switch",
     source: "Local",
     sync_state: "local_only",
-    local_file_path: "/roms/zelda.nsp",
-    is_favorite: false,
   },
   {
     id: 2,
+    is_favorite: true,
+    local_file_path: null,
     name: "Mario",
     platform_id: "switch",
     source: "RomM",
     sync_state: "remote_only",
-    local_file_path: null,
-    is_favorite: true,
   },
 ];
 
 function renderLibrary(overrides = {}) {
   const props = {
+    error: null,
     games,
-    total: games.length,
-    page: 1,
-    pageSize: 60,
-    onPageChange: vi.fn(),
     loading: false,
-    searchQuery: "",
-    onSearchChange: vi.fn(),
-    onSelectGame: vi.fn(),
-    onToggleFavorite: vi.fn(),
+    onDismissError: vi.fn(),
     onLaunchGame: vi.fn(),
     onNavigateLibrarySettings: vi.fn(),
     onNavigateRommSettings: vi.fn(),
-    error: null,
-    onDismissError: vi.fn(),
+    onPageChange: vi.fn(),
+    onSearchChange: vi.fn(),
+    onSelectGame: vi.fn(),
+    onToggleFavorite: vi.fn(),
+    page: 1,
+    pageSize: 60,
+    searchQuery: "",
+    total: games.length,
     ...overrides,
   };
   render(
     <MuiTestProvider>
       <Library {...props} />
-    </MuiTestProvider>,
+    </MuiTestProvider>
   );
   return props;
 }
 
 describe("Library desktop controls", () => {
   it("shows a result count, clear affordance, shortcut hint, and sort/filter controls", () => {
-    renderLibrary({ searchQuery: "mar", games: [games[1]], total: 1 });
+    renderLibrary({ games: [games[1]], searchQuery: "mar", total: 1 });
 
-    expect(screen.getByTestId("library-result-count")).toHaveTextContent("1 result");
+    expect(screen.getByTestId("library-result-count")).toHaveTextContent(
+      "1 result"
+    );
     expect(screen.getByRole("button", { name: "Clear search" })).toBeEnabled();
     expect(screen.getByText("Ctrl+F / ⌘F to search")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Sort by" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Filter" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Sort by" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Filter" })
+    ).toBeInTheDocument();
   });
 
   it("clears the controlled search query", () => {
@@ -94,7 +106,7 @@ describe("Library desktop controls", () => {
     renderLibrary();
     const input = screen.getByPlaceholderText("Search games...");
 
-    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(window, { ctrlKey: true, key: "f" });
 
     expect(document.activeElement).toBe(input);
   });
@@ -103,9 +115,11 @@ describe("Library desktop controls", () => {
     const onOpenSettings = vi.fn();
     const onRetryLaunch = vi.fn();
     renderLibrary({
-      error: "This game cannot start because no compatible emulator is installed for PlayStation 2.",
+      error:
+        "This game cannot start because no compatible emulator is installed for PlayStation 2.",
       launchError: {
-        guidance: "Open Settings → Emulators to install or select a compatible emulator.",
+        guidance:
+          "Open Settings → Emulators to install or select a compatible emulator.",
         retryable: false,
       },
       onOpenSettings,
@@ -114,11 +128,15 @@ describe("Library desktop controls", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Open Settings → Emulators");
-    expect(screen.getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open Settings" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(onRetryLaunch).not.toHaveBeenCalled();
   });
 
@@ -129,6 +147,8 @@ describe("Library desktop controls", () => {
 
     expect(screen.getByText("Mario")).toBeInTheDocument();
     expect(screen.queryByText("Zelda")).not.toBeInTheDocument();
-    expect(screen.getByTestId("library-result-count")).toHaveTextContent("1 result");
+    expect(screen.getByTestId("library-result-count")).toHaveTextContent(
+      "1 result"
+    );
   });
 });

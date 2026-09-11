@@ -2495,7 +2495,7 @@ pub async fn get_game_saves(
     token: String,
 ) -> Result<Vec<crate::api::RomMSave>, String> {
     let client = RomMClient::new(&server_url).with_token(token);
-    client.get_saves(romm_id).await.map_err(|e| e.to_string())
+    client.get_saves(romm_id).await.map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -2508,7 +2508,7 @@ pub async fn download_game_save(
     let client = RomMClient::new(&server_url).with_token(token);
     
     let save_data = client.download_save(romm_id, save_id).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     
     let saves_dir = AppConfig::saves_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&saves_dir).map_err(|e| e.to_string())?;
@@ -2535,7 +2535,7 @@ pub async fn upload_game_save(
         .unwrap_or_else(|| "save.sav".to_string());
     
     client.upload_save(romm_id, save_data, &filename).await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[derive(Debug, Serialize)]
@@ -2583,7 +2583,7 @@ pub async fn upload_switch_save(
         .ok_or("Game not found")?;
     crate::sync::upload_switch_save_from_eden(&game, &mut config, slot)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -2600,7 +2600,7 @@ pub async fn download_switch_save(
         .ok_or("Game not found")?;
     crate::sync::download_switch_save_to_eden(&game, &mut config, slot, save_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 // ========== Game Management Commands ==========

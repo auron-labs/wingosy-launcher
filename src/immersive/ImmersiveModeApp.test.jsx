@@ -1,51 +1,67 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
-import ImmersiveModeApp from "./ImmersiveModeApp";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { MuiTestProvider } from "../test/muiHarness";
 import { attachControllerAction } from "./controllerDebug";
+import ImmersiveModeApp from "./ImmersiveModeApp";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 function dispatchControllerKey(key, { repeat = false, action = null } = {}) {
-  dispatchControllerKeyTo(window, key, { repeat, action });
+  dispatchControllerKeyTo(window, key, { action, repeat });
 }
 
-function dispatchControllerKeyTo(target, key, { repeat = false, action = null } = {}) {
-  const code = { h: "KeyH", H: "KeyH" }[key] || "";
+function dispatchControllerKeyTo(
+  target,
+  key,
+  { repeat = false, action = null } = {}
+) {
+  const code = { H: "KeyH", h: "KeyH" }[key] || "";
   const event = new KeyboardEvent("keydown", {
-    key,
-    code,
-    repeat,
     bubbles: true,
     cancelable: true,
+    code,
+    key,
+    repeat,
   });
   attachControllerAction(event, action);
   act(() => target.dispatchEvent(event));
 }
 
 // These mocks provide deterministic UI/command sequencing evidence, not proof of a real emulator launch.
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock(import("@tauri-apps/api/core"), () => ({ invoke }));
 
-vi.mock("./useFullscreen", () => ({
+vi.mock(import("./useFullscreen"), () => ({
   useFullscreen: () => ({
-    setFullscreen: vi.fn().mockResolvedValue(undefined),
+    setFullscreen: vi.fn().mockResolvedValue(),
     toggleFullscreen: vi.fn(),
   }),
 }));
 
-vi.mock("./useGamepadKeyboardMapper", () => ({
+vi.mock(import("./useGamepadKeyboardMapper"), () => ({
   useGamepadKeyboardMapper: () => ({ unsupportedGamepad: false }),
 }));
 
-vi.mock("./AmbientAudioPlayer", () => ({ default: () => null }));
-vi.mock("./ImmersiveHintBar", () => ({
-  default: ({ visible }) => <span data-testid="immersive-hints">{String(visible)}</span>,
+vi.mock(import("./AmbientAudioPlayer"), () => ({ default: () => null }));
+vi.mock(import("./ImmersiveHintBar"), () => ({
+  default: ({ visible }) => (
+    <span data-testid="immersive-hints">{String(visible)}</span>
+  ),
 }));
-vi.mock("../components/Settings", () => ({ default: () => null }));
-vi.mock("../components/RomDownloadsView", () => ({ default: () => null }));
+vi.mock(import("../components/Settings"), () => ({ default: () => null }));
+vi.mock(import("../components/RomDownloadsView"), () => ({
+  default: () => null,
+}));
 
-vi.mock("./ImmersiveLibrary", () => ({
+vi.mock(import("./ImmersiveLibrary"), () => ({
   default: ({
     games,
     platforms = [],
@@ -68,18 +84,28 @@ vi.mock("./ImmersiveLibrary", () => ({
         ) {
           return;
         }
-        if (event.key !== "ArrowRight") return;
+        if (event.key !== "ArrowRight") {
+          return;
+        }
         event.preventDefault();
         onSelectedIndexChange(Math.min(games.length - 1, selectedIndex + 1));
       }}
     >
       {error ? <span data-testid="immersive-launch-error">{error}</span> : null}
-      <button onClick={() => onSelectedPlatformChange(null)}>All platforms</button>
+      <button
+        onClick={() => {
+          onSelectedPlatformChange(null);
+        }}
+      >
+        All platforms
+      </button>
       {platforms.map(([platform]) => (
         <button
           key={platform.id}
           aria-pressed={selectedPlatform === platform.id}
-          onClick={() => onSelectedPlatformChange(platform.id)}
+          onClick={() => {
+            onSelectedPlatformChange(platform.id);
+          }}
         >
           {platform.name}
         </button>
@@ -87,10 +113,18 @@ vi.mock("./ImmersiveLibrary", () => ({
       <input
         aria-label="Search games by name"
         value={searchQuery}
-        onChange={(event) => onSearchChange(event.target.value)}
+        onChange={(event) => {
+          onSearchChange(event.target.value);
+        }}
       />
       {searchQuery ? (
-        <button onClick={() => onSearchChange("")}>Clear game search</button>
+        <button
+          onClick={() => {
+            onSearchChange("");
+          }}
+        >
+          Clear game search
+        </button>
       ) : null}
       <span data-testid="selected-index">{selectedIndex}</span>
       {games.map((game, index) => (
@@ -110,7 +144,7 @@ vi.mock("./ImmersiveLibrary", () => ({
   ),
 }));
 
-vi.mock("./ImmersiveGameDetails", () => {
+vi.mock(import("./ImmersiveGameDetails"), () => {
   function MockImmersiveGameDetails({ game, onBack, onLaunch }) {
     const [menuOpen, setMenuOpen] = useState(false);
     return (
@@ -118,7 +152,13 @@ vi.mock("./ImmersiveGameDetails", () => {
         <span data-testid="details-game">{game.name}</span>
         <button onClick={() => onLaunch(game.id)}>Play</button>
         <button onClick={onBack}>Back</button>
-        <button onClick={() => setMenuOpen((open) => !open)}>Open menu</button>
+        <button
+          onClick={() => {
+            setMenuOpen((open) => !open);
+          }}
+        >
+          Open menu
+        </button>
         {menuOpen ? <div role="menu">Menu owns input</div> : null}
       </div>
     );
@@ -151,10 +191,16 @@ describe("ImmersiveModeApp launch context", () => {
       { id: 2, name: "  BONK'S   ADVENTURE ", platform_id: "NES" },
       { id: 3, name: "Another Game", platform_id: "nes" },
     ];
-    invoke.mockImplementation((command) => {
-      if (command === "get_games_page") return Promise.resolve({ games, total: games.length });
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games, total: games.length });
+      }
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -166,10 +212,12 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("game-2")).not.toBeInTheDocument();
     expect(screen.getByTestId("game-3")).toBeInTheDocument();
   });
@@ -177,10 +225,16 @@ describe("ImmersiveModeApp launch context", () => {
   it("keeps the selected game, details view, and library index after refresh", async () => {
     let games = initialGames;
     let finishLaunch;
-    invoke.mockImplementation((command) => {
-      if (command === "get_games_page") return Promise.resolve({ games, total: games.length });
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games, total: games.length });
+      }
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       if (command === "prepare_and_launch_game") {
         return new Promise((resolve) => {
           finishLaunch = resolve;
@@ -199,31 +253,47 @@ describe("ImmersiveModeApp launch context", () => {
         />
       </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-2")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-2")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByTestId("game-2"));
     expect(screen.getByTestId("details-game")).toHaveTextContent("Second Game");
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
 
-    games = [{ ...initialGames[0] }, { ...initialGames[1], name: "Second Game Refreshed" }];
+    games = [
+      { ...initialGames[0] },
+      { ...initialGames[1], name: "Second Game Refreshed" },
+    ];
     await act(async () => finishLaunch({ success: true }));
 
-    await waitFor(() => expect(screen.getByTestId("details-game")).toHaveTextContent("Second Game Refreshed"));
+    await waitFor(() => {
+      expect(screen.getByTestId("details-game")).toHaveTextContent(
+        "Second Game Refreshed"
+      );
+    });
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("selected-index")).toHaveTextContent("1");
   });
 
   it("presents successful automatic save-sync messages without treating them as errors", async () => {
-    invoke.mockImplementation((command) => {
+    invoke.mockImplementation(async (command) => {
       if (command === "get_games_page") {
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       if (command === "prepare_and_launch_game") {
         return Promise.resolve({
-          success: true,
           save_sync_messages: ["Uploaded newer local save"],
+          success: true,
         });
       }
       return Promise.resolve(null);
@@ -237,24 +307,37 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByTestId("game-1"));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
 
-    await waitFor(() => expect(screen.getByText("Uploaded newer local save")).toBeInTheDocument());
-    expect(screen.queryByTestId("immersive-launch-error")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Uploaded newer local save")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("immersive-launch-error")
+    ).not.toBeInTheDocument();
   });
 
   it("returns from details to the immersive library on controller Back", async () => {
-    invoke.mockImplementation((command) => {
+    invoke.mockImplementation(async (command) => {
       if (command === "get_games_page") {
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -266,9 +349,11 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByTestId("game-1"));
     expect(screen.getByTestId("details-game")).toHaveTextContent("First Game");
@@ -276,11 +361,11 @@ describe("ImmersiveModeApp launch context", () => {
     dispatchControllerKey("Escape", {
       action: {
         actionId: 1,
-        key: "Escape",
         controllerIndex: 0,
-        phase: "edge",
-        elapsedSincePreviousMs: null,
         deferred: false,
+        elapsedSincePreviousMs: null,
+        key: "Escape",
+        phase: "edge",
       },
     });
 
@@ -290,12 +375,19 @@ describe("ImmersiveModeApp launch context", () => {
 
   it("defers window hotkeys to open menus and suppresses repeated or cross-game launches", async () => {
     let finishLaunch;
-    invoke.mockImplementation((command) => {
+    invoke.mockImplementation(async (command) => {
       if (command === "get_games_page") {
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       if (command === "prepare_and_launch_game") {
         return new Promise((resolve) => {
           finishLaunch = resolve;
@@ -314,7 +406,9 @@ describe("ImmersiveModeApp launch context", () => {
         />
       </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByTestId("game-1"));
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
@@ -326,13 +420,23 @@ describe("ImmersiveModeApp launch context", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
-    expect(invoke).toHaveBeenCalledWith("prepare_and_launch_game", { gameId: 1 });
-    expect(invoke.mock.calls.filter(([command]) => command === "prepare_and_launch_game")).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledWith("prepare_and_launch_game", {
+      gameId: 1,
+    });
+    expect(
+      invoke.mock.calls.filter(
+        ([command]) => command === "prepare_and_launch_game"
+      )
+    ).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByTestId("game-2"));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
-    expect(invoke.mock.calls.filter(([command]) => command === "prepare_and_launch_game")).toHaveLength(1);
+    expect(
+      invoke.mock.calls.filter(
+        ([command]) => command === "prepare_and_launch_game"
+      )
+    ).toHaveLength(1);
 
     await act(async () => finishLaunch({ success: true }));
   });
@@ -340,12 +444,19 @@ describe("ImmersiveModeApp launch context", () => {
   it("logs shell suppression for a correlated controller action while a menu is open", async () => {
     vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    invoke.mockImplementation((command) => {
+    invoke.mockImplementation(async (command) => {
       if (command === "get_games_page") {
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -357,20 +468,22 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByTestId("game-1"));
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
 
     dispatchControllerKey("h", {
       action: {
         actionId: 44,
-        key: "h",
         controllerIndex: 2,
-        phase: "edge",
-        elapsedSincePreviousMs: null,
         deferred: false,
+        elapsedSincePreviousMs: null,
+        key: "h",
+        phase: "edge",
       },
     });
 
@@ -378,11 +491,11 @@ describe("ImmersiveModeApp launch context", () => {
       "[Wingosy][debug][controller] receiver suppressed",
       expect.objectContaining({
         actionId: 44,
-        receiver: "shell",
         key: "h",
         outcome: "suppressed",
         reason: "menu open",
-      }),
+        receiver: "shell",
+      })
     );
   });
 
@@ -396,9 +509,11 @@ describe("ImmersiveModeApp launch context", () => {
     let finishNextPage;
     let finishLaunch;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
-        if (args.page === 1) return Promise.resolve({ games: firstPage, total: 61 });
+        if (args.page === 1) {
+          return Promise.resolve({ games: firstPage, total: 61 });
+        }
         if (args.page === 2) {
           return new Promise((resolve) => {
             finishNextPage = resolve;
@@ -406,8 +521,12 @@ describe("ImmersiveModeApp launch context", () => {
         }
         return Promise.reject(new Error(`unexpected page ${args.page}`));
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       if (command === "prepare_and_launch_game") {
         return new Promise((resolve) => {
           finishLaunch = resolve;
@@ -427,54 +546,66 @@ describe("ImmersiveModeApp launch context", () => {
       </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-60")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-60")).toBeInTheDocument();
+    });
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
 
-    await waitFor(() => expect(finishNextPage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishNextPage).toStrictEqual(expect.any(Function));
+    });
     expect(
-      invoke.mock.calls.filter(([command]) => command === "get_games_page"),
+      invoke.mock.calls.filter(([command]) => command === "get_games_page")
     ).toHaveLength(2);
     expect(
       invoke.mock.calls.filter(
-        ([command, args]) => command === "get_games_page" && args.page === 2,
-      ),
+        ([command, args]) => command === "get_games_page" && args.page === 2
+      )
     ).toHaveLength(1);
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: null,
-      searchQuery: null,
       page: 1,
       pageSize: 60,
-    });
-    expect(invoke).toHaveBeenCalledWith("get_games_page", {
       platformId: null,
       searchQuery: null,
+    });
+    expect(invoke).toHaveBeenCalledWith("get_games_page", {
       page: 2,
       pageSize: 60,
+      platformId: null,
+      searchQuery: null,
     });
 
     await act(async () => finishNextPage({ games: secondPage, total: 61 }));
 
-    await waitFor(() => expect(screen.getByTestId("game-61")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-61")).toBeInTheDocument();
+    });
     fireEvent.keyDown(library, { key: "ArrowRight" });
     expect(screen.getByTestId("selected-index")).toHaveTextContent("60");
-    expect(screen.getByTestId("game-61")).toHaveAttribute("data-focused", "true");
-    expect(invoke.mock.calls.some(([, args]) => args?.page === 3)).toBe(false);
+    expect(screen.getByTestId("game-61")).toHaveAttribute(
+      "data-focused",
+      "true"
+    );
+    expect(invoke.mock.calls.some(([, args]) => args?.page === 3)).toBeFalsy();
 
     fireEvent.click(screen.getByTestId("game-61"));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     await act(async () => {
       finishLaunch({ success: true });
     });
-    await waitFor(() =>
-      expect(screen.getByTestId("details-game")).toHaveTextContent("Game 61"),
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("details-game")).toHaveTextContent("Game 61");
+    });
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("selected-index")).toHaveTextContent("60");
-    expect(screen.getByTestId("game-61")).toHaveAttribute("data-focused", "true");
-    expect(invoke.mock.calls.some(([, args]) => args?.page === 3)).toBe(false);
+    expect(screen.getByTestId("game-61")).toHaveAttribute(
+      "data-focused",
+      "true"
+    );
+    expect(invoke.mock.calls.some(([, args]) => args?.page === 3)).toBeFalsy();
   });
 
   it("does not re-request retained later-page games after refresh", async () => {
@@ -493,7 +624,7 @@ describe("ImmersiveModeApp launch context", () => {
     let pageThreeCalls = 0;
     let finishLaunch;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.page === 1) {
           pageOneCalls += 1;
@@ -512,8 +643,12 @@ describe("ImmersiveModeApp launch context", () => {
         }
         return Promise.reject(new Error(`unexpected page ${args.page}`));
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       if (command === "prepare_and_launch_game") {
         return new Promise((resolve) => {
           finishLaunch = resolve;
@@ -530,24 +665,34 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-60")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-60")).toBeInTheDocument();
+    });
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
-    await waitFor(() => expect(screen.getByTestId("game-72")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-72")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByTestId("game-61"));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
-    await waitFor(() => expect(finishLaunch).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishLaunch).toStrictEqual(expect.any(Function));
+    });
     await act(async () => finishLaunch({ success: true }));
-    await waitFor(() => expect(pageOneCalls).toBe(2));
+    await waitFor(() => {
+      expect(pageOneCalls).toBe(2);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await waitFor(() => expect(pageThreeCalls).toBe(1));
+    await waitFor(() => {
+      expect(pageThreeCalls).toBe(1);
+    });
     expect(pageTwoCalls).toBe(1);
   });
 
@@ -565,11 +710,13 @@ describe("ImmersiveModeApp launch context", () => {
     let finishRefresh;
     let finishReplacementPage;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.page === 1) {
           pageOneCalls += 1;
-          if (pageOneCalls === 1) return Promise.resolve({ games: firstPage, total: 61 });
+          if (pageOneCalls === 1) {
+            return Promise.resolve({ games: firstPage, total: 61 });
+          }
           return new Promise((resolve) => {
             finishRefresh = resolve;
           });
@@ -587,9 +734,15 @@ describe("ImmersiveModeApp launch context", () => {
         }
         return Promise.reject(new Error(`unexpected page ${args.page}`));
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
-      if (command === "prepare_and_launch_game") return Promise.resolve({ success: true });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
+      if (command === "prepare_and_launch_game") {
+        return Promise.resolve({ success: true });
+      }
       return Promise.resolve(null);
     });
 
@@ -601,33 +754,49 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-60")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-60")).toBeInTheDocument();
+    });
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
-    await waitFor(() => expect(finishStalePage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishStalePage).toStrictEqual(expect.any(Function));
+    });
 
     fireEvent.click(screen.getByTestId("game-60"));
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await waitFor(() => expect(finishRefresh).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishRefresh).toStrictEqual(expect.any(Function));
+    });
     await act(async () => finishRefresh({ games: firstPage, total: 61 }));
-    await waitFor(() => expect(finishReplacementPage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishReplacementPage).toStrictEqual(expect.any(Function));
+    });
     expect(pageTwoCalls).toBe(2);
 
     await act(async () => finishStalePage({ games: stalePage, total: 61 }));
-    fireEvent.keyDown(screen.getByTestId("immersive-library"), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByTestId("immersive-library"), {
+      key: "ArrowLeft",
+    });
     expect(pageTwoCalls).toBe(2);
 
-    await act(async () => finishReplacementPage({ games: secondPage, total: 61 }));
-    await waitFor(() => expect(screen.getByTestId("game-61")).toBeInTheDocument());
+    await act(async () =>
+      finishReplacementPage({ games: secondPage, total: 61 })
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("game-61")).toBeInTheDocument();
+    });
     expect(screen.getAllByTestId("game-61")).toHaveLength(1);
     expect(screen.queryByTestId("game-999")).not.toBeInTheDocument();
-    expect(invoke.mock.calls.some(([, request]) => request?.page === 3)).toBe(false);
+    expect(
+      invoke.mock.calls.some(([, request]) => request?.page === 3)
+    ).toBeFalsy();
   });
 
   it("queries the selected platform for every page and clears back to all platforms", async () => {
@@ -641,10 +810,12 @@ describe("ImmersiveModeApp launch context", () => {
       name: `GBA Game ${index + 1}`,
       platform_id: "gba",
     }));
-    const gbaSecondPage = [{ id: 161, name: "GBA Game 61", platform_id: "gba" }];
+    const gbaSecondPage = [
+      { id: 161, name: "GBA Game 61", platform_id: "gba" },
+    ];
     let finishGbaSecondPage;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.platformId === "gba" && args.page === 1) {
           return Promise.resolve({ games: gbaFirstPage, total: 61 });
@@ -657,10 +828,16 @@ describe("ImmersiveModeApp launch context", () => {
         if (args.platformId === null && args.page === 1) {
           return Promise.resolve({ games: allGames, total: 60 });
         }
-        return Promise.reject(new Error(`unexpected request ${JSON.stringify(args)}`));
+        return Promise.reject(
+          new Error(`unexpected request ${JSON.stringify(args)}`)
+        );
       }
-      if (command === "get_platforms_with_games") return Promise.resolve(immersivePlatforms);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve(immersivePlatforms);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -672,42 +849,54 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByText("All Game 1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("All Game 1")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
-    await waitFor(() => expect(screen.getByText("GBA Game 60")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("GBA Game 60")).toBeInTheDocument();
+    });
 
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
-    await waitFor(() => expect(finishGbaSecondPage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishGbaSecondPage).toStrictEqual(expect.any(Function));
+    });
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: "gba",
-      searchQuery: null,
       page: 2,
       pageSize: 60,
+      platformId: "gba",
+      searchQuery: null,
     });
 
-    await act(async () => finishGbaSecondPage({ games: gbaSecondPage, total: 61 }));
-    await waitFor(() => expect(screen.getByTestId("game-161")).toBeInTheDocument());
+    await act(async () =>
+      finishGbaSecondPage({ games: gbaSecondPage, total: 61 })
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("game-161")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "All platforms" }));
-    await waitFor(() => expect(screen.getByText("All Game 1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("All Game 1")).toBeInTheDocument();
+    });
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: null,
-      searchQuery: null,
       page: 1,
       pageSize: 60,
+      platformId: null,
+      searchQuery: null,
     });
   });
 
   it("ignores a stale platform response after a newer selection", async () => {
     let finishGba;
     let finishSnes;
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.platformId === null) {
           return Promise.resolve({
@@ -726,8 +915,12 @@ describe("ImmersiveModeApp launch context", () => {
           });
         }
       }
-      if (command === "get_platforms_with_games") return Promise.resolve(immersivePlatforms);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve(immersivePlatforms);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -739,34 +932,61 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
-    await waitFor(() => expect(finishGba).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishGba).toStrictEqual(expect.any(Function));
+    });
     fireEvent.click(screen.getByRole("button", { name: "Super Nintendo" }));
-    await waitFor(() => expect(finishSnes).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishSnes).toStrictEqual(expect.any(Function));
+    });
 
-    await act(async () => finishGba({ games: [{ id: 2, name: "Stale GBA", platform_id: "gba" }], total: 1 }));
-    await act(async () => finishSnes({ games: [{ id: 3, name: "Current SNES", platform_id: "snes" }], total: 1 }));
+    await act(async () =>
+      finishGba({
+        games: [{ id: 2, name: "Stale GBA", platform_id: "gba" }],
+        total: 1,
+      })
+    );
+    await act(async () =>
+      finishSnes({
+        games: [{ id: 3, name: "Current SNES", platform_id: "snes" }],
+        total: 1,
+      })
+    );
 
-    await waitFor(() => expect(screen.getByTestId("game-3")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-3")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("game-2")).not.toBeInTheDocument();
     expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
   });
 
   it("passes partial, case-insensitive name searches to the complete-library query and clears them", async () => {
-    const marioResult = [{ id: 3, name: "Super Mario World", platform_id: "snes" }];
-    invoke.mockImplementation((command, args) => {
+    const marioResult = [
+      { id: 3, name: "Super Mario World", platform_id: "snes" },
+    ];
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.searchQuery === "mAr") {
           return Promise.resolve({ games: marioResult, total: 1 });
         }
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -778,52 +998,71 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
 
     const library = screen.getByTestId("immersive-library");
     fireEvent.keyDown(library, { key: "ArrowRight" });
     expect(screen.getByTestId("selected-index")).toHaveTextContent("1");
 
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
     search.focus();
     fireEvent.change(search, { target: { value: "mAr" } });
 
-    await waitFor(() => expect(screen.getByTestId("game-3")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-3")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("game-1")).not.toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: null,
-      searchQuery: "mAr",
       page: 1,
       pageSize: 60,
+      platformId: null,
+      searchQuery: "mAr",
     });
     expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
     expect(document.activeElement).toBe(search);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
 
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
-    expect(screen.getByRole("textbox", { name: "Search games by name" })).toHaveValue("");
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
     expect(
-      invoke.mock.calls.filter(([command]) => command === "get_games_page").at(-1),
-    ).toEqual([
+      screen.getByRole("textbox", { name: "Search games by name" })
+    ).toHaveValue("");
+    expect(
+      invoke.mock.calls
+        .filter(([command]) => command === "get_games_page")
+        .at(-1)
+    ).toStrictEqual([
       "get_games_page",
-      { platformId: null, searchQuery: null, page: 1, pageSize: 60 },
+      { page: 1, pageSize: 60, platformId: null, searchQuery: null },
     ]);
   });
 
   it("keeps the active name query on selected-platform page requests", async () => {
     const marioGba = [{ id: 4, name: "Mario Advance", platform_id: "gba" }];
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.searchQuery === "mario") {
           return Promise.resolve({ games: marioGba, total: 1 });
         }
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve(immersivePlatforms);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve(immersivePlatforms);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -835,22 +1074,31 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Search games by name" }), {
-      target: { value: "mario" },
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
     });
-    await waitFor(() => expect(screen.queryByTestId("game-1")).not.toBeInTheDocument());
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search games by name" }),
+      {
+        target: { value: "mario" },
+      }
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("game-1")).not.toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
 
-    await waitFor(() => expect(screen.getByTestId("game-4")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-4")).toBeInTheDocument();
+    });
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: "gba",
-      searchQuery: "mario",
       page: 1,
       pageSize: 60,
+      platformId: "gba",
+      searchQuery: "mario",
     });
     expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
   });
@@ -864,7 +1112,7 @@ describe("ImmersiveModeApp launch context", () => {
     const secondPage = [{ id: 70, name: "Mario Match 61", platform_id: "gba" }];
     let finishSecondPage;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.searchQuery === "mario" && args.page === 1) {
           return Promise.resolve({ games: firstPage, total: 61 });
@@ -874,10 +1122,17 @@ describe("ImmersiveModeApp launch context", () => {
             finishSecondPage = resolve;
           });
         }
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -889,29 +1144,40 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Search games by name" }), {
-      target: { value: "mario" },
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
     });
-    await waitFor(() => expect(screen.getByTestId("game-69")).toBeInTheDocument());
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search games by name" }),
+      {
+        target: { value: "mario" },
+      }
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("game-69")).toBeInTheDocument();
+    });
 
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
-    await waitFor(() => expect(finishSecondPage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishSecondPage).toStrictEqual(expect.any(Function));
+    });
     expect(invoke).toHaveBeenCalledWith("get_games_page", {
-      platformId: null,
-      searchQuery: "mario",
       page: 2,
       pageSize: 60,
+      platformId: null,
+      searchQuery: "mario",
     });
 
     await act(async () => finishSecondPage({ games: secondPage, total: 61 }));
-    await waitFor(() => expect(screen.getByTestId("game-70")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-70")).toBeInTheDocument();
+    });
   });
 
   it("does not append a stale filtered page after the search query changes", async () => {
@@ -920,11 +1186,13 @@ describe("ImmersiveModeApp launch context", () => {
       name: `Old Match ${index + 1}`,
       platform_id: "gba",
     }));
-    const oldSecondPage = [{ id: 160, name: "Old Match 61", platform_id: "gba" }];
+    const oldSecondPage = [
+      { id: 160, name: "Old Match 61", platform_id: "gba" },
+    ];
     const newFirstPage = [{ id: 200, name: "New Match", platform_id: "gba" }];
     let finishOldSecondPage;
 
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.searchQuery === "old" && args.page === 1) {
           return Promise.resolve({ games: oldFirstPage, total: 61 });
@@ -937,10 +1205,17 @@ describe("ImmersiveModeApp launch context", () => {
         if (args.searchQuery === "new" && args.page === 1) {
           return Promise.resolve({ games: newFirstPage, total: 1 });
         }
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -952,25 +1227,37 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
 
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
     fireEvent.change(search, { target: { value: "old" } });
-    await waitFor(() => expect(screen.getByTestId("game-159")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-159")).toBeInTheDocument();
+    });
 
     const library = screen.getByTestId("immersive-library");
     for (let index = 0; index < 59; index += 1) {
       fireEvent.keyDown(library, { key: "ArrowRight" });
     }
-    await waitFor(() => expect(finishOldSecondPage).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishOldSecondPage).toStrictEqual(expect.any(Function));
+    });
 
     fireEvent.change(search, { target: { value: "new" } });
-    await waitFor(() => expect(screen.getByTestId("game-200")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-200")).toBeInTheDocument();
+    });
     expect(screen.queryByTestId("game-159")).not.toBeInTheDocument();
 
-    await act(async () => finishOldSecondPage({ games: oldSecondPage, total: 61 }));
+    await act(async () =>
+      finishOldSecondPage({ games: oldSecondPage, total: 61 })
+    );
 
     expect(screen.getByTestId("game-200")).toBeInTheDocument();
     expect(screen.queryByTestId("game-160")).not.toBeInTheDocument();
@@ -981,7 +1268,7 @@ describe("ImmersiveModeApp launch context", () => {
   it("ignores an older name-query response after a newer query starts", async () => {
     let finishOldQuery;
     let finishNewQuery;
-    invoke.mockImplementation((command, args) => {
+    invoke.mockImplementation(async (command, args) => {
       if (command === "get_games_page") {
         if (args.searchQuery === "old") {
           return new Promise((resolve) => {
@@ -993,10 +1280,17 @@ describe("ImmersiveModeApp launch context", () => {
             finishNewQuery = resolve;
           });
         }
-        return Promise.resolve({ games: initialGames, total: initialGames.length });
+        return Promise.resolve({
+          games: initialGames,
+          total: initialGames.length,
+        });
       }
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -1008,29 +1302,39 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
 
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
     fireEvent.change(search, { target: { value: "old" } });
-    await waitFor(() => expect(finishOldQuery).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishOldQuery).toStrictEqual(expect.any(Function));
+    });
     fireEvent.change(search, { target: { value: "new" } });
-    await waitFor(() => expect(finishNewQuery).toEqual(expect.any(Function)));
+    await waitFor(() => {
+      expect(finishNewQuery).toStrictEqual(expect.any(Function));
+    });
 
     await act(async () =>
       finishNewQuery({
         games: [{ id: 8, name: "New Result", platform_id: "gba" }],
         total: 1,
-      }),
+      })
     );
-    await waitFor(() => expect(screen.getByTestId("game-8")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-8")).toBeInTheDocument();
+    });
 
     await act(async () =>
       finishOldQuery({
         games: [{ id: 9, name: "Old Result", platform_id: "gba" }],
         total: 1,
-      }),
+      })
     );
     expect(screen.getByTestId("game-8")).toBeInTheDocument();
     expect(screen.queryByTestId("game-9")).not.toBeInTheDocument();
@@ -1040,10 +1344,16 @@ describe("ImmersiveModeApp launch context", () => {
 
   it("suppresses immersive shell shortcuts while the game-name search is focused", async () => {
     const onExit = vi.fn();
-    invoke.mockImplementation((command) => {
-      if (command === "get_games_page") return Promise.resolve({ games: initialGames, total: 2 });
-      if (command === "get_platforms_with_games") return Promise.resolve([]);
-      if (command === "get_config") return Promise.resolve({ display: { big_picture: true } });
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_games_page") {
+        return Promise.resolve({ games: initialGames, total: 2 });
+      }
+      if (command === "get_platforms_with_games") {
+        return Promise.resolve([]);
+      }
+      if (command === "get_config") {
+        return Promise.resolve({ display: { big_picture: true } });
+      }
       return Promise.resolve(null);
     });
 
@@ -1055,40 +1365,44 @@ describe("ImmersiveModeApp launch context", () => {
           rommUrl={null}
           onRommConnect={vi.fn()}
         />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
-    await waitFor(() => expect(screen.getByTestId("game-1")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
 
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
     search.focus();
     dispatchControllerKeyTo(search, "h", {
       action: {
         actionId: 51,
-        key: "h",
         controllerIndex: 1,
-        phase: "edge",
-        elapsedSincePreviousMs: null,
         deferred: false,
+        elapsedSincePreviousMs: null,
+        key: "h",
+        phase: "edge",
       },
     });
     dispatchControllerKeyTo(search, "Escape", {
       action: {
         actionId: 52,
-        key: "Escape",
         controllerIndex: 1,
-        phase: "edge",
-        elapsedSincePreviousMs: null,
         deferred: false,
+        elapsedSincePreviousMs: null,
+        key: "Escape",
+        phase: "edge",
       },
     });
     dispatchControllerKeyTo(search, "F11", {
       action: {
         actionId: 53,
-        key: "F11",
         controllerIndex: 1,
-        phase: "edge",
-        elapsedSincePreviousMs: null,
         deferred: false,
+        elapsedSincePreviousMs: null,
+        key: "F11",
+        phase: "edge",
       },
     });
 

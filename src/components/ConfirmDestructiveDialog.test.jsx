@@ -1,31 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import ConfirmDestructiveDialog from "./ConfirmDestructiveDialog";
-import { MuiTestProvider } from "../test/muiHarness";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-function renderDialog(props = {}) {
+import { MuiTestProvider } from "../test/muiHarness";
+import ConfirmDestructiveDialog from "./ConfirmDestructiveDialog";
+
+/** @param {Partial<import("react").ComponentProps<typeof ConfirmDestructiveDialog>>} [props] Overrides for the open deletion dialog. */
+const renderDialog = (props = {}) => {
   const defaults = {
-    open: true,
-    title: "Delete Downloaded ROM?",
-    message: "This will delete the local ROM file.",
     confirmLabel: "Delete",
+    message: "This will delete the local ROM file.",
     onCancel: vi.fn(),
     onConfirm: vi.fn(),
+    open: true,
+    title: "Delete Downloaded ROM?",
   };
   return render(
     <MuiTestProvider>
       <ConfirmDestructiveDialog {...defaults} {...props} />
     </MuiTestProvider>
   );
-}
+};
 
-afterEach(cleanup);
+describe(ConfirmDestructiveDialog, () => {
+  afterEach(cleanup);
 
-describe("ConfirmDestructiveDialog", () => {
   it("renders title, message, cancel and confirm actions", () => {
     renderDialog();
     expect(screen.getByText("Delete Downloaded ROM?")).toBeInTheDocument();
-    expect(screen.getByText("This will delete the local ROM file.")).toBeInTheDocument();
+    expect(
+      screen.getByText("This will delete the local ROM file.")
+    ).toBeInTheDocument();
     expect(screen.getByText("Esc to close")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
@@ -33,7 +37,9 @@ describe("ConfirmDestructiveDialog", () => {
 
   it("renders nothing when closed", () => {
     renderDialog({ open: false });
-    expect(screen.queryByText("Delete Downloaded ROM?")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Delete Downloaded ROM?")
+    ).not.toBeInTheDocument();
   });
 
   it("marks the confirm action as destructive", () => {
@@ -44,16 +50,18 @@ describe("ConfirmDestructiveDialog", () => {
   });
 
   it("calls onConfirm when the confirm action is clicked", () => {
+    /** @type {import("vitest").Mock<() => void>} */
     const onConfirm = vi.fn();
     renderDialog({ onConfirm });
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledOnce();
   });
 
   it("calls onCancel when Cancel is clicked", () => {
+    /** @type {import("vitest").Mock<() => void>} */
     const onCancel = vi.fn();
     renderDialog({ onCancel });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });

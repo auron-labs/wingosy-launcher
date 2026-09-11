@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import {
   createContext,
   useCallback,
@@ -7,18 +8,26 @@ import {
   useRef,
   useState,
 } from "react";
-import { listen } from "@tauri-apps/api/event";
+
 import { isTauri } from "./utils/isTauri";
 
+/** @typedef {{gameId: number|string, gameName: string, downloaded?: number, total?: number|null, percent?: number|null, stage?: string, error?: string|null, active?: boolean, file_index?: number, total_files?: number}} DownloadProgress */
+/** @typedef {{kind: "complete", gameId: number|string, gameName: string, path: string, at: number}|{kind: "error", gameId: number|string, gameName: string, message: string, at: number}} RecentDownload */
+/** @typedef {Record<string|number, DownloadProgress>} ProgressMap */
+/** @typedef {{activeByGameId: ProgressMap, activeDownloads: DownloadProgress[], recentDownloads: RecentDownload[], clearRecentDownloads: () => void, getProgress: (gameId: number|string) => DownloadProgress|null, getLaunchProgress: (gameId: number|string) => DownloadProgress|null, getSwitchContentProgress: (gameId: number|string) => DownloadProgress|null, activeCount: number}} RomDownloadsContextValue */
+
+/** @type {import('react').Context<RomDownloadsContextValue>} */
 const RomDownloadsContext = createContext({
   activeByGameId: {},
-  activeDownloads: [],
-  recentDownloads: [],
-  clearRecentDownloads: () => {},
-  getProgress: (_gameId) => null,
-  getLaunchProgress: (_gameId) => null,
-  getSwitchContentProgress: (_gameId) => null,
   activeCount: 0,
+  /** @type {DownloadProgress[]} */
+  activeDownloads: [],
+  clearRecentDownloads: () => {},
+  getLaunchProgress: (_gameId) => null,
+  getProgress: (_gameId) => null,
+  getSwitchContentProgress: (_gameId) => null,
+  /** @type {RecentDownload[]} */
+  recentDownloads: [],
 });
 
 export function useRomDownloads() {
@@ -26,19 +35,29 @@ export function useRomDownloads() {
 }
 
 function formatBytes(n) {
-  if (n == null || Number.isNaN(n)) return "";
+  if (n == null || Number.isNaN(n)) {
+    return "";
+  }
   const x = Number(n);
-  if (x < 1024) return `${x} B`;
-  if (x < 1024 * 1024) return `${(x / 1024).toFixed(1)} KB`;
-  if (x < 1024 * 1024 * 1024) return `${(x / (1024 * 1024)).toFixed(2)} MB`;
+  if (x < 1024) {
+    return `${x} B`;
+  }
+  if (x < 1024 * 1024) {
+    return `${(x / 1024).toFixed(1)} KB`;
+  }
+  if (x < 1024 * 1024 * 1024) {
+    return `${(x / (1024 * 1024)).toFixed(2)} MB`;
+  }
   return `${(x / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 export function formatDownloadLabel(progress) {
-  if (!progress) return "";
+  if (!progress) {
+    return "";
+  }
   const { downloaded, total, percent } = progress;
   if (total != null && total > 0) {
-    const pct = percent != null ? `${percent}% · ` : "";
+    const pct = percent == null ? "" : `${percent}% · `;
     return `${pct}${formatBytes(downloaded)} / ${formatBytes(total)}`;
   }
   return formatBytes(downloaded);
@@ -46,9 +65,12 @@ export function formatDownloadLabel(progress) {
 
 export function RomDownloadsProvider({ children }) {
   const [activeByGameId, setActiveByGameId] = useState({});
-  const [recentDownloads, setRecentDownloads] = useState([]);
+  const [recentDownloads, setRecentDownloads] = useState(
+    /** @type {RecentDownload[]} */ ([])
+  );
   const [launchProgressByGameId, setLaunchProgressByGameId] = useState({});
-  const [switchContentProgressByGameId, setSwitchContentProgressByGameId] = useState({});
+  const [switchContentProgressByGameId, setSwitchContentProgressByGameId] =
+    useState({});
   const activeRef = useRef({});
 
   useEffect(() => {
@@ -56,7 +78,9 @@ export function RomDownloadsProvider({ children }) {
   }, [activeByGameId]);
 
   useEffect(() => {
-    if (!isTauri()) return undefined;
+    if (!isTauri()) {
+      return undefined;
+    }
 
     let cancelled = false;
     const unlisteners = [];
@@ -76,34 +100,35 @@ export function RomDownloadsProvider({ children }) {
         setActiveByGameId((prev) => ({
           ...prev,
           [game_id]: {
+            downloaded: 0,
             gameId: game_id,
             gameName: game_name,
-            downloaded: 0,
-            total: null,
             percent: null,
+            total: null,
           },
         }));
       });
 
       await safeListen("rom-download-progress", (event) => {
-        const { game_id, game_name, downloaded, total, percent } = event.payload;
+        const { game_id, game_name, downloaded, total, percent } =
+          event.payload;
         setActiveByGameId((prev) => {
           const cur = prev[game_id];
           if (!cur) {
             return {
               ...prev,
               [game_id]: {
+                downloaded,
                 gameId: game_id,
                 gameName: game_name || `Game #${game_id}`,
-                downloaded,
-                total,
                 percent,
+                total,
               },
             };
           }
           return {
             ...prev,
-            [game_id]: { ...cur, downloaded, total, percent },
+            [game_id]: { ...cur, downloaded, percent, total },
           };
         });
       });
@@ -119,13 +144,13 @@ export function RomDownloadsProvider({ children }) {
         });
         setRecentDownloads((r) =>
           [
-            {
-              kind: "complete",
+            /** @type {RecentDownload} */ ({
+              at: Date.now(),
               gameId: game_id,
               gameName,
+              kind: "complete",
               path,
-              at: Date.now(),
-            },
+            }),
             ...r.filter(
               (item) =>
                 !(
@@ -149,13 +174,13 @@ export function RomDownloadsProvider({ children }) {
         });
         setRecentDownloads((r) =>
           [
-            {
-              kind: "error",
+            /** @type {RecentDownload} */ ({
+              at: Date.now(),
               gameId: game_id,
               gameName,
+              kind: "error",
               message,
-              at: Date.now(),
-            },
+            }),
             ...r.filter(
               (item) =>
                 !(
@@ -170,26 +195,31 @@ export function RomDownloadsProvider({ children }) {
 
       await safeListen("game-launch-progress", (event) => {
         const progress = event.payload || {};
-        if (progress.game_id == null) return;
-        const terminal = progress.stage === "completion" || progress.stage === "failure";
+        if (progress.game_id == null) {
+          return;
+        }
+        const terminal =
+          progress.stage === "completion" || progress.stage === "failure";
         setLaunchProgressByGameId((prev) => ({
           ...prev,
           [progress.game_id]: {
+            active: !terminal,
+            downloaded: progress.downloaded,
+            error: progress.error || null,
             gameId: progress.game_id,
             gameName: progress.game_name || `Game #${progress.game_id}`,
-            stage: progress.stage,
-            error: progress.error || null,
-            downloaded: progress.downloaded,
-            total: progress.total,
             percent: progress.percent,
-            active: !terminal,
+            stage: progress.stage,
+            total: progress.total,
           },
         }));
       });
 
       await safeListen("switch-content-sync-progress", (event) => {
         const progress = event.payload || {};
-        if (progress.game_id == null) return;
+        if (progress.game_id == null) {
+          return;
+        }
         setSwitchContentProgressByGameId((prev) => ({
           ...prev,
           [progress.game_id]: progress,
@@ -198,14 +228,19 @@ export function RomDownloadsProvider({ children }) {
 
       const clearSwitchContentProgress = (event) => {
         const gameId = event.payload?.game_id;
-        if (gameId == null) return;
+        if (gameId == null) {
+          return;
+        }
         setSwitchContentProgressByGameId((prev) => {
           const next = { ...prev };
           delete next[gameId];
           return next;
         });
       };
-      await safeListen("switch-content-sync-complete", clearSwitchContentProgress);
+      await safeListen(
+        "switch-content-sync-complete",
+        clearSwitchContentProgress
+      );
       await safeListen("switch-content-sync-error", clearSwitchContentProgress);
     })();
 
@@ -242,13 +277,13 @@ export function RomDownloadsProvider({ children }) {
   const value = useMemo(
     () => ({
       activeByGameId,
-      activeDownloads,
-      recentDownloads,
-      clearRecentDownloads,
-      getProgress,
-      getLaunchProgress,
-      getSwitchContentProgress,
       activeCount: activeDownloads.length,
+      activeDownloads,
+      clearRecentDownloads,
+      getLaunchProgress,
+      getProgress,
+      getSwitchContentProgress,
+      recentDownloads,
     }),
     [
       activeByGameId,

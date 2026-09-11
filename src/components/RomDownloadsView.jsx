@@ -1,16 +1,17 @@
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
-import Paper from "@mui/material/Paper";
-import LinearProgress from "@mui/material/LinearProgress";
-import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
-import Link from "@mui/material/Link";
 import Divider from "@mui/material/Divider";
+import LinearProgress from "@mui/material/LinearProgress";
+import Link from "@mui/material/Link";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+
 import { useRomDownloads, formatDownloadLabel } from "../RomDownloadsContext";
 import { tauriDragRegionProps, tauriDragRegionSx } from "../utils/isTauri";
 
@@ -20,11 +21,15 @@ export default function RomDownloadsView({
   onOpenGameDetails = null,
   onOpenCloudLibrary = null,
 }) {
-  const { activeDownloads, recentDownloads, clearRecentDownloads = null } = useRomDownloads();
+  const {
+    activeDownloads,
+    recentDownloads,
+    clearRecentDownloads = null,
+  } = useRomDownloads();
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
-      <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: "center" }}>
+    <Box sx={{ maxWidth: 1400, mx: "auto", p: 3, width: "100%" }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", mb: 3 }}>
         {immersive && onBack ? (
           <Button
             startIcon={<ArrowBackIcon />}
@@ -34,7 +39,10 @@ export default function RomDownloadsView({
             Back
           </Button>
         ) : null}
-        <Box {...tauriDragRegionProps()} sx={{ flex: 1, minWidth: 0, ...tauriDragRegionSx }}>
+        <Box
+          {...tauriDragRegionProps()}
+          sx={{ flex: 1, minWidth: 0, ...tauriDragRegionSx }}
+        >
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <CloudDownloadIcon color="primary" />
             <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
@@ -47,7 +55,11 @@ export default function RomDownloadsView({
         </Box>
       </Stack>
 
-      <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: "0.08em" }}>
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        sx={{ letterSpacing: "0.08em" }}
+      >
         Active
       </Typography>
       {activeDownloads.length === 0 ? (
@@ -56,19 +68,31 @@ export default function RomDownloadsView({
           onOpenCloudLibrary={onOpenCloudLibrary}
         />
       ) : (
-        <Stack spacing={2} sx={{ mt: 1, mb: 4 }}>
+        <Stack spacing={2} sx={{ mb: 4, mt: 1 }}>
           {activeDownloads.map((row) => (
-            <Paper key={row.gameId} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+            <Paper
+              key={row.gameId}
+              variant="outlined"
+              sx={{ borderRadius: 2, p: 2 }}
+            >
               <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
                 {row.gameName}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mb: 1 }}
+              >
                 {formatDownloadLabel(row)}
               </Typography>
-              {row.percent != null ? (
-                <LinearProgress variant="determinate" value={row.percent} sx={{ borderRadius: 1, height: 8 }} />
-              ) : (
+              {row.percent == null ? (
                 <LinearProgress sx={{ borderRadius: 1, height: 8 }} />
+              ) : (
+                <LinearProgress
+                  variant="determinate"
+                  value={row.percent}
+                  sx={{ borderRadius: 1, height: 8 }}
+                />
               )}
             </Paper>
           ))}
@@ -77,8 +101,15 @@ export default function RomDownloadsView({
 
       <Divider sx={{ my: 2 }} />
 
-      <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
-        <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: "0.08em" }}>
+      <Stack
+        direction="row"
+        sx={{ alignItems: "center", justifyContent: "space-between" }}
+      >
+        <Typography
+          variant="overline"
+          color="text.secondary"
+          sx={{ letterSpacing: "0.08em" }}
+        >
           Recent
         </Typography>
         {recentDownloads.length > 0 ? (
@@ -99,7 +130,10 @@ export default function RomDownloadsView({
       ) : (
         <List dense sx={{ mt: 1 }}>
           {recentDownloads.map((item, idx) => (
-            <ListItem key={`${item.kind}-${item.gameId}-${item.at}-${idx}`} sx={{ px: 0 }}>
+            <ListItem
+              key={`${item.kind}-${item.gameId}-${item.at}-${idx}`}
+              sx={{ px: 0 }}
+            >
               <ListItemText
                 primary={item.gameName}
                 secondary={
@@ -129,18 +163,18 @@ function DownloadsEmptyState({ onOpenGameDetails, onOpenCloudLibrary }) {
       data-testid="downloads-empty-state"
       variant="outlined"
       sx={{
-        mt: 1,
-        mb: 3,
-        minHeight: 230,
-        px: 3,
-        py: 4,
+        alignItems: "center",
+        bgcolor: "action.hover",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
         gap: 1.25,
-        bgcolor: "action.hover",
+        justifyContent: "center",
+        mb: 3,
+        minHeight: 230,
+        mt: 1,
+        px: 3,
+        py: 4,
+        textAlign: "center",
       }}
     >
       <CloudDownloadIcon color="primary" sx={{ fontSize: 64, opacity: 0.85 }} />
@@ -151,14 +185,18 @@ function DownloadsEmptyState({ onOpenGameDetails, onOpenCloudLibrary }) {
         Start a download from{" "}
         <Link
           href="#library"
-          onClick={(event) => handleNavigation(event, onOpenGameDetails)}
+          onClick={(event) => {
+            handleNavigation(event, onOpenGameDetails);
+          }}
         >
           a game&apos;s details page
         </Link>{" "}
         or a{" "}
         <Link
           href="#library"
-          onClick={(event) => handleNavigation(event, onOpenCloudLibrary)}
+          onClick={(event) => {
+            handleNavigation(event, onOpenCloudLibrary);
+          }}
         >
           cloud library tile
         </Link>
@@ -169,7 +207,9 @@ function DownloadsEmptyState({ onOpenGameDetails, onOpenCloudLibrary }) {
 }
 
 function handleNavigation(event, callback) {
-  if (!callback) return;
+  if (!callback) {
+    return;
+  }
   event.preventDefault();
   callback();
 }

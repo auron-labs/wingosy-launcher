@@ -1,25 +1,33 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import ImmersiveLibrary from "./ImmersiveLibrary";
+
 import { MuiTestProvider } from "../test/muiHarness";
 import { attachControllerAction } from "./controllerDebug";
+import ImmersiveLibrary from "./ImmersiveLibrary";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
+vi.mock(import("@tauri-apps/api/core"), () => ({
   convertFileSrc: (path) => path,
+  invoke: vi.fn(),
 }));
 
-vi.mock("../RomDownloadsContext", () => ({
-  useRomDownloads: () => ({ getProgress: () => null, activeCount: 0 }),
+vi.mock(import("../RomDownloadsContext"), () => ({
+  useRomDownloads: () => ({ activeCount: 0, getProgress: () => null }),
 }));
 
-vi.mock("../ThemeContext", () => ({
+vi.mock(import("../ThemeContext"), () => ({
   useAppTheme: () => ({
     colors: {
+      focusGlow: "rgba(92,107,192,0.4)",
       primary: "#5C6BC0",
       primaryLight: "#8E99F3",
-      focusGlow: "rgba(92,107,192,0.4)",
     },
   }),
 }));
@@ -27,9 +35,9 @@ vi.mock("../ThemeContext", () => ({
 function makeGames(count) {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
+    is_favorite: false,
     name: `Game ${i + 1}`,
     platform_id: "snes",
-    is_favorite: false,
     sync_state: "synced",
   }));
 }
@@ -37,18 +45,18 @@ function makeGames(count) {
 function makeFavoriteGames(count) {
   return Array.from({ length: count }, (_, i) => ({
     id: 100 + i,
+    is_favorite: true,
     name: `Favorite ${i + 1}`,
     platform_id: "snes",
-    is_favorite: true,
     sync_state: "synced",
   }));
 }
 
 function setViewportWidth(width) {
   Object.defineProperty(window, "innerWidth", {
-    writable: true,
     configurable: true,
     value: width,
+    writable: true,
   });
   act(() => {
     window.dispatchEvent(new Event("resize"));
@@ -134,11 +142,11 @@ function renderLibrary(games = makeGames(12), props = {}) {
   );
   return {
     ...utils,
+    onOpenSettings,
+    onSearchChange,
     onSelectGame,
     onSelectedIndexChange,
     onSelectedPlatformChange,
-    onSearchChange,
-    onOpenSettings,
   };
 }
 
@@ -150,17 +158,17 @@ function keyDown(container, key) {
 
 function controllerKeyDown(container, key) {
   const event = new KeyboardEvent("keydown", {
-    key,
     bubbles: true,
     cancelable: true,
+    key,
   });
   attachControllerAction(event, {
     actionId: 21,
-    key,
     controllerIndex: 4,
-    phase: "edge",
-    elapsedSincePreviousMs: null,
     deferred: false,
+    elapsedSincePreviousMs: null,
+    key,
+    phase: "edge",
   });
   act(() => container.dispatchEvent(event));
 }
@@ -179,14 +187,18 @@ describe("ImmersiveLibrary responsive grid", () => {
     setViewportWidth(width);
     renderLibrary();
     const grid = screen.getByTestId("immersive-grid");
-    expect(grid).toHaveStyle({ gridTemplateColumns: `repeat(${expected}, minmax(0, 1fr))` });
+    expect(grid).toHaveStyle({
+      gridTemplateColumns: `repeat(${expected}, minmax(0, 1fr))`,
+    });
   });
 });
 
 describe("ImmersiveLibrary keyboard navigation", () => {
   function navigateTest(width, columns) {
     setViewportWidth(width);
-    const { onSelectedIndexChange } = renderLibrary(makeGames(20), { initialIndex: 0 });
+    const { onSelectedIndexChange } = renderLibrary(makeGames(20), {
+      initialIndex: 0,
+    });
     const root = screen.getByTestId("immersive-library");
 
     keyDown(root, "ArrowRight");
@@ -206,14 +218,27 @@ describe("ImmersiveLibrary keyboard navigation", () => {
     expect(onSelectedIndexChange).toHaveBeenLastCalledWith(0);
   }
 
-  it("navigates with 6 columns on wide screens", () => navigateTest(1280, 6));
-  it("navigates with 4 columns on medium screens", () => navigateTest(1000, 4));
-  it("navigates with 3 columns on small screens", () => navigateTest(800, 3));
-  it("navigates with 2 columns on narrow screens", () => navigateTest(500, 2));
+  it("navigates with 6 columns on wide screens", () => {
+    navigateTest(1280, 6);
+  });
+
+  it("navigates with 4 columns on medium screens", () => {
+    navigateTest(1000, 4);
+  });
+
+  it("navigates with 3 columns on small screens", () => {
+    navigateTest(800, 3);
+  });
+
+  it("navigates with 2 columns on narrow screens", () => {
+    navigateTest(500, 2);
+  });
 
   it("handles partial final rows", () => {
     setViewportWidth(800);
-    const { onSelectedIndexChange } = renderLibrary(makeGames(7), { initialIndex: 4 });
+    const { onSelectedIndexChange } = renderLibrary(makeGames(7), {
+      initialIndex: 4,
+    });
     const root = screen.getByTestId("immersive-library");
 
     keyDown(root, "ArrowDown");
@@ -226,7 +251,9 @@ describe("ImmersiveLibrary keyboard navigation", () => {
 
   it("handles libraries smaller than one row", () => {
     setViewportWidth(1280);
-    const { onSelectedIndexChange } = renderLibrary(makeGames(2), { initialIndex: 0 });
+    const { onSelectedIndexChange } = renderLibrary(makeGames(2), {
+      initialIndex: 0,
+    });
     const root = screen.getByTestId("immersive-library");
 
     keyDown(root, "ArrowDown");
@@ -248,21 +275,21 @@ describe("ImmersiveLibrary keyboard navigation", () => {
     expect(document.activeElement).toBe(
       screen
         .getByTestId("immersive-grid")
-        .querySelector('[data-immersive-index="1"] button'),
+        .querySelector('[data-immersive-index="1"] button')
     );
 
     expect(info).toHaveBeenCalledWith(
       "[Wingosy][debug][controller] receiver handled",
       expect.objectContaining({
         actionId: 21,
-        receiver: "library",
+        afterFocus: expect.objectContaining({ tag: "button", role: "button" }),
+        beforeFocus: expect.objectContaining({ testId: "immersive-library" }),
         key: "ArrowRight",
         outcome: "handled",
         reason: "focus-moved",
-        beforeFocus: expect.objectContaining({ testId: "immersive-library" }),
-        afterFocus: expect.objectContaining({ tag: "button", role: "button" }),
+        receiver: "library",
         targetFocus: expect.objectContaining({ tag: "div", index: "1" }),
-      }),
+      })
     );
   });
 });
@@ -293,7 +320,9 @@ describe("ImmersiveLibrary sections switching", () => {
     expect(screen.getByRole("button", { name: "Recent" })).toBeInTheDocument();
 
     keyDown(root, "PageUp");
-    expect(screen.getByRole("button", { name: "Favorites" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Favorites" })
+    ).toBeInTheDocument();
   });
 });
 
@@ -305,34 +334,40 @@ describe("ImmersiveLibrary platform filtering", () => {
   const games = [
     {
       id: 1,
+      is_favorite: false,
       name: "SNES Game",
       platform_id: "snes",
-      is_favorite: false,
       sync_state: "synced",
     },
     {
       id: 2,
+      is_favorite: true,
       name: "GBA Favorite",
       platform_id: "gba",
-      is_favorite: true,
       sync_state: "synced",
     },
     {
       id: 3,
+      is_favorite: false,
+      last_played_at: "2026-09-01",
       name: "GBA Recent",
       platform_id: "gba",
-      is_favorite: false,
       sync_state: "synced",
-      last_played_at: "2026-09-01",
     },
   ];
 
   it("offers display-named platform controls and selects or clears them", () => {
     const { onSelectedPlatformChange } = renderLibrary(games, { platforms });
 
-    expect(screen.getByRole("button", { name: "All platforms" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Super Nintendo" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Game Boy Advance" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "All platforms" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Super Nintendo" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Game Boy Advance" })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
     expect(onSelectedPlatformChange).toHaveBeenCalledWith("gba");
@@ -345,7 +380,7 @@ describe("ImmersiveLibrary platform filtering", () => {
   });
 
   it("keeps platform filtering composed with favorites and recent sections", () => {
-    renderLibrary(games, { platforms, initialPlatform: "gba" });
+    renderLibrary(games, { initialPlatform: "gba", platforms });
 
     fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
     expect(screen.getByText("GBA Favorite")).toBeInTheDocument();
@@ -359,7 +394,9 @@ describe("ImmersiveLibrary platform filtering", () => {
   it("moves between platform controls with arrows and activates one with Enter", () => {
     const { onSelectedPlatformChange } = renderLibrary(games, { platforms });
     const allPlatforms = screen.getByRole("button", { name: "All platforms" });
-    const superNintendo = screen.getByRole("button", { name: "Super Nintendo" });
+    const superNintendo = screen.getByRole("button", {
+      name: "Super Nintendo",
+    });
 
     allPlatforms.focus();
     keyDown(allPlatforms, "ArrowRight");
@@ -370,14 +407,17 @@ describe("ImmersiveLibrary platform filtering", () => {
   });
 
   it("resets focus to the first result and focuses the library for an empty result", async () => {
-    const { onSelectedIndexChange } = renderLibrary(games, { platforms, initialIndex: 2 });
+    const { onSelectedIndexChange } = renderLibrary(games, {
+      initialIndex: 2,
+      platforms,
+    });
     const gba = screen.getByRole("button", { name: "Game Boy Advance" });
 
     fireEvent.click(gba);
     await waitFor(() => {
       expect(onSelectedIndexChange).toHaveBeenCalledWith(0);
       expect(document.activeElement).toBe(
-        screen.getByTestId("immersive-grid").querySelector("button"),
+        screen.getByTestId("immersive-grid").querySelector("button")
       );
     });
 
@@ -385,7 +425,9 @@ describe("ImmersiveLibrary platform filtering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
     await waitFor(() => {
       expect(screen.getByText("No games found.")).toBeInTheDocument();
-      expect(document.activeElement).toBe(screen.getByTestId("immersive-library"));
+      expect(document.activeElement).toBe(
+        screen.getByTestId("immersive-library")
+      );
     });
   });
 });
@@ -404,13 +446,17 @@ describe("ImmersiveLibrary game selection", () => {
 describe("ImmersiveLibrary game-name search", () => {
   it("provides an editable search control with a clear action", () => {
     const { onSearchChange } = renderLibrary();
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
 
     fireEvent.change(search, { target: { value: "mArIo" } });
 
     expect(search).toHaveValue("mArIo");
     expect(onSearchChange).toHaveBeenLastCalledWith("mArIo");
-    expect(screen.getByRole("button", { name: "Clear game search" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Clear game search" })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
 
@@ -422,19 +468,29 @@ describe("ImmersiveLibrary game-name search", () => {
   it("isolates typing and editing from controller library shortcuts", async () => {
     vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    const { onSelectedIndexChange, onSelectGame, onOpenSettings } = renderLibrary(
-      makeGames(6),
-      { initialIndex: 2 },
-    );
-    const search = screen.getByRole("textbox", { name: "Search games by name" });
+    const { onSelectedIndexChange, onSelectGame, onOpenSettings } =
+      renderLibrary(makeGames(6), { initialIndex: 2 });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
     search.focus();
 
-    for (const key of ["ArrowRight", "Enter", "PageDown", "PageUp", "s", "Escape", "F11"]) {
+    for (const key of [
+      "ArrowRight",
+      "Enter",
+      "PageDown",
+      "PageUp",
+      "s",
+      "Escape",
+      "F11",
+    ]) {
       controllerKeyDown(search, key);
     }
     fireEvent.change(search, { target: { value: "game" } });
 
-    await waitFor(() => expect(document.activeElement).toBe(search));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search);
+    });
     expect(onSelectedIndexChange).not.toHaveBeenCalled();
     expect(onSelectGame).not.toHaveBeenCalled();
     expect(onOpenSettings).not.toHaveBeenCalled();
@@ -443,10 +499,10 @@ describe("ImmersiveLibrary game-name search", () => {
       "[Wingosy][debug][controller] receiver suppressed",
       expect.objectContaining({
         actionId: 21,
-        receiver: "library",
         outcome: "suppressed",
         reason: "text-input-focused",
-      }),
+        receiver: "library",
+      })
     );
 
     const root = screen.getByTestId("immersive-library");
@@ -459,62 +515,66 @@ describe("ImmersiveLibrary game-name search", () => {
     renderLibrary([], { initialSearch: "missing" });
 
     expect(screen.getByText("No games match your search.")).toBeInTheDocument();
-    expect(screen.getByText("Try a different game name or clear your search.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Try a different game name or clear your search.")
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
 
     expect(screen.getByText("No games found.")).toBeInTheDocument();
-    expect(screen.queryByText("No games match your search.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No games match your search.")
+    ).not.toBeInTheDocument();
   });
 
   it("keeps name search composed with platform and library sections", () => {
     const games = [
       {
         id: 1,
-        name: "Mario Favorite",
-        platform_id: "gba",
         is_favorite: true,
         last_played_at: null,
+        name: "Mario Favorite",
+        platform_id: "gba",
         sync_state: "synced",
       },
       {
         id: 2,
-        name: "Mario Recent",
-        platform_id: "gba",
         is_favorite: false,
         last_played_at: "2026-09-01",
+        name: "Mario Recent",
+        platform_id: "gba",
         sync_state: "synced",
       },
       {
         id: 3,
-        name: "Mario Other",
-        platform_id: "gba",
         is_favorite: false,
         last_played_at: null,
+        name: "Mario Other",
+        platform_id: "gba",
         sync_state: "synced",
       },
       {
         id: 5,
-        name: "Zelda Favorite",
-        platform_id: "gba",
         is_favorite: true,
         last_played_at: null,
+        name: "Zelda Favorite",
+        platform_id: "gba",
         sync_state: "synced",
       },
       {
         id: 6,
-        name: "Zelda Recent",
-        platform_id: "gba",
         is_favorite: false,
         last_played_at: "2026-09-03",
+        name: "Zelda Recent",
+        platform_id: "gba",
         sync_state: "synced",
       },
       {
         id: 4,
-        name: "Mario SNES",
-        platform_id: "snes",
         is_favorite: true,
         last_played_at: "2026-09-02",
+        name: "Mario SNES",
+        platform_id: "snes",
         sync_state: "synced",
       },
     ];
@@ -523,9 +583,15 @@ describe("ImmersiveLibrary game-name search", () => {
       [{ id: "snes", name: "Super Nintendo" }, 1],
     ];
 
-    renderLibrary(games, { platforms, initialPlatform: "gba", initialSearch: "mArIo" });
+    renderLibrary(games, {
+      initialPlatform: "gba",
+      initialSearch: "mArIo",
+      platforms,
+    });
 
-    expect(screen.getByRole("textbox", { name: "Search games by name" })).toHaveValue("mArIo");
+    expect(
+      screen.getByRole("textbox", { name: "Search games by name" })
+    ).toHaveValue("mArIo");
     expect(screen.getByText("Mario Favorite")).toBeInTheDocument();
     expect(screen.getByText("Mario Recent")).toBeInTheDocument();
     expect(screen.getByText("Mario Other")).toBeInTheDocument();
@@ -546,11 +612,12 @@ describe("ImmersiveLibrary game-name search", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clear game search" }));
 
-    expect(screen.getByRole("textbox", { name: "Search games by name" })).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Game Boy Advance" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(
+      screen.getByRole("textbox", { name: "Search games by name" })
+    ).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Game Boy Advance" })
+    ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Zelda Recent")).toBeInTheDocument();
     expect(screen.getByText("Mario Recent")).toBeInTheDocument();
     expect(screen.queryByText("Mario Other")).not.toBeInTheDocument();

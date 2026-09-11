@@ -1,97 +1,134 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
-import Button from "@mui/material/Button";
-import Stack from "@mui/material/Stack";
-import CircularProgress from "@mui/material/CircularProgress";
+import ClearIcon from "@mui/icons-material/Clear";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
+import SearchIcon from "@mui/icons-material/Search";
 import Alert from "@mui/material/Alert";
-import TextField from "@mui/material/TextField";
-import InputAdornment from "@mui/material/InputAdornment";
+import Badge from "@mui/material/Badge";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Stack from "@mui/material/Stack";
 import { alpha } from "@mui/material/styles";
-import ImmersiveGameTile from "./ImmersiveGameTile";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import LauncherIcon from "../components/LauncherIcon";
+import { useRomDownloads } from "../RomDownloadsContext";
+import { useAppTheme } from "../ThemeContext";
+import { filterVisibleGames } from "../utils/gameFilters";
 import {
   describeControllerElement,
   getControllerAction,
   isTextInputTarget,
   logControllerOutcome,
 } from "./controllerDebug";
-import LauncherIcon from "../components/LauncherIcon";
-import { useAppTheme } from "../ThemeContext";
-import { useRomDownloads } from "../RomDownloadsContext";
-import { filterVisibleGames } from "../utils/gameFilters";
-import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
-import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
-import Badge from "@mui/material/Badge";
+import ImmersiveGameTile from "./ImmersiveGameTile";
+
+/** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
+/** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
+
+/**
+ * @typedef {Object} ImmersiveLibraryProps
+ * @property {boolean} loading
+ * @property {string|null} error
+ * @property {ImmersiveGame[]} games
+ * @property {PlatformEntry[]} [platforms]
+ * @property {string|null} [selectedPlatform]
+ * @property {(platformId: string|null) => void} [onSelectedPlatformChange]
+ * @property {string} [searchQuery]
+ * @property {(query: string) => void} [onSearchChange]
+ * @property {number} selectedIndex
+ * @property {(index: number, game?: ImmersiveGame) => void} onSelectedIndexChange
+ * @property {(game: ImmersiveGame) => void} onSelectGame
+ * @property {() => void|Promise<void>} onExitImmersive
+ * @property {() => void} onOpenSettings
+ * @property {() => void} [onOpenDownloads]
+ */
 
 const SECTIONS = ["all", "favorites", "recent"];
 
-function byLastPlayedDesc(a, b) {
-  const ax = a.last_played_at || "";
-  const bx = b.last_played_at || "";
+/** @param {ImmersiveGame} a @param {ImmersiveGame} b */
+const byLastPlayedDesc = (a, b) => {
+  const ax = a.last_played_at ?? "";
+  const bx = b.last_played_at ?? "";
   return bx.localeCompare(ax);
-}
+};
 
-function getColumnsForWidth(width) {
-  if (width >= 1200) return 6;
-  if (width >= 900) return 4;
-  if (width >= 600) return 3;
+/** @param {number} width */
+const getColumnsForWidth = (width) => {
+  if (width >= 1200) {
+    return 6;
+  }
+  if (width >= 900) {
+    return 4;
+  }
+  if (width >= 600) {
+    return 3;
+  }
   return 2;
-}
+};
 
-function focusFirstGame(grid) {
+/** @param {Element|null} grid */
+const focusFirstGame = (grid) => {
   const firstGame =
     grid?.querySelector?.('[data-immersive-index="0"] button') ||
     grid?.querySelector?.('[data-immersive-index="0"]');
   firstGame?.focus?.();
-}
+};
 
-function focusGameControl(game) {
+/** @param {Element|null} game */
+const focusGameControl = (game) => {
   const control = game?.querySelector?.("button") || game;
   control?.focus?.();
   return control;
-}
+};
 
-function useColumnCount() {
+const useColumnCount = () => {
   const [columns, setColumns] = useState(() =>
     typeof window === "undefined" ? 6 : getColumnsForWidth(window.innerWidth)
   );
 
   useEffect(() => {
-    function handleResize() {
+    const handleResize = () => {
       setColumns(getColumnsForWidth(window.innerWidth));
-    }
+    };
     handleResize();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   return columns;
-}
+};
 
-export default function ImmersiveLibrary({
+/** @param {ImmersiveLibraryProps} props */
+const ImmersiveLibrary = ({
   loading,
   error,
   games,
   platforms = [],
   selectedPlatform = null,
-  onSelectedPlatformChange = (_platformId) => {},
+  onSelectedPlatformChange = null,
   searchQuery = "",
-  onSearchChange = (_query) => {},
+  onSearchChange = null,
   selectedIndex,
   onSelectedIndexChange,
   onSelectGame,
   onExitImmersive,
   onOpenSettings,
   onOpenDownloads,
-}) {
+}) => {
   const [section, setSection] = useState("all"); // all | favorites | recent
-  const gridRef = useRef(null);
-  const rootRef = useRef(null);
-  const scrollRef = useRef(null);
-  const searchInputRef = useRef(null);
-  const platformButtonRefs = useRef([]);
+  const gridRef = useRef(/** @type {HTMLElement|null} */ (null));
+  const rootRef = useRef(/** @type {HTMLElement|null} */ (null));
+  const scrollRef = useRef(/** @type {HTMLElement|null} */ (null));
+  const searchInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const platformButtonRefs = useRef(
+    /** @type {(HTMLButtonElement|null)[]} */ ([])
+  );
   const { colors } = useAppTheme();
   const { getProgress, activeCount } = useRomDownloads();
   const columns = useColumnCount();
@@ -101,31 +138,40 @@ export default function ImmersiveLibrary({
       { id: null, label: "All platforms" },
       ...platforms.map(([platform]) => ({
         id: platform.id,
-        label: platform.name || platform.id,
+        label: platform.name === "" ? platform.id : platform.name,
       })),
     ],
-    [platforms],
+    [platforms]
   );
 
   const filteredGames = useMemo(
     () => filterVisibleGames(games, selectedPlatform, searchQuery),
-    [games, searchQuery, selectedPlatform],
+    [games, searchQuery, selectedPlatform]
   );
 
   const favorites = useMemo(
-    () => filteredGames.filter((g) => g.is_favorite),
-    [filteredGames],
+    () => filteredGames.filter((g) => g.is_favorite === true),
+    [filteredGames]
   );
 
   const recent = useMemo(() => {
-    const played = filteredGames.filter((g) => g.last_played_at);
-    played.sort(byLastPlayedDesc);
-    return played.slice(0, 24);
+    const played = filteredGames.filter(
+      (g) =>
+        g.last_played_at !== null &&
+        g.last_played_at !== undefined &&
+        g.last_played_at !== ""
+    );
+    const sorted = played.toSorted(byLastPlayedDesc);
+    return sorted.slice(0, 24);
   }, [filteredGames]);
 
   const visibleGames = useMemo(() => {
-    if (section === "favorites") return favorites;
-    if (section === "recent") return recent;
+    if (section === "favorites") {
+      return favorites;
+    }
+    if (section === "recent") {
+      return recent;
+    }
     return filteredGames;
   }, [section, filteredGames, favorites, recent]);
 
@@ -140,37 +186,54 @@ export default function ImmersiveLibrary({
   }, [section]);
 
   useEffect(() => {
-    if (loading) return undefined;
+    if (loading) {
+      return undefined;
+    }
 
     const id = window.requestAnimationFrame(() => {
-      if (searchInputRef.current === document.activeElement) return;
+      if (searchInputRef.current === document.activeElement) {
+        return;
+      }
       if (!visibleGames.length) {
         rootRef.current?.focus?.();
         return;
       }
       focusFirstGame(gridRef.current);
     });
-    return () => window.cancelAnimationFrame(id);
+    return () => {
+      window.cancelAnimationFrame(id);
+    };
   }, [loading, searchQuery, section, selectedPlatform, visibleGames.length]);
 
   useEffect(() => {
-    if (loading) return;
-    if (!visibleGames.length) return;
+    if (loading) {
+      return;
+    }
+    if (!visibleGames.length) {
+      return;
+    }
     const id = window.requestAnimationFrame(() => {
-      const el = gridRef.current?.querySelector?.(`[data-immersive-index="${selectedIndex}"]`);
-      if (!el) return;
+      const el = gridRef.current?.querySelector?.(
+        `[data-immersive-index="${selectedIndex}"]`
+      );
+      if (!el) {
+        return;
+      }
       try {
         el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       } catch {
         // ignore
       }
     });
-    return () => window.cancelAnimationFrame(id);
+    return () => {
+      window.cancelAnimationFrame(id);
+    };
   }, [loading, selectedIndex, visibleGames.length]);
 
   function cycleSection(delta) {
     const idx = SECTIONS.indexOf(section);
-    const next = SECTIONS[(idx + delta + SECTIONS.length) % SECTIONS.length] || "all";
+    const next =
+      SECTIONS[(idx + delta + SECTIONS.length) % SECTIONS.length] || "all";
     setSection(next);
     onSelectedIndexChange(0);
     rootRef.current?.focus?.();
@@ -190,7 +253,9 @@ export default function ImmersiveLibrary({
 
   function handlePlatformKeyDown(e, platformButton) {
     const platformIndex = platformButtonRefs.current.indexOf(platformButton);
-    if (platformIndex < 0) return false;
+    if (platformIndex === -1) {
+      return false;
+    }
 
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -221,28 +286,38 @@ export default function ImmersiveLibrary({
   function handleKeyDown(e) {
     const action = getControllerAction(e);
     if (isTextInputTarget(e.target)) {
-      logControllerOutcome(action, "library", "suppressed", { reason: "text-input-focused" });
+      logControllerOutcome(action, "library", "suppressed", {
+        reason: "text-input-focused",
+      });
       return;
     }
     const platformTarget =
       e.target?.closest?.("[data-immersive-platform-filter]") ||
       document.activeElement?.closest?.("[data-immersive-platform-filter]");
-    if (platformTarget && handlePlatformKeyDown(e, platformTarget)) return;
+    if (platformTarget && handlePlatformKeyDown(e, platformTarget)) {
+      return;
+    }
 
     if (e.key === "F11") {
-      logControllerOutcome(action, "library", "ignored", { reason: "handled-by-shell" });
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "handled-by-shell",
+      });
       return;
     }
 
     if (e.key === "Escape") {
-      logControllerOutcome(action, "library", "ignored", { reason: "handled-by-shell" });
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "handled-by-shell",
+      });
       return;
     }
 
     if (e.key === "s" || e.key === "S") {
       e.preventDefault();
       onOpenSettings();
-      logControllerOutcome(action, "library", "handled", { reason: "open-settings" });
+      logControllerOutcome(action, "library", "handled", {
+        reason: "open-settings",
+      });
       return;
     }
 
@@ -251,9 +326,9 @@ export default function ImmersiveLibrary({
       e.preventDefault();
       cycleSection(-1);
       logControllerOutcome(action, "library", "handled", {
-        reason: "cycle-section",
-        beforeFocus,
         afterFocus: describeControllerElement(document.activeElement),
+        beforeFocus,
+        reason: "cycle-section",
       });
       return;
     }
@@ -263,19 +338,23 @@ export default function ImmersiveLibrary({
       e.preventDefault();
       cycleSection(1);
       logControllerOutcome(action, "library", "handled", {
-        reason: "cycle-section",
-        beforeFocus,
         afterFocus: describeControllerElement(document.activeElement),
+        beforeFocus,
+        reason: "cycle-section",
       });
       return;
     }
 
     if (loading) {
-      logControllerOutcome(action, "library", "ignored", { reason: "library-loading" });
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "library-loading",
+      });
       return;
     }
     if (!visibleGames.length) {
-      logControllerOutcome(action, "library", "ignored", { reason: "no-visible-actions" });
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "no-visible-actions",
+      });
       return;
     }
 
@@ -289,19 +368,23 @@ export default function ImmersiveLibrary({
     let next = selectedIndex;
 
     switch (e.key) {
-      case "ArrowLeft":
+      case "ArrowLeft": {
         next = Math.max(0, selectedIndex - 1);
         break;
-      case "ArrowRight":
+      }
+      case "ArrowRight": {
         next = Math.min(visibleGames.length - 1, selectedIndex + 1);
         break;
-      case "ArrowUp":
+      }
+      case "ArrowUp": {
         next = Math.max(0, selectedIndex - cols);
         break;
-      case "ArrowDown":
+      }
+      case "ArrowDown": {
         next = Math.min(visibleGames.length - 1, selectedIndex + cols);
         break;
-      case "Enter":
+      }
+      case "Enter": {
         e.preventDefault();
         onSelectGame(visibleGames[selectedIndex]);
         logControllerOutcome(action, "library", "handled", {
@@ -309,16 +392,18 @@ export default function ImmersiveLibrary({
           selectedIndex,
         });
         return;
-      default:
+      }
+      default: {
         return;
+      }
     }
 
     const beforeFocus = describeControllerElement(document.activeElement);
     if (next === selectedIndex) {
       logControllerOutcome(action, "library", "ignored", {
-        reason: "focus-boundary",
-        beforeFocus,
         afterFocus: beforeFocus,
+        beforeFocus,
+        reason: "focus-boundary",
       });
       return;
     }
@@ -326,7 +411,7 @@ export default function ImmersiveLibrary({
     e.preventDefault();
     onSelectedIndexChange(next, visibleGames[next]);
     const el = gridRef.current?.querySelector?.(
-      `[data-immersive-index="${next}"]`,
+      `[data-immersive-index="${next}"]`
     );
     const focusTarget = focusGameControl(el);
     try {
@@ -335,20 +420,20 @@ export default function ImmersiveLibrary({
       // ignore
     }
     const afterFocus = describeControllerElement(document.activeElement);
-    if (!el) {
-      logControllerOutcome(action, "library", "ignored", {
-        reason: "focus-target-missing",
-        beforeFocus,
-        afterFocus,
-        targetIndex: next,
-      });
-    } else {
+    if (el) {
       const focused = document.activeElement === focusTarget;
       logControllerOutcome(action, "library", focused ? "handled" : "ignored", {
         reason: focused ? "focus-moved" : "focus-target-not-focused",
         beforeFocus,
         afterFocus,
         targetFocus: describeControllerElement(el),
+      });
+    } else {
+      logControllerOutcome(action, "library", "ignored", {
+        reason: "focus-target-missing",
+        beforeFocus,
+        afterFocus,
+        targetIndex: next,
       });
     }
   }
@@ -365,37 +450,43 @@ export default function ImmersiveLibrary({
       }}
     >
       {SECTIONS.map((key) => {
-        const label = key === "all" ? "All" : key === "favorites" ? "Favorites" : "Recent";
+        const label =
+          key === "all" ? "All" : key === "favorites" ? "Favorites" : "Recent";
         const active = section === key;
         return (
           <Button
             key={key}
-            onClick={() => setSectionAndReset(key)}
+            onClick={() => {
+              setSectionAndReset(key);
+            }}
             sx={{
-              minWidth: 0,
-              px: 2,
-              py: 0.9,
-              borderRadius: 1.5,
-              textTransform: "none",
-              fontWeight: active ? 800 : 600,
-              fontSize: { xs: "0.95rem", sm: "1rem" },
-              minHeight: 44,
-              color: active ? "#fff" : "text.secondary",
-              bgcolor: active ? "primary.main" : "transparent",
-              border: (t) =>
-                active
-                  ? "none"
-                  : `1px solid ${alpha(t.palette.divider, 0.5)}`,
-              boxShadow: active ? `0 0 12px ${alpha(colors.primary, 0.45)}` : "none",
-              lineHeight: 1.2,
-              transition: (t) =>
-                t.transitions.create(["background-color", "box-shadow", "color"], {
-                  duration: t.transitions.duration.short,
-                }),
               "&:hover": {
                 bgcolor: active ? "primary.dark" : alpha(colors.primary, 0.12),
                 color: active ? "#fff" : "text.primary",
               },
+              bgcolor: active ? "primary.main" : "transparent",
+              border: (t) =>
+                active ? "none" : `1px solid ${alpha(t.palette.divider, 0.5)}`,
+              borderRadius: 1.5,
+              boxShadow: active
+                ? `0 0 12px ${alpha(colors.primary, 0.45)}`
+                : "none",
+              color: active ? "#fff" : "text.secondary",
+              fontSize: { sm: "1rem", xs: "0.95rem" },
+              fontWeight: active ? 800 : 600,
+              lineHeight: 1.2,
+              minHeight: 44,
+              minWidth: 0,
+              px: 2,
+              py: 0.9,
+              textTransform: "none",
+              transition: (t) =>
+                t.transitions.create(
+                  ["background-color", "box-shadow", "color"],
+                  {
+                    duration: t.transitions.duration.short,
+                  }
+                ),
             }}
           >
             {label}
@@ -410,7 +501,12 @@ export default function ImmersiveLibrary({
       <Typography
         variant="overline"
         color="text.secondary"
-        sx={{ display: "block", mb: 0.5, fontWeight: 700, letterSpacing: "0.08em" }}
+        sx={{
+          display: "block",
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          mb: 0.5,
+        }}
       >
         Platforms
       </Typography>
@@ -433,27 +529,33 @@ export default function ImmersiveLibrary({
               }}
               data-immersive-platform-filter={platform.id || "all"}
               aria-pressed={active}
-              onClick={() => onSelectedPlatformChange?.(platform.id)}
+              onClick={() => {
+                onSelectedPlatformChange?.(platform.id);
+              }}
               sx={{
-                flexShrink: 0,
-                minWidth: 0,
-                px: 1.5,
-                py: 0.5,
-                borderRadius: 1.5,
-                textTransform: "none",
-                fontWeight: active ? 800 : 600,
-                color: active ? "#fff" : "text.secondary",
+                "&:hover": {
+                  bgcolor: active
+                    ? "primary.dark"
+                    : alpha(colors.primary, 0.12),
+                  color: active ? "#fff" : "text.primary",
+                },
                 bgcolor: active ? "primary.main" : "transparent",
                 border: (t) =>
                   active
                     ? "none"
                     : `1px solid ${alpha(t.palette.divider, 0.5)}`,
-                boxShadow: active ? `0 0 12px ${alpha(colors.primary, 0.4)}` : "none",
+                borderRadius: 1.5,
+                boxShadow: active
+                  ? `0 0 12px ${alpha(colors.primary, 0.4)}`
+                  : "none",
+                color: active ? "#fff" : "text.secondary",
+                flexShrink: 0,
+                fontWeight: active ? 800 : 600,
                 lineHeight: 1.2,
-                "&:hover": {
-                  bgcolor: active ? "primary.dark" : alpha(colors.primary, 0.12),
-                  color: active ? "#fff" : "text.primary",
-                },
+                minWidth: 0,
+                px: 1.5,
+                py: 0.5,
+                textTransform: "none",
               }}
             >
               {platform.label}
@@ -486,16 +588,19 @@ export default function ImmersiveLibrary({
             startIcon={<CloudDownloadIcon />}
             onClick={onOpenDownloads}
             sx={{
+              "&:hover": {
+                bgcolor: alpha(colors.primary, 0.1),
+                color: "text.primary",
+              },
+              border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
+              borderRadius: 1.5,
+              color: "text.secondary",
+              fontWeight: 600,
+              lineHeight: 1.2,
               minWidth: 0,
               px: 1.5,
               py: 0.5,
-              borderRadius: 1.5,
               textTransform: "none",
-              fontWeight: 600,
-              color: "text.secondary",
-              border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
-              lineHeight: 1.2,
-              "&:hover": { bgcolor: alpha(colors.primary, 0.1), color: "text.primary" },
             }}
           >
             Downloads
@@ -505,16 +610,19 @@ export default function ImmersiveLibrary({
       <Button
         onClick={onOpenSettings}
         sx={{
+          "&:hover": {
+            bgcolor: alpha(colors.primary, 0.1),
+            color: "text.primary",
+          },
+          border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
+          borderRadius: 1.5,
+          color: "text.secondary",
+          fontWeight: 600,
+          lineHeight: 1.2,
           minWidth: 0,
           px: 1.5,
           py: 0.5,
-          borderRadius: 1.5,
           textTransform: "none",
-          fontWeight: 600,
-          color: "text.secondary",
-          border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
-          lineHeight: 1.2,
-          "&:hover": { bgcolor: alpha(colors.primary, 0.1), color: "text.primary" },
         }}
       >
         Settings
@@ -523,16 +631,19 @@ export default function ImmersiveLibrary({
         data-testid="immersive-exit-to-desktop"
         onClick={onExitImmersive}
         sx={{
+          "&:hover": {
+            bgcolor: alpha(colors.primary, 0.1),
+            color: "text.primary",
+          },
+          border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
+          borderRadius: 1.5,
+          color: "text.secondary",
+          fontWeight: 600,
+          lineHeight: 1.2,
           minWidth: 0,
           px: 1.5,
           py: 0.5,
-          borderRadius: 1.5,
           textTransform: "none",
-          fontWeight: 600,
-          color: "text.secondary",
-          border: (t) => `1px solid ${alpha(t.palette.divider, 0.5)}`,
-          lineHeight: 1.2,
-          "&:hover": { bgcolor: alpha(colors.primary, 0.1), color: "text.primary" },
         }}
       >
         Exit to desktop
@@ -547,25 +658,27 @@ export default function ImmersiveLibrary({
       ref={rootRef}
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
-        if (!isTextInputTarget(event.target)) rootRef.current?.focus?.();
+        if (!isTextInputTarget(event.target)) {
+          rootRef.current?.focus?.();
+        }
       }}
       sx={{
-        flex: 1,
-        minHeight: 0,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
         backgroundImage: `radial-gradient(1200px 420px at 12% -8%, ${alpha(colors.primary, 0.14)} 0%, transparent 55%),
           radial-gradient(900px 380px at 88% 0%, ${alpha(colors.primaryLight, 0.08)} 0%, transparent 50%)`,
+        bgcolor: "background.default",
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
       }}
     >
       <Box
         sx={{
-          px: { xs: 2, sm: 3, md: 4 },
-          py: 2,
-          borderBottom: (t) => `1px solid ${alpha(t.palette.divider, 0.6)}`,
           bgcolor: (t) => alpha(t.palette.background.paper, 0.45),
+          borderBottom: (t) => `1px solid ${alpha(t.palette.divider, 0.6)}`,
+          px: { md: 4, sm: 3, xs: 2 },
+          py: 2,
         }}
       >
         <Stack
@@ -574,23 +687,27 @@ export default function ImmersiveLibrary({
           sx={{
             alignItems: "center",
             flexWrap: "wrap",
-            rowGap: 1.5,
             justifyContent: "space-between",
+            rowGap: 1.5,
           }}
         >
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{ alignItems: "center", flexWrap: "wrap" }}
+          >
             <LauncherIcon size={36} />
             <Box sx={{ minWidth: 0 }}>
               <Typography
                 variant="h6"
                 sx={{
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryLight} 100%)`,
+                  backgroundClip: "text",
                   fontWeight: 800,
                   letterSpacing: "-0.4px",
                   lineHeight: 1.2,
-                  background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryLight} 100%)`,
-                  backgroundClip: "text",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
                 }}
               >
                 Wingosy
@@ -598,7 +715,12 @@ export default function ImmersiveLibrary({
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={{ fontWeight: 600, letterSpacing: "0.03em", lineHeight: 1.2, display: "block" }}
+                sx={{
+                  display: "block",
+                  fontWeight: 600,
+                  letterSpacing: "0.03em",
+                  lineHeight: 1.2,
+                }}
               >
                 Immersive mode
               </Typography>
@@ -615,25 +737,26 @@ export default function ImmersiveLibrary({
           placeholder="Search by game name"
           size="small"
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          sx={{ width: "100%", maxWidth: 420, mt: 1.5 }}
+          onChange={(e) => {
+            onSearchChange?.(e.target.value);
+          }}
+          sx={{ maxWidth: 420, mt: 1.5, width: "100%" }}
           slotProps={{
             input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
               endAdornment: searchQuery ? (
                 <InputAdornment position="end">
                   <IconButton
                     aria-label="Clear game search"
                     edge="end"
                     size="small"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.preventDefault()}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                    }}
                     onClick={() => {
-                      onSearchChange("");
+                      onSearchChange?.("");
                       searchInputRef.current?.focus?.();
                     }}
                   >
@@ -641,6 +764,11 @@ export default function ImmersiveLibrary({
                   </IconButton>
                 </InputAdornment>
               ) : null,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
             },
           }}
         />
@@ -652,10 +780,10 @@ export default function ImmersiveLibrary({
         sx={{
           flex: 1,
           minHeight: 0,
-          overflowY: "auto",
           overflowX: "hidden",
+          overflowY: "auto",
           overscrollBehavior: "contain",
-          px: { xs: 2, sm: 3, md: 4 },
+          px: { md: 4, sm: 3, xs: 2 },
           py: 3,
         }}
       >
@@ -668,12 +796,12 @@ export default function ImmersiveLibrary({
         {loading ? (
           <Box
             sx={{
-              height: "60vh",
+              alignItems: "center",
               display: "flex",
               flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
               gap: 2,
+              height: "60vh",
+              justifyContent: "center",
             }}
           >
             <CircularProgress color="primary" />
@@ -682,10 +810,22 @@ export default function ImmersiveLibrary({
             </Typography>
           </Box>
         ) : visibleGames.length === 0 ? (
-          <Box sx={{ height: "60vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Stack spacing={1} sx={{ alignItems: "center", textAlign: "center" }}>
+          <Box
+            sx={{
+              height: "60vh",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Stack
+              spacing={1}
+              sx={{ alignItems: "center", textAlign: "center" }}
+            >
               <Typography variant="h5" color="text.secondary">
-                {searchQuery.trim() ? "No games match your search." : "No games found."}
+                {searchQuery.trim()
+                  ? "No games match your search."
+                  : "No games found."}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 {searchQuery.trim()
@@ -720,4 +860,6 @@ export default function ImmersiveLibrary({
       </Box>
     </Box>
   );
-}
+};
+
+export default ImmersiveLibrary;

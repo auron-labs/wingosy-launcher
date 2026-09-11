@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import ImmersiveHintBar from "./ImmersiveHintBar";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { MuiTestProvider } from "../test/muiHarness";
+import ImmersiveHintBar from "./ImmersiveHintBar";
 
 afterEach(cleanup);
 
@@ -10,7 +11,7 @@ describe("ImmersiveHintBar controller recovery hints", () => {
     render(
       <MuiTestProvider>
         <ImmersiveHintBar view="library" unsupportedGamepad />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
     expect(screen.getByText("Confirm / Open")).toBeInTheDocument();
@@ -18,7 +19,9 @@ describe("ImmersiveHintBar controller recovery hints", () => {
     expect(screen.getByText("Menu")).toBeInTheDocument();
     expect(screen.getByText("F11")).toBeInTheDocument();
     expect(screen.getByText("Fullscreen")).toBeInTheDocument();
-    expect(screen.getByText(/standard\/XInput controller or keyboard/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/standard\/XInput controller or keyboard/)
+    ).toBeInTheDocument();
     expect(screen.queryByText(/^A$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^B$/)).not.toBeInTheDocument();
   });
@@ -27,7 +30,7 @@ describe("ImmersiveHintBar controller recovery hints", () => {
     render(
       <MuiTestProvider>
         <ImmersiveHintBar view="library" visible={false} unsupportedGamepad />
-      </MuiTestProvider>,
+      </MuiTestProvider>
     );
 
     expect(screen.getByRole("status")).toBeInTheDocument();

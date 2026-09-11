@@ -1,58 +1,60 @@
-import CircularProgress from "@mui/material/CircularProgress";
 import CloudIcon from "@mui/icons-material/Cloud";
+import CircularProgress from "@mui/material/CircularProgress";
+
 import StatusChip from "./game/StatusChip";
 
 const STATUS_DETAILS = {
-  online: {
-    label: "Connected",
-    color: "success",
-    icon: <CloudIcon fontSize="small" />,
-    helpText: (serverUrl) =>
-      `Connected to RomM${serverUrl ? ` at ${serverUrl}` : ""}. Library sync is available.`,
+  checking: {
+    color: "info",
+    helpText: () => "Checking the RomM server connection.",
+    icon: <CircularProgress size={16} thickness={5} />,
+    label: "Checking",
     scope: "RomM",
   },
-  checking: {
-    label: "Checking",
-    color: "info",
-    icon: <CircularProgress size={16} thickness={5} />,
-    helpText: () => "Checking the RomM server connection.",
+  "downloaded-not-synced": {
+    color: "warning",
+    helpText: () =>
+      "This ROM is stored locally, but its download has not been synchronized with RomM.",
+    icon: <CloudIcon fontSize="small" />,
+    label: "Downloaded, not synced",
+    scope: "Sync",
+  },
+  "not-configured": {
+    color: "default",
+    helpText: () => "Connect to a RomM server to sync this library.",
+    icon: <CloudIcon fontSize="small" />,
+    label: "Not configured",
     scope: "RomM",
   },
   offline: {
-    label: "Offline",
     color: "warning",
-    icon: <CloudIcon fontSize="small" />,
     helpText: (serverUrl) =>
       `RomM is offline or rejected the session${serverUrl ? ` at ${serverUrl}` : ""}.`,
-    scope: "RomM",
-  },
-  "not-configured": {
-    label: "Not configured",
-    color: "default",
     icon: <CloudIcon fontSize="small" />,
-    helpText: () => "Connect to a RomM server to sync this library.",
+    label: "Offline",
     scope: "RomM",
   },
-  synced: {
-    label: "Synced",
+  online: {
     color: "success",
+    helpText: (serverUrl) =>
+      `Connected to RomM${serverUrl ? ` at ${serverUrl}` : ""}. Library sync is available.`,
     icon: <CloudIcon fontSize="small" />,
-    helpText: () => "This local download is synchronized with RomM.",
-    scope: "Sync",
+    label: "Connected",
+    scope: "RomM",
   },
   "remote-only": {
-    label: "Cloud only",
     color: "info",
+    helpText: () =>
+      "This game is available from RomM but is not downloaded to this device.",
     icon: <CloudIcon fontSize="small" />,
-    helpText: () => "This game is available from RomM but is not downloaded to this device.",
+    label: "Cloud only",
     scope: "Sync",
   },
-  "downloaded-not-synced": {
-    label: "Downloaded, not synced",
-    color: "warning",
+  synced: {
+    color: "success",
+    helpText: () => "This local download is synchronized with RomM.",
     icon: <CloudIcon fontSize="small" />,
-    helpText: () =>
-      "This ROM is stored locally, but its download has not been synchronized with RomM.",
+    label: "Synced",
     scope: "Sync",
   },
 };
