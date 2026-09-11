@@ -12,6 +12,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@hypothesi/tauri-mcp-cli": "0.13.0",
     "@iconify-json/simple-icons": "^1.2.94",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
@@ -58,6 +59,7 @@
     "icons:extract": "bun scripts/extract-console-icons.mjs",
     "icons:windows": "bun scripts/generate-windows-icons.mjs",
     "preview": "vite preview",
+    "screenshots": "bun scripts/capture-screenshots.mjs",
     "tauri": "tauri",
     "test:e2e": "wdio run wdio.conf.js",
     "test:e2e:setup": "wdio run wdio.conf.js --spec e2e-webdriver/setup-wizard.spec.js",
