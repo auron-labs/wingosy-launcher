@@ -760,7 +760,7 @@ mod tests {
 
         let error = validate_managed_install(&config, &executable).unwrap_err();
 
-        assert!(error.to_string().contains("failed validation"));
+        assert!(error.to_string().contains("could not be verified"));
     }
 
     #[test]
@@ -920,6 +920,6 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("integrity validation"));
+        assert!(error.to_string().contains("could not be verified"));
     }
 }

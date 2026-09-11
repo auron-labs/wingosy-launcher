@@ -1043,7 +1043,7 @@ mod tests {
             .build_command(&game)
             .unwrap_err();
 
-        assert!(error.to_string().contains("integrity validation"));
+        assert!(error.to_string().contains("could not be verified"));
         assert_eq!(fs::read(&profile).ok(), profile_before);
     }
 
@@ -1203,7 +1203,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.to_string().contains("integrity validation"));
+        assert!(error.to_string().contains("could not be verified"));
         assert!(!running.load(Ordering::SeqCst));
     }
 

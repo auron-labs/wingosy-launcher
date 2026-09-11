@@ -4,7 +4,12 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each independently reproducible failing test passes in isolation.
-- [ ] The full Rust test command passes apart from tests already marked ignored.
+- [x] Each independently reproducible failing test passes in isolation.
+- [x] The full Rust test command passes apart from tests already marked ignored.
+
+## Comments
+
+- Implementation complete: updated four stale error-message assertions to match the current verification wording. All four tests pass in isolation; the full Rust suite passes with 334 tests passed and 0 failed.
+- Code review approved: no standards or specification findings.
