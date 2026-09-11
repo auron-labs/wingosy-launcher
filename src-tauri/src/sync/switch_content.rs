@@ -782,8 +782,8 @@ fn update_qsettings_external_content_dirs(contents: &str, owned_directory: &str)
     let mut existing_paths = Vec::new();
     let mut array_line_indexes = HashSet::new();
     let mut first_array_line = None;
-    for index in section_start + 1..section_end {
-        let Some((key, value)) = lines[index].split_once('=') else {
+    for (index, line) in lines.iter().enumerate().take(section_end).skip(section_start + 1) {
+        let Some((key, value)) = line.split_once('=') else {
             continue;
         };
         match qsettings_array_key(key) {

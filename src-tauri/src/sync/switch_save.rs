@@ -256,8 +256,8 @@ pub fn resolve_local_title_save_path_for_title_id(
         bail!("Invalid Switch title ID: {title_id}");
     }
     let save_base = resolve_eden_save_base(config);
-    let folder = find_title_save_folder(&save_base, &title_id)
-        .unwrap_or_else(|| construct_title_save_path(&save_base, &title_id));
+    let folder = find_title_save_folder(&save_base, title_id)
+        .unwrap_or_else(|| construct_title_save_path(&save_base, title_id));
     Ok((folder, title_id.to_ascii_uppercase()))
 }
 

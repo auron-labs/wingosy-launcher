@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-11T01:11:18Z
+Generated: 2026-09-11T02:57:19Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 11 active, 24 resolved
+Tickets: 10 active, 25 resolved
 
 ## Active Tickets
 
@@ -15,7 +15,6 @@ Tickets: 11 active, 24 resolved
 | [smoke-test-followups](smoke-test-followups) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [06-restore-frontend-static-analysis](smoke-test-followups/issues/06-restore-frontend-static-analysis.md) | — | — | claimed | None — can start immediately. |
-| [smoke-test-followups](smoke-test-followups) | [07-restore-rust-clippy](smoke-test-followups/issues/07-restore-rust-clippy.md) | — | — | ready-for-agent | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [08-restore-rust-test-baseline](smoke-test-followups/issues/08-restore-rust-test-baseline.md) | — | — | ready-for-agent | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [09-fix-emulators-settings-markup](smoke-test-followups/issues/09-fix-emulators-settings-markup.md) | — | — | ready-for-agent | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | ready-for-agent | None — can start immediately. |
@@ -33,6 +32,7 @@ Tickets: 11 active, 24 resolved
 | [smoke-test-followups](smoke-test-followups) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [02-offer-save-sync-retry](smoke-test-followups/issues/02-offer-save-sync-retry.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [03-filter-library-by-favorites](smoke-test-followups/issues/03-filter-library-by-favorites.md) | — | — | resolved | None — can start immediately. |
+| [smoke-test-followups](smoke-test-followups) | [07-restore-rust-clippy](smoke-test-followups/issues/07-restore-rust-clippy.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [01-design-system-typography-buttons-states](ui-audit/issues/01-design-system-typography-buttons-states.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [02-layout-width-scrollbars](ui-audit/issues/02-layout-width-scrollbars.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [03-desktop-library-grid](ui-audit/issues/03-desktop-library-grid.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |

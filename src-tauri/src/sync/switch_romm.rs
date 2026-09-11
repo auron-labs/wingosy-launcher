@@ -276,7 +276,7 @@ async fn upload_switch_save_from_eden_with_title_id(
         .upload_save_device(
             romm_id,
             EDEN_EMULATOR_ID,
-            &device_id,
+            device_id,
             Some(&slot_s),
             zip_bytes,
             &upload_filename(&slot_s, &rom_base),
@@ -326,13 +326,13 @@ async fn download_switch_save_to_eden_with_title_id(
 
     let save = if let Some(id) = save_id {
         client
-            .get_saves_for_rom_device(romm_id, &device_id)
+            .get_saves_for_rom_device(romm_id, device_id)
             .await?
             .into_iter()
             .find(|s| s.id == id)
             .context("Save not found on server")?
     } else {
-        let saves = client.get_saves_for_rom_device(romm_id, &device_id).await?;
+        let saves = client.get_saves_for_rom_device(romm_id, device_id).await?;
         let picked = pick_save_for_slot(&saves, &slot_s, Some(&rom_base))
             .or_else(|| saves.iter().max_by(|a, b| a.updated_at.cmp(&b.updated_at)));
         picked
@@ -341,7 +341,7 @@ async fn download_switch_save_to_eden_with_title_id(
     };
 
     let bytes = client
-        .download_save_content_device(&save, &device_id)
+        .download_save_content_device(&save, device_id)
         .await?;
 
     let cache_dir = AppConfig::data_dir()
@@ -361,7 +361,7 @@ async fn download_switch_save_to_eden_with_title_id(
     }
 
     unzip_into_title_folder(&zip_path, &title_dir)?;
-    client.confirm_save_downloaded(save.id, &device_id).await?;
+    client.confirm_save_downloaded(save.id, device_id).await?;
     let _ = std::fs::remove_file(&zip_path);
 
     Ok(SwitchSaveSyncResult {
