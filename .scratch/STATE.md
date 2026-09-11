@@ -1,6 +1,6 @@
 # Local Issue State
 
-Generated: 2026-09-11T03:36:28Z
+Generated: 2026-09-11T03:44:53Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
@@ -15,7 +15,7 @@ Tickets: 8 active, 27 resolved
 | [smoke-test-followups](smoke-test-followups) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [06-restore-frontend-static-analysis](smoke-test-followups/issues/06-restore-frontend-static-analysis.md) | — | — | claimed | None — can start immediately. |
-| [smoke-test-followups](smoke-test-followups) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | ready-for-agent | None — can start immediately. |
+| [smoke-test-followups](smoke-test-followups) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | claimed | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [11-distribute-bios-and-firmware](smoke-test-followups/issues/11-distribute-bios-and-firmware.md) | — | — | ready-for-agent | 10 — Keep BIOS downloads alive across navigation. |
 | [smoke-test-followups](smoke-test-followups) | [12-certify-eden-content-loading](smoke-test-followups/issues/12-certify-eden-content-loading.md) | — | — | ready-for-human | None — can start immediately. |
 

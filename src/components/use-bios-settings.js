@@ -1,6 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
   getBiosTotals,
@@ -13,6 +20,49 @@ import {
 /** @typedef {import("./bios-types").BiosGroup} BiosGroup */
 /** @typedef {import("./bios-types").BiosMessage} BiosMessage */
 /** @typedef {import("./bios-types").LibraryPlatformEntry} LibraryPlatformEntry */
+
+/** @typedef {{busy: string|null, message: BiosMessage|null, refresh: boolean}} BiosOperationSnapshot */
+
+// BIOS pages are conditionally mounted, so operation state must outlive the page.
+/** @type {Set<() => void>} */
+const biosOperationListeners = new Set();
+/** @type {BiosOperationSnapshot} */
+let biosOperationSnapshot = { busy: null, message: null, refresh: false };
+
+/** @param {() => void} listener - Subscriber to notify after an operation update. */
+const subscribeToBiosOperation = (listener) => {
+  biosOperationListeners.add(listener);
+  return () => biosOperationListeners.delete(listener);
+};
+
+const getBiosOperationSnapshot = () => biosOperationSnapshot;
+
+/** @param {Partial<BiosOperationSnapshot>} update - Snapshot fields to replace. */
+const updateBiosOperation = (update) => {
+  biosOperationSnapshot = { ...biosOperationSnapshot, ...update };
+  for (const listener of biosOperationListeners) {
+    listener();
+  }
+};
+
+/** @param {string} operation - Identifier for the operation to start. */
+const beginBiosOperation = (operation) => {
+  if (biosOperationSnapshot.busy !== null) {
+    return false;
+  }
+  updateBiosOperation({ busy: operation, message: null, refresh: false });
+  return true;
+};
+
+/**
+ * @param {string} operation - Identifier for the operation to finish.
+ * @param {boolean} refresh - Whether a mounted page should reload firmware.
+ */
+const finishBiosOperation = (operation, refresh) => {
+  if (biosOperationSnapshot.busy === operation) {
+    updateBiosOperation({ busy: null, refresh });
+  }
+};
 
 /** @param {unknown} error */
 const getErrorMessage = (error) =>
@@ -45,30 +95,62 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
     /** @type {Record<string, boolean>} */ ({})
   );
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(/** @type {string|null} */ (null));
-  const [message, setMessage] = useState(
-    /** @type {BiosMessage|null} */ (null)
+  const { busy, message, refresh } = useSyncExternalStore(
+    subscribeToBiosOperation,
+    getBiosOperationSnapshot,
+    getBiosOperationSnapshot
   );
+  const isMountedRef = useRef(false);
+  const initialLoadRef = useRef(true);
+  // Refresh events must be consumed once, including under StrictMode effect replay.
+  const refreshHandledRef = useRef(false);
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     try {
       const [directory, items] = await Promise.all([
         /** @type {Promise<string>} */ (invoke("get_bios_directory")),
         /** @type {Promise<BiosFirmware[]>} */ (invoke("list_bios_firmware")),
       ]);
+      if (requestId !== loadRequestRef.current) {
+        return;
+      }
       setBiosDirectory(directory);
       setFirmware(Array.isArray(items) ? items : []);
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      if (requestId === loadRequestRef.current) {
+        updateBiosOperation({
+          message: { text: getErrorMessage(error), type: "error" },
+        });
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!initialLoadRef.current && !refresh) {
+      refreshHandledRef.current = false;
+      return;
+    }
+    if (refresh && refreshHandledRef.current) {
+      return;
+    }
+    initialLoadRef.current = false;
+    refreshHandledRef.current = refresh;
     void load();
-  }, [load]);
+  }, [load, refresh]);
 
   const groups = useMemo(() => {
     const byPlatform = /** @type {Map<string, BiosGroup>} */ (new Map());
@@ -100,40 +182,53 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
   const totals = getBiosTotals(firmware);
 
   const downloadOne = async (id, fileName) => {
-    setBusy(`file:${id}`);
-    setMessage(null);
+    const operation = `file:${id}`;
+    if (!beginBiosOperation(operation)) {
+      return;
+    }
     try {
       const path = await /** @type {Promise<string>} */ (
         invoke("download_bios_firmware", { firmwareId: id })
       );
-      setMessage({
-        text: `${fileName} downloaded to ${path}`,
-        type: "success",
+      updateBiosOperation({
+        message: { text: `${fileName} downloaded to ${path}`, type: "success" },
       });
-      await load();
+      if (isMountedRef.current) {
+        await load();
+      }
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     } finally {
-      setBusy(null);
+      finishBiosOperation(operation, !isMountedRef.current);
     }
   };
 
   const downloadAll = async () => {
-    setBusy("all");
-    setMessage(null);
+    const operation = "all";
+    if (!beginBiosOperation(operation)) {
+      return;
+    }
     try {
       const result = await /** @type {Promise<BiosDownloadSummary>} */ (
         invoke("download_all_bios_firmware")
       );
-      setMessage({
-        text: `Downloaded ${result.downloaded}; ${result.skipped} already present.`,
-        type: "success",
+      updateBiosOperation({
+        message: {
+          text: `Downloaded ${result.downloaded}; ${result.skipped} already present.`,
+          type: "success",
+        },
       });
-      await load();
+      if (isMountedRef.current) {
+        await load();
+      }
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     } finally {
-      setBusy(null);
+      finishBiosOperation(operation, !isMountedRef.current);
     }
   };
 
@@ -145,25 +240,35 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
       return;
     }
 
-    setBusy(`platform:${group.slug}`);
-    setMessage(null);
+    const operation = `platform:${group.slug}`;
+    if (!beginBiosOperation(operation)) {
+      return;
+    }
     try {
       await downloadFirmwareItems(missingItems);
-      setMessage({
-        text: `Downloaded ${missingItems.length} ${group.name} firmware file${missingItems.length === 1 ? "" : "s"}.`,
-        type: "success",
+      updateBiosOperation({
+        message: {
+          text: `Downloaded ${missingItems.length} ${group.name} firmware file${missingItems.length === 1 ? "" : "s"}.`,
+          type: "success",
+        },
       });
-      await load();
+      if (isMountedRef.current) {
+        await load();
+      }
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     } finally {
-      setBusy(null);
+      finishBiosOperation(operation, !isMountedRef.current);
     }
   };
 
   const distribute = async () => {
-    setBusy("distribute");
-    setMessage(null);
+    const operation = "distribute";
+    if (!beginBiosOperation(operation)) {
+      return;
+    }
     try {
       const results = await /** @type {Promise<BiosDistributionResult[]>} */ (
         invoke("distribute_bios_firmware")
@@ -173,17 +278,21 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
         .filter((item) => item.files_copied > 0)
         .map((item) => `${item.emulator_id}: ${item.files_copied}`)
         .join(", ");
-      setMessage({
-        text:
-          copied > 0
-            ? `Distributed ${copied} file copies (${detail}).`
-            : "No BIOS files were copied. Configure a supported emulator first.",
-        type: copied > 0 ? "success" : "warning",
+      updateBiosOperation({
+        message: {
+          text:
+            copied > 0
+              ? `Distributed ${copied} file copies (${detail}).`
+              : "No BIOS files were copied. Configure a supported emulator first.",
+          type: copied > 0 ? "success" : "warning",
+        },
       });
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     } finally {
-      setBusy(null);
+      finishBiosOperation(operation, false);
     }
   };
 
@@ -199,13 +308,17 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
         invoke("set_bios_directory", { path: selected })
       );
       setBiosDirectory(directory);
-      setMessage({
-        text: `BIOS directory set to ${directory}`,
-        type: "success",
+      updateBiosOperation({
+        message: {
+          text: `BIOS directory set to ${directory}`,
+          type: "success",
+        },
       });
       await load();
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     }
   };
 
@@ -215,13 +328,17 @@ export const useBiosSettings = ({ libraryPlatforms = [] }) => {
         invoke("set_bios_directory", { path: null })
       );
       setBiosDirectory(directory);
-      setMessage({
-        text: `BIOS directory reset to ${directory}`,
-        type: "success",
+      updateBiosOperation({
+        message: {
+          text: `BIOS directory reset to ${directory}`,
+          type: "success",
+        },
       });
       await load();
     } catch (error) {
-      setMessage({ text: getErrorMessage(error), type: "error" });
+      updateBiosOperation({
+        message: { text: getErrorMessage(error), type: "error" },
+      });
     }
   };
 
