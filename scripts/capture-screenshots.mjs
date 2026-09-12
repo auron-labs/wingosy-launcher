@@ -6,6 +6,7 @@ const DEFAULT_HOST = "localhost";
 const DEFAULT_PORT = 9223;
 const APP_READY_TIMEOUT = 45_000;
 const SCREEN_TIMEOUT = 20_000;
+const EXECUTION_GRACE_PERIOD = 5_000;
 const SETTING_ROUTES = [
   ["general", `selectorVisible('[data-testid="immersive-mode-row"]')`],
   ["appearance", `selectorVisible('[data-testid="theme-preview-light"]')`],
@@ -25,7 +26,7 @@ const text = (element) => normalise(element?.innerText || element?.textContent);
 const selectorVisible = (selector) => Array.from(document.querySelectorAll(selector)).some(isVisible);
 const textVisible = (selector, wanted) => Array.from(document.querySelectorAll(selector)).some((element) => isVisible(element) && text(element).includes(wanted));
 const interactiveElements = () => Array.from(document.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], [tabindex]')).filter(isVisible);
-const interactive = (wanted) => interactiveElements().find((element) => text(element) === wanted);
+const interactive = (wanted) => interactiveElements().find((element) => { const content = text(element); const accessibleName = normalise(element.getAttribute('aria-label')); return accessibleName === wanted || content === wanted || content.endsWith(' ' + wanted); });
 const screenState = () => { const desktopDetails = textVisible('button', 'Back to Library'); const desktopLibrary = selectorVisible('[data-testid="library-result-count"]'); const settings = selectorVisible('[data-testid="settings-nav-general"]'); const desktop = Boolean(interactive('All Games') || desktopLibrary || desktopDetails); return { desktop, desktopDetails, desktopLibrary, immersiveDetails: selectorVisible('[data-testid="immersive-game-details"]'), immersiveDownloads: textVisible('h1', 'Downloads') && !interactive('All Games'), immersiveLibrary: selectorVisible('[data-testid="immersive-library"]'), immersiveSettings: settings && !desktop, setup: Boolean(interactive('Get Started')), settings }; };
 `;
 
@@ -67,16 +68,19 @@ function parseOptions(argv) {
 }
 
 async function resolveCliCommand() {
-  const directory = path.resolve(import.meta.dirname, "../node_modules/.bin");
-  const names =
-    process.platform === "win32"
-      ? ["tauri-mcp.cmd", "tauri-mcp"]
-      : ["tauri-mcp"];
-  for (const name of names) {
-    const candidate = path.join(directory, name);
-    if (await Bun.file(candidate).exists()) return candidate;
+  const packageEntry = path.resolve(
+    import.meta.dirname,
+    "../node_modules/@hypothesi/tauri-mcp-cli/dist/index.js"
+  );
+  if (await Bun.file(packageEntry).exists()) {
+    return [process.execPath, packageEntry];
   }
-  return process.platform === "win32" ? "tauri-mcp.cmd" : "tauri-mcp";
+  if (process.platform === "win32") {
+    throw new Error(
+      "The local @hypothesi/tauri-mcp-cli package is missing; run bun install."
+    );
+  }
+  return ["tauri-mcp"];
 }
 
 async function runMcp(argumentsList) {
@@ -84,7 +88,7 @@ async function runMcp(argumentsList) {
   const command = await cliCommandPromise;
   let processHandle;
   try {
-    processHandle = Bun.spawn([command, ...argumentsList, "--json"], {
+    processHandle = Bun.spawn([...command, ...argumentsList, "--json"], {
       stderr: "pipe",
       stdout: "pipe",
     });
@@ -165,9 +169,35 @@ async function executeScript(body, timeout = SCREEN_TIMEOUT) {
 async function waitFor(condition, description, timeout = SCREEN_TIMEOUT) {
   const result = await executeScript(
     `const deadline = Date.now() + ${timeout}; while (Date.now() < deadline) { if (${condition}) return true; await new Promise((resolve) => setTimeout(resolve, 100)); } return false;`,
-    timeout + 1_000
+    timeout + EXECUTION_GRACE_PERIOD
   );
   if (result !== true) throw new Error(`Timed out waiting for ${description}.`);
+}
+
+async function waitForSelector(
+  selector,
+  description,
+  timeout = SCREEN_TIMEOUT
+) {
+  try {
+    await runMcp([
+      "webview-wait-for",
+      "--call-timeout",
+      String(timeout + EXECUTION_GRACE_PERIOD),
+      "--type",
+      "selector",
+      "--value",
+      selector,
+      "--strategy",
+      "css",
+      "--timeout",
+      String(timeout),
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Could not reach ${description}: ${error.message ?? error}`
+    );
+  }
 }
 
 async function click(target, description) {
@@ -175,7 +205,8 @@ async function click(target, description) {
     ? `Array.from(document.querySelectorAll(${JSON.stringify(target.selector)})).find(isVisible)`
     : `interactive(${JSON.stringify(target.text)})`;
   const result = await executeScript(
-    `const element = ${expression}; if (!element || element.disabled) return false; element.click(); return true;`
+    `const deadline = Date.now() + ${SCREEN_TIMEOUT}; while (Date.now() < deadline) { const element = ${expression}; if (element && !element.disabled) { element.click(); return true; } await new Promise((resolve) => setTimeout(resolve, 100)); } return false;`,
+    SCREEN_TIMEOUT + EXECUTION_GRACE_PERIOD
   );
   if (result !== true) throw new Error(`Could not click ${description}.`);
 }
@@ -194,6 +225,24 @@ const clickText = (text) =>
   click({ text }, `visible text ${JSON.stringify(text)}`);
 const clickTestId = (id, description = `data-testid ${id}`) =>
   click({ selector: `[data-testid="${id}"]` }, description);
+
+async function interactClickTestId(id, description = `data-testid ${id}`) {
+  const selector = `[data-testid="${id}"]`;
+  await waitFor(
+    `(() => { const element = document.querySelector(${JSON.stringify(selector)}); return Boolean(element && !element.disabled); })()`,
+    `clickable ${description}`
+  );
+  await runMcp([
+    "webview-interact",
+    "--action",
+    "click",
+    "--selector",
+    selector,
+    "--strategy",
+    "css",
+  ]);
+  await Bun.sleep(1_000);
+}
 
 async function getState() {
   return executeScript("return screenState();");
@@ -233,7 +282,7 @@ async function restoreDisplay(display) {
 
 function timestamp(date = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getDate())}-${pad(date.getMonth() + 1)}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 }
 
 async function capture(routeId, directory, routes, ready) {
@@ -411,10 +460,14 @@ async function leaveImmersive() {
         "the immersive library before exit"
       );
     }
-    await clickTestId("immersive-exit-to-desktop", "the immersive exit button");
+    await interactClickTestId(
+      "immersive-exit-to-desktop",
+      "the immersive exit button"
+    );
     await waitFor(
-      "selectorVisible('[data-testid=\"library-result-count\"]')",
-      "the desktop library after immersive mode"
+      "Boolean(interactive('All Games'))",
+      "the desktop shell after immersive mode",
+      APP_READY_TIMEOUT
     );
   } else if (state.immersiveSettings) {
     await clickTestId("settings-nav-general", "Settings navigation general");
@@ -427,10 +480,14 @@ async function leaveImmersive() {
       "const input = document.querySelector('[data-testid=\"immersive-mode-switch\"]'); return input ? { checked: Boolean(input.checked) } : null;"
     );
     if (switchState?.checked) {
-      await clickTestId("immersive-mode-switch", "the immersive mode switch");
+      await interactClickTestId(
+        "immersive-mode-switch",
+        "the immersive mode switch"
+      );
       await waitFor(
-        "selectorVisible('[data-testid=\"library-result-count\"]')",
-        "the desktop library after immersive Settings"
+        "Boolean(interactive('All Games'))",
+        "the desktop shell after immersive Settings",
+        APP_READY_TIMEOUT
       );
     }
   }
@@ -454,10 +511,13 @@ async function enterImmersive() {
   if (!switchState)
     throw new Error("Immersive mode switch was not rendered in Settings.");
   if (!switchState.checked)
-    await clickTestId("immersive-mode-switch", "the immersive mode switch");
+    await interactClickTestId(
+      "immersive-mode-switch",
+      "the immersive mode switch"
+    );
   try {
-    await waitFor(
-      "selectorVisible('[data-testid=\"immersive-library\"]')",
+    await waitForSelector(
+      '[data-testid="immersive-library"]',
       "the immersive library",
       15_000
     );
@@ -468,8 +528,8 @@ async function enterImmersive() {
     );
     await executeScript("window.location.reload(); return true;", 10_000);
     await waitForApp();
-    await waitFor(
-      "selectorVisible('[data-testid=\"immersive-library\"]')",
+    await waitForSelector(
+      '[data-testid="immersive-library"]',
       "the immersive library after reload",
       APP_READY_TIMEOUT
     );
@@ -487,7 +547,7 @@ async function captureAll(options) {
   let originalDisplay;
   let operationError;
   const cleanupErrors = [];
-  const directory = path.resolve(process.cwd(), ".scratch", timestamp());
+  const directory = path.resolve(process.cwd(), ".scratch", "screenshots", timestamp());
   try {
     await runMcp([
       "driver-session",
