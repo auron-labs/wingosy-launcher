@@ -39,8 +39,12 @@ impl RomMClient {
     }
 
     pub async fn authenticate(&mut self, username: &str, password: &str) -> Result<TokenResponse> {
-        tracing::info!("[RomM] Authenticating user '{}' at {}", username, self.base_url);
-        
+        tracing::info!(
+            "[RomM] Authenticating user '{}' at {}",
+            username,
+            self.base_url
+        );
+
         let response = self
             .client
             .post(format!("{}/api/token", self.base_url))
@@ -68,18 +72,15 @@ impl RomMClient {
             anyhow::bail!("Authentication failed: {}", detail);
         }
 
-        let token: TokenResponse = serde_json::from_str(&text)
-            .context("Failed to parse authentication response")?;
+        let token: TokenResponse =
+            serde_json::from_str(&text).context("Failed to parse authentication response")?;
 
         self.token = Some(token.access_token.clone());
         tracing::info!("[RomM] Authentication successful for '{}'", username);
         Ok(token)
     }
 
-    pub async fn refresh_authentication(
-        &mut self,
-        refresh_token: &str,
-    ) -> Result<TokenResponse> {
+    pub async fn refresh_authentication(&mut self, refresh_token: &str) -> Result<TokenResponse> {
         let response = self
             .client
             .post(format!("{}/api/token", self.base_url))
@@ -260,7 +261,7 @@ impl RomMClient {
 
     pub async fn get_platforms(&self) -> Result<Vec<RomMPlatform>> {
         tracing::debug!("[RomM] Fetching platforms from {}", self.base_url);
-        
+
         let mut request = self.client.get(format!("{}/api/platforms", self.base_url));
 
         if let Some(auth) = self.auth_header() {
@@ -270,18 +271,25 @@ impl RomMClient {
         let response = request.send().await.context("Failed to fetch platforms")?;
 
         let status = response.status();
-        let text = response.text().await.context("Failed to read platforms response body")?;
+        let text = response
+            .text()
+            .await
+            .context("Failed to read platforms response body")?;
 
         if !status.is_success() {
             tracing::error!("[RomM] Platforms API returned {}", status);
-            anyhow::bail!("Platforms API returned {}: {}", status, &text[..text.len().min(200)]);
+            anyhow::bail!(
+                "Platforms API returned {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
         }
 
         let platforms: Vec<RomMPlatform> = serde_json::from_str(&text).context(format!(
             "Failed to parse platforms JSON (first 300 chars): {}",
             &text[..text.len().min(300)]
         ))?;
-        
+
         tracing::info!("[RomM] Found {} platforms", platforms.len());
         Ok(platforms)
     }
@@ -299,11 +307,12 @@ impl RomMClient {
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
         }
-        let response = request.send().await.context("Failed to download firmware")?;
+        let response = request
+            .send()
+            .await
+            .context("Failed to download firmware")?;
         let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             anyhow::bail!(
                 "RomM denied firmware access (HTTP {}). Reconnect in Settings > RomM so the token includes firmware.read.",
                 status
@@ -321,8 +330,13 @@ impl RomMClient {
         limit: i32,
         offset: i32,
     ) -> Result<PaginatedResponse<RomMRom>> {
-        tracing::debug!("[RomM] Fetching ROMs (platform_id={:?}, limit={}, offset={})", platform_id, limit, offset);
-        
+        tracing::debug!(
+            "[RomM] Fetching ROMs (platform_id={:?}, limit={}, offset={})",
+            platform_id,
+            limit,
+            offset
+        );
+
         let mut request = self
             .client
             .get(format!("{}/api/roms", self.base_url))
@@ -339,48 +353,63 @@ impl RomMClient {
         let response = request.send().await.context("Failed to fetch ROMs")?;
 
         let status = response.status();
-        let text = response.text().await.context("Failed to read ROMs response body")?;
+        let text = response
+            .text()
+            .await
+            .context("Failed to read ROMs response body")?;
 
         if !status.is_success() {
             tracing::error!("[RomM] ROMs API returned {}", status);
-            anyhow::bail!("ROMs API returned {}: {}", status, &text[..text.len().min(200)]);
+            anyhow::bail!(
+                "ROMs API returned {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
         }
 
-        let raw: serde_json::Value = serde_json::from_str(&text)
-            .context("ROMs response is not valid JSON")?;
+        let raw: serde_json::Value =
+            serde_json::from_str(&text).context("ROMs response is not valid JSON")?;
 
         let total = raw["total"].as_i64().unwrap_or(0) as i32;
-        let items_raw = raw["items"].as_array()
+        let items_raw = raw["items"]
+            .as_array()
             .context("ROMs response missing 'items' array")?;
 
         let base = self.base_url.clone();
-        let items: Vec<RomMRom> = items_raw.iter().filter_map(|v| {
-            let screenshots = screenshot_urls_from_rom_json(v, &base);
-            Some(RomMRom {
-                id: v["id"].as_i64()? as i32,
-                platform_id: v["platform_id"].as_i64().unwrap_or(0) as i32,
-                platform_slug: v["platform_slug"].as_str().unwrap_or("").to_string(),
-                name: v["name"].as_str().unwrap_or("").to_string(),
-                fs_name: v["fs_name"].as_str()
-                    .or_else(|| v["file_name"].as_str())
-                    .unwrap_or("").to_string(),
-                fs_size_bytes: v["fs_size_bytes"].as_i64()
-                    .or_else(|| v["file_size_bytes"].as_i64())
-                    .unwrap_or(0),
-                igdb_id: v["igdb_id"].as_i64().map(|x| x as i32),
-                summary: v["summary"].as_str().map(|s| s.to_string()),
-                url_cover: v["url_cover"].as_str().map(|s| s.to_string()),
-                igdb_metadata: v.get("igdb_metadata")
-                    .filter(|m| m.is_object() && !m.as_object().unwrap().is_empty())
-                    .and_then(|m| serde_json::from_value(m.clone()).ok()),
-                screenshots,
-                title_id_candidates: None,
-                files: None,
+        let items: Vec<RomMRom> = items_raw
+            .iter()
+            .filter_map(|v| {
+                let screenshots = screenshot_urls_from_rom_json(v, &base);
+                Some(RomMRom {
+                    id: v["id"].as_i64()? as i32,
+                    platform_id: v["platform_id"].as_i64().unwrap_or(0) as i32,
+                    platform_slug: v["platform_slug"].as_str().unwrap_or("").to_string(),
+                    name: v["name"].as_str().unwrap_or("").to_string(),
+                    fs_name: v["fs_name"]
+                        .as_str()
+                        .or_else(|| v["file_name"].as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    fs_size_bytes: v["fs_size_bytes"]
+                        .as_i64()
+                        .or_else(|| v["file_size_bytes"].as_i64())
+                        .unwrap_or(0),
+                    igdb_id: v["igdb_id"].as_i64().map(|x| x as i32),
+                    summary: v["summary"].as_str().map(|s| s.to_string()),
+                    url_cover: v["url_cover"].as_str().map(|s| s.to_string()),
+                    igdb_metadata: v
+                        .get("igdb_metadata")
+                        .filter(|m| m.is_object() && !m.as_object().unwrap().is_empty())
+                        .and_then(|m| serde_json::from_value(m.clone()).ok()),
+                    screenshots,
+                    title_id_candidates: None,
+                    files: None,
+                })
             })
-        }).collect();
+            .collect();
 
         tracing::info!("[RomM] Fetched {} ROMs (total: {})", items.len(), total);
-        
+
         Ok(PaginatedResponse {
             items,
             total,
@@ -391,7 +420,7 @@ impl RomMClient {
 
     pub async fn get_rom(&self, rom_id: i32) -> Result<RomMRom> {
         tracing::debug!("[RomM] Fetching ROM id={}", rom_id);
-        
+
         let mut request = self
             .client
             .get(format!("{}/api/roms/{}", self.base_url, rom_id));
@@ -401,19 +430,28 @@ impl RomMClient {
         }
 
         let response = request.send().await.context("Failed to fetch ROM")?;
-        
+
         let status = response.status();
-        let text = response.text().await.context("Failed to read ROM response")?;
-        
+        let text = response
+            .text()
+            .await
+            .context("Failed to read ROM response")?;
+
         if !status.is_success() {
-            tracing::error!("[RomM] ROM API returned {}: {}", status, &text[..text.len().min(200)]);
+            tracing::error!(
+                "[RomM] ROM API returned {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
             anyhow::bail!("ROM API returned {}", status);
         }
-        
+
         // Parse with flexible field handling
-        let raw: serde_json::Value = serde_json::from_str(&text)
-            .context(format!("ROM response is not valid JSON: {}", &text[..text.len().min(100)]))?;
-        
+        let raw: serde_json::Value = serde_json::from_str(&text).context(format!(
+            "ROM response is not valid JSON: {}",
+            &text[..text.len().min(100)]
+        ))?;
+
         let screenshots = screenshot_urls_from_rom_json(&raw, &self.base_url);
         let files = raw
             .get("files")
@@ -427,32 +465,33 @@ impl RomMClient {
             platform_id: raw["platform_id"].as_i64().unwrap_or(0) as i32,
             platform_slug: raw["platform_slug"].as_str().unwrap_or("").to_string(),
             name: raw["name"].as_str().unwrap_or("").to_string(),
-            fs_name: raw["fs_name"].as_str()
+            fs_name: raw["fs_name"]
+                .as_str()
                 .or_else(|| raw["file_name"].as_str())
-                .unwrap_or("").to_string(),
-            fs_size_bytes: raw["fs_size_bytes"].as_i64()
+                .unwrap_or("")
+                .to_string(),
+            fs_size_bytes: raw["fs_size_bytes"]
+                .as_i64()
                 .or_else(|| raw["file_size_bytes"].as_i64())
                 .unwrap_or(0),
             igdb_id: raw["igdb_id"].as_i64().map(|x| x as i32),
             summary: raw["summary"].as_str().map(|s| s.to_string()),
             url_cover: raw["url_cover"].as_str().map(|s| s.to_string()),
-            igdb_metadata: raw.get("igdb_metadata")
+            igdb_metadata: raw
+                .get("igdb_metadata")
                 .filter(|m| m.is_object() && !m.as_object().unwrap().is_empty())
                 .and_then(|m| serde_json::from_value(m.clone()).ok()),
             screenshots,
             title_id_candidates: Some(title_id_candidates_from_rom_json(&raw)),
             files,
         };
-        
+
         tracing::debug!("[RomM] Fetched ROM: {} (fs_name={})", rom.name, rom.fs_name);
         Ok(rom)
     }
 
     pub fn rom_download_url(&self, rom_id: i32, filename: &str) -> String {
-        format!(
-            "{}/api/roms/{}/content/{}",
-            self.base_url, rom_id, filename
-        )
+        format!("{}/api/roms/{}/content/{}", self.base_url, rom_id, filename)
     }
 
     pub fn rom_file_download_url(&self, file_id: i32, filename: &str) -> String {
@@ -469,7 +508,7 @@ impl RomMClient {
 
     pub async fn get_saves(&self, rom_id: i32) -> Result<Vec<RomMSave>> {
         tracing::debug!("[RomM] Fetching saves for ROM id={}", rom_id);
-        
+
         let mut request = self
             .client
             .get(format!("{}/api/saves", self.base_url))
@@ -480,20 +519,27 @@ impl RomMClient {
         }
 
         let response = request.send().await.context("Failed to fetch saves")?;
-        
+
         let status = response.status();
-        let text = response.text().await.context("Failed to read saves response")?;
-        
+        let text = response
+            .text()
+            .await
+            .context("Failed to read saves response")?;
+
         if !status.is_success() {
             // 404 means saves feature might not be enabled or no saves exist
             if status.as_u16() == 404 {
                 tracing::debug!("[RomM] Saves not available for ROM id={} (404)", rom_id);
                 return Ok(vec![]);
             }
-            tracing::error!("[RomM] Saves API returned {}: {}", status, &text[..text.len().min(200)]);
+            tracing::error!(
+                "[RomM] Saves API returned {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
             anyhow::bail!("Saves API returned {}", status);
         }
-        
+
         let saves = Self::parse_saves_list_response(&text, rom_id)?;
         tracing::info!("[RomM] Found {} saves for ROM id={}", saves.len(), rom_id);
         Ok(saves)
@@ -503,8 +549,10 @@ impl RomMClient {
         if text.is_empty() || text == "[]" || text == "null" {
             return Ok(vec![]);
         }
-        let raw: serde_json::Value = serde_json::from_str(text)
-            .context(format!("Saves response is not valid JSON: {}", &text[..text.len().min(100)]))?;
+        let raw: serde_json::Value = serde_json::from_str(text).context(format!(
+            "Saves response is not valid JSON: {}",
+            &text[..text.len().min(100)]
+        ))?;
         let saves_array = if raw.is_array() {
             raw.as_array().cloned().unwrap_or_default()
         } else if let Some(items) = raw.get("items").and_then(|v| v.as_array()) {
@@ -540,10 +588,9 @@ impl RomMClient {
     }
 
     pub async fn download_save(&self, _rom_id: i32, save_id: i32) -> Result<Vec<u8>> {
-        let mut request = self.client.get(format!(
-            "{}/api/saves/{}/content",
-            self.base_url, save_id
-        ));
+        let mut request = self
+            .client
+            .get(format!("{}/api/saves/{}/content", self.base_url, save_id));
 
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
@@ -562,7 +609,10 @@ impl RomMClient {
         let mut request = self
             .client
             .get(format!("{}/api/saves", self.base_url))
-            .query(&[("rom_id", rom_id.to_string()), ("device_id", device_id.to_string())]);
+            .query(&[
+                ("rom_id", rom_id.to_string()),
+                ("device_id", device_id.to_string()),
+            ]);
 
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
@@ -575,7 +625,11 @@ impl RomMClient {
             if status.as_u16() == 404 {
                 return Ok(vec![]);
             }
-            anyhow::bail!("Saves list returned {}: {}", status, &text[..text.len().min(200)]);
+            anyhow::bail!(
+                "Saves list returned {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
         }
         Self::parse_saves_list_response(&text, rom_id)
     }
@@ -635,11 +689,10 @@ impl RomMClient {
         save: &RomMSave,
         device_id: &str,
     ) -> Result<Vec<u8>> {
-        let mut request = self.client.get(format!(
-            "{}/api/saves/{}/content",
-            self.base_url, save.id
-        ))
-        .query(&[("device_id", device_id), ("optimistic", "false")]);
+        let mut request = self
+            .client
+            .get(format!("{}/api/saves/{}/content", self.base_url, save.id))
+            .query(&[("device_id", device_id), ("optimistic", "false")]);
 
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
@@ -689,7 +742,10 @@ impl RomMClient {
     pub async fn confirm_save_downloaded(&self, save_id: i32, device_id: &str) -> Result<()> {
         let mut request = self
             .client
-            .post(format!("{}/api/saves/{}/downloaded", self.base_url, save_id))
+            .post(format!(
+                "{}/api/saves/{}/downloaded",
+                self.base_url, save_id
+            ))
             .json(&serde_json::json!({ "device_id": device_id }));
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
@@ -725,7 +781,10 @@ impl RomMClient {
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
         }
-        let response = request.send().await.context("Failed to negotiate save sync")?;
+        let response = request
+            .send()
+            .await
+            .context("Failed to negotiate save sync")?;
         if sync_negotiate_is_unsupported(response.status()) {
             tracing::info!(
                 "RomM does not expose the negotiated sync engine; using legacy save sync"
@@ -801,7 +860,10 @@ async fn parse_json_response<T: serde::de::DeserializeOwned>(
     context: &str,
 ) -> Result<T> {
     let status = response.status();
-    let text = response.text().await.context("Failed to read RomM response")?;
+    let text = response
+        .text()
+        .await
+        .context("Failed to read RomM response")?;
     if !status.is_success() {
         let detail = serde_json::from_str::<serde_json::Value>(&text)
             .ok()
@@ -809,7 +871,8 @@ async fn parse_json_response<T: serde::de::DeserializeOwned>(
             .unwrap_or_else(|| format!("HTTP {status}"));
         anyhow::bail!("{context}: {detail}");
     }
-    serde_json::from_str(&text).with_context(|| format!("Failed to parse RomM response for {context}"))
+    serde_json::from_str(&text)
+        .with_context(|| format!("Failed to parse RomM response for {context}"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1020,30 +1083,31 @@ impl RomMRom {
     }
 
     pub fn genres(&self) -> Vec<String> {
-        self.igdb_metadata.as_ref()
+        self.igdb_metadata
+            .as_ref()
             .and_then(|m| m.genres.clone())
             .unwrap_or_default()
     }
 
     pub fn first_release_date(&self) -> Option<i64> {
-        self.igdb_metadata.as_ref()
+        self.igdb_metadata
+            .as_ref()
             .and_then(|m| m.first_release_date)
     }
 
     pub fn aggregated_rating(&self) -> Option<f32> {
-        self.igdb_metadata.as_ref()
+        self.igdb_metadata
+            .as_ref()
             .and_then(|m| m.aggregated_rating.or(m.total_rating))
             .map(|r| r as f32)
     }
 
     pub fn into_game(self, server_url: &str) -> crate::models::Game {
         let platform_id = crate::models::map_romm_slug(&self.platform_slug);
-        
-        let release_year = self.first_release_date()
-            .and_then(|ts| {
-                chrono::DateTime::from_timestamp(ts, 0)
-                    .map(|dt| dt.year())
-            });
+
+        let release_year = self
+            .first_release_date()
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.year()));
 
         let cover_path = self.url_cover.clone().map(|url| {
             if url.starts_with("http") {
@@ -1053,10 +1117,10 @@ impl RomMRom {
             }
         });
 
-        let file_name = if self.fs_name.is_empty() { 
-            self.name.clone() 
-        } else { 
-            self.fs_name.clone() 
+        let file_name = if self.fs_name.is_empty() {
+            self.name.clone()
+        } else {
+            self.fs_name.clone()
         };
 
         let genres = self.genres();
@@ -1067,11 +1131,7 @@ impl RomMRom {
             .and_then(|m| m.companies.as_ref())
             .map(|c| {
                 let dev = c.first().cloned();
-                let pub_ = if c.len() > 1 {
-                    c.get(1).cloned()
-                } else {
-                    None
-                };
+                let pub_ = if c.len() > 1 { c.get(1).cloned() } else { None };
                 (dev, pub_)
             })
             .unwrap_or((None, None));
@@ -1335,14 +1395,18 @@ mod tests {
 
     #[test]
     fn unavailable_negotiate_routes_use_legacy_sync() {
-        assert!(sync_negotiate_is_unsupported(reqwest::StatusCode::NOT_FOUND));
+        assert!(sync_negotiate_is_unsupported(
+            reqwest::StatusCode::NOT_FOUND
+        ));
         assert!(sync_negotiate_is_unsupported(
             reqwest::StatusCode::METHOD_NOT_ALLOWED
         ));
         assert!(sync_negotiate_is_unsupported(
             reqwest::StatusCode::NOT_IMPLEMENTED
         ));
-        assert!(!sync_negotiate_is_unsupported(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!sync_negotiate_is_unsupported(
+            reqwest::StatusCode::UNAUTHORIZED
+        ));
         assert!(!sync_negotiate_is_unsupported(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
@@ -1369,8 +1433,7 @@ mod tests {
 
     #[test]
     fn client_with_token_is_authenticated() {
-        let client = RomMClient::new("https://romm.example.com")
-            .with_token("test_token".into());
+        let client = RomMClient::new("https://romm.example.com").with_token("test_token".into());
         assert!(client.is_authenticated());
         assert_eq!(client.token(), Some("test_token"));
     }
@@ -1379,7 +1442,10 @@ mod tests {
     fn rom_download_url_format() {
         let client = RomMClient::new("https://romm.example.com");
         let url = client.rom_download_url(123, "Super Mario Bros.nes");
-        assert_eq!(url, "https://romm.example.com/api/roms/123/content/Super Mario Bros.nes");
+        assert_eq!(
+            url,
+            "https://romm.example.com/api/roms/123/content/Super Mario Bros.nes"
+        );
     }
 
     #[test]
@@ -1636,9 +1702,9 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com");
-        
+
         assert_eq!(game.platform_id, "genesis"); // mapped from sega-genesis
         assert_eq!(game.name, "Sonic");
         assert_eq!(game.romm_id, Some(42));
@@ -1663,7 +1729,7 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.file_path, "Game Name");
     }
@@ -1685,9 +1751,12 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com/");
-        assert_eq!(game.cover_path, Some("https://romm.example.com/media/covers/test.jpg".into()));
+        assert_eq!(
+            game.cover_path,
+            Some("https://romm.example.com/media/covers/test.jpg".into())
+        );
     }
 
     #[test]
@@ -1707,9 +1776,12 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com");
-        assert_eq!(game.cover_path, Some("https://cdn.example.com/cover.jpg".into()));
+        assert_eq!(
+            game.cover_path,
+            Some("https://cdn.example.com/cover.jpg".into())
+        );
     }
 
     // RomMSave deserialization tests
@@ -1724,7 +1796,7 @@ mod tests {
             "created_at": "2024-01-01",
             "updated_at": "2024-01-02"
         }"#;
-        
+
         let save: RomMSave = serde_json::from_str(json).expect("Should parse");
         assert_eq!(save.id, 1);
         assert_eq!(save.rom_id, 42);
@@ -1742,7 +1814,7 @@ mod tests {
             "createdAt": "2024-01-01",
             "updatedAt": "2024-01-02"
         }"#;
-        
+
         let save: RomMSave = serde_json::from_str(json).expect("Should parse with aliases");
         assert_eq!(save.id, 1);
         assert_eq!(save.file_name, "save.sav");
@@ -1752,7 +1824,7 @@ mod tests {
     #[test]
     fn save_deserializes_with_minimal_fields() {
         let json = r#"{"id": 1}"#;
-        
+
         let save: RomMSave = serde_json::from_str(json).expect("Should parse minimal");
         assert_eq!(save.id, 1);
         assert_eq!(save.rom_id, 0); // default
@@ -1778,7 +1850,7 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.sync_state, crate::models::SyncState::RemoteOnly);
         assert!(game.local_file_path.is_none());
@@ -1812,7 +1884,10 @@ mod tests {
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.developer.as_deref(), Some("Dev Studio"));
         assert_eq!(game.publisher.as_deref(), Some("Pub Co"));
-        assert_eq!(game.player_count.as_deref(), Some("Single player, Co-operative"));
+        assert_eq!(
+            game.player_count.as_deref(),
+            Some("Single player, Co-operative")
+        );
         assert_eq!(game.user_rating, Some(88.0));
         assert_eq!(game.genres, vec!["Role-playing (RPG)"]);
     }
@@ -1834,7 +1909,7 @@ mod tests {
             title_id_candidates: None,
             files: None,
         };
-        
+
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.source, crate::models::GameSource::RomM);
         assert_eq!(game.romm_id, Some(123));

@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Tightened defaults: window + shell.open + dialog; no updater JS surface (signed installs run in Rust). ROMs on extra drives may need asset scope additions — see CONTRIBUTING.md.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

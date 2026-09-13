@@ -11,38 +11,52 @@ export const SETTINGS_CARD_GRADIENT_SX = {
   background: "linear-gradient(135deg, #1e1e26 0%, #252530 100%)",
 };
 
-export function formatLibretroDllLabel(dll) {
-  if (!dll || typeof dll !== "string") {
+/** @param {string|null|undefined} dll - Libretro DLL filename. */
+export const formatLibretroDllLabel = (dll) => {
+  if (dll === null || dll === undefined || dll === "") {
     return "";
   }
   return dll.replace(/_libretro\.dll$/iu, "").replaceAll("_", " ");
-}
+};
 
-export function formatSyncTimestamp(value) {
-  if (!value) {
+/** @param {string|number|Date|null|undefined} value - Timestamp to format. */
+export const formatSyncTimestamp = (value) => {
+  if (value === null || value === undefined || value === "") {
     return "Not reported";
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "Not reported";
   }
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+};
 
-export function formatSyncLibraryCount(value) {
-  return Number.isFinite(value) ? `${value.toLocaleString()} games` : "Not reported";
-}
+/** @param {number|null|undefined} value - Game count to format. */
+export const formatSyncLibraryCount = (value) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "Not reported";
+  }
+  return `${value.toLocaleString()} games`;
+};
 
-export function formatDownloadLabel(progress) {
-  if (!progress) {
+/** @param {{downloaded: number, total: number|null, percent: number|null}|null|undefined} progress - Download progress. */
+export const formatDownloadLabel = (progress) => {
+  if (progress === null || progress === undefined) {
     return "";
   }
   const { downloaded, total, percent } = progress;
-  if (total != null && total > 0) {
-    const pct = percent == null ? "" : `${percent}% · `;
+  if (total !== null && total > 0) {
+    const pct = percent === null ? "" : `${percent}% · `;
     return `${pct}${downloaded} / ${total}`;
   }
   return String(downloaded ?? "");
-}
+};
 
-export const UPDATE_PREFERENCE = { OFF: "off", CHECK_ONLY: "check", AUTOMATIC: "automatic" };
+export const UPDATE_PREFERENCE = {
+  AUTOMATIC: "automatic",
+  CHECK_ONLY: "check",
+  OFF: "off",
+};

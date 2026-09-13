@@ -84,4 +84,3 @@ Replace the cover browsing shelf with a purposeful game-details composition:
 Platform spine should retain All platforms, selected SNES / Super Nintendo and Nintendo Switch from Image 1 exactly.
 Constraints: screenshot only, flat front-on, no device framing, room, presentation board, annotations, marketing copy, ratings, invented progress stats or watermark. No separate floating massive rounded panel. Do not add a Delete button beside Play; game-management actions belong in More. Sharp readable UI, comfortably spaced, television-readable text, safe margins and coherent visible focus. Preserve the library reference's design fidelity.
 ```
-

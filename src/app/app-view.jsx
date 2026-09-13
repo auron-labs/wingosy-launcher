@@ -1,23 +1,23 @@
 import Box from "@mui/material/Box";
 
-import SetupWizard from "../components/SetupWizard";
-import ImmersiveModeApp from "../immersive/ImmersiveModeApp";
-import { UiSoundsProvider } from "../UiSoundsContext";
+import SetupWizard from "../components/setup-wizard";
+import ImmersiveModeApp from "../immersive/immersive-mode-app";
+import { UiSoundsProvider } from "../ui-sounds-provider";
 import AppDesktop from "./app-desktop";
 import AppNotifications from "./app-notifications";
 import AppShell from "./app-shell";
 
-/** @typedef {{getCurrentWindow: () => {isFullscreen: () => Promise<boolean>, onResized: (handler: () => void) => Promise<() => void>, startDragging: () => Promise<void>}, invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>, listen: (event: string, handler: (event: {payload?: unknown}) => void) => Promise<() => void>, openUrl: (url: string) => Promise<unknown>}} AppRuntime */
+/** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
 /** @typedef {import("./use-app-controller").AppController} AppController */
 
-/** @param {{children: import("react").ReactNode, immersiveActive: boolean}} props */
+/** @param {{children: import("react").ReactNode, immersiveActive: boolean}} props Sound wrapper properties. */
 const WithSounds = ({ children, immersiveActive }) => (
   <UiSoundsProvider immersiveActive={immersiveActive}>
     {children}
   </UiSoundsProvider>
 );
 
-/** @param {{runtime: AppRuntime, controller: AppController}} props */
+/** @param {{runtime: AppRuntime, controller: AppController}} props Setup view properties. */
 const SetupView = ({ runtime, controller }) => (
   <WithSounds immersiveActive={controller.immersiveModeEnabled}>
     <AppShell runtime={runtime}>
@@ -39,7 +39,7 @@ const SetupView = ({ runtime, controller }) => (
   </WithSounds>
 );
 
-/** @param {{runtime: AppRuntime, controller: AppController}} props */
+/** @param {{runtime: AppRuntime, controller: AppController}} props Immersive view properties. */
 const ImmersiveView = ({ runtime, controller }) => (
   <WithSounds immersiveActive={controller.immersiveModeEnabled}>
     <AppShell runtime={runtime}>
@@ -47,14 +47,48 @@ const ImmersiveView = ({ runtime, controller }) => (
         rommToken={controller.rommToken}
         rommUrl={controller.rommUrl}
         onRommConnect={controller.handleRommConnect}
-        onExit={controller.handleImmersiveExit}
+        onExit={() => {
+          void controller.handleImmersiveExit(controller.reloadLibrary);
+        }}
         requestedFullscreen={controller.immersiveModeFullscreen}
       />
     </AppShell>
   </WithSounds>
 );
 
-/** @param {{runtime: AppRuntime, controller: AppController}} props */
+/** @param {AppController} controller Desktop application controller. */
+const getDesktopLibraryProps = (controller) => ({
+  error: controller.error,
+  gameTotal: controller.gameTotal,
+  games: controller.games,
+  libraryFilterBy: controller.libraryFilterBy,
+  libraryLaunchError: controller.libraryLaunchError,
+  librarySortBy: controller.librarySortBy,
+  loading: controller.loading,
+  onDismissError: controller.handleDismissError,
+  onFilterChange: controller.handleLibraryFilterChange,
+  onLaunchGame: controller.handleLaunchGame,
+  onNavigateLibrarySettings: () => {
+    controller.handleOpenSettings("library");
+  },
+  onNavigateRommSettings: () => {
+    controller.handleOpenSettings("romm");
+  },
+  onOpenSettings: () => {
+    controller.handleOpenSettings("emulators");
+  },
+  onPageChange: controller.handlePageChange,
+  onRetryLaunch: controller.handleRetryLaunch,
+  onSearchChange: controller.handleSearchChange,
+  onSelectGame: controller.handleSelectGame,
+  onSortChange: controller.handleLibrarySortChange,
+  onToggleFavorite: controller.handleToggleFavorite,
+  page: controller.page,
+  scrollRef: controller.libraryScrollRef,
+  searchQuery: controller.searchQuery,
+});
+
+/** @param {{runtime: AppRuntime, controller: AppController}} props Desktop view properties. */
 const DesktopView = ({ runtime, controller }) => (
   <WithSounds immersiveActive={controller.immersiveModeEnabled}>
     <AppShell runtime={runtime}>
@@ -66,55 +100,40 @@ const DesktopView = ({ runtime, controller }) => (
         rommUrl={controller.rommUrl}
         onSelectPlatform={controller.handleSelectPlatform}
         onNavigate={controller.handleNavigate}
-        libraryProps={{
-          scrollRef: controller.libraryScrollRef,
-          games: controller.games,
-          gameTotal: controller.gameTotal,
-          page: controller.page,
-          loading: controller.loading,
-          searchQuery: controller.searchQuery,
-          libraryLaunchError: controller.libraryLaunchError,
-          error: controller.error,
-          librarySortBy: controller.librarySortBy,
-          libraryFilterBy: controller.libraryFilterBy,
-          onPageChange: controller.handlePageChange,
-          onSearchChange: controller.handleSearchChange,
-          onSelectGame: controller.handleSelectGame,
-          onToggleFavorite: controller.handleToggleFavorite,
-          onLaunchGame: controller.handleLaunchGame,
-          onNavigateLibrarySettings: () =>
-            controller.handleOpenSettings("library"),
-          onNavigateRommSettings: () => controller.handleOpenSettings("romm"),
-          onOpenSettings: () => controller.handleOpenSettings("emulators"),
-          onRetryLaunch: controller.handleRetryLaunch,
-          onDismissError: controller.handleDismissError,
-          onSortChange: controller.handleLibrarySortChange,
-          onFilterChange: controller.handleLibraryFilterChange,
-        }}
+        libraryProps={getDesktopLibraryProps(controller)}
         downloadsProps={{
-          onOpenGameDetails: () => controller.handleNavigate("library"),
-          onOpenCloudLibrary: () => controller.handleNavigate("library"),
+          onOpenCloudLibrary: () => {
+            controller.handleNavigate("library");
+          },
+          onOpenGameDetails: () => {
+            controller.handleNavigate("library");
+          },
         }}
         detailsProps={{
-          selectedGame: controller.selectedGame,
+          onBack: controller.handleBackFromGameDetails,
+          onGameUpdate: controller.handleGameUpdate,
+          onLaunch: controller.handleLaunchGame,
+          onOpenIntegrations: () => {
+            controller.handleOpenSettings("integrations");
+          },
+          onOpenSettings: () => {
+            controller.handleOpenSettings("emulators");
+          },
+          onToggleFavorite: controller.handleToggleFavorite,
           platforms: controller.platforms,
           rommToken: controller.rommToken,
           rommUrl: controller.rommUrl,
-          onBack: controller.handleBackFromGameDetails,
-          onLaunch: controller.handleLaunchGame,
-          onOpenSettings: () => controller.handleOpenSettings("emulators"),
-          onOpenIntegrations: () =>
-            controller.handleOpenSettings("integrations"),
-          onToggleFavorite: controller.handleToggleFavorite,
-          onGameUpdate: controller.handleGameUpdate,
+          selectedGame: controller.selectedGame,
         }}
         settingsProps={{
           initialSection: controller.settingsInitialSection,
-          rommToken: controller.rommToken,
-          rommUrl: controller.rommUrl,
+          onLibraryChange: () => {
+            void controller.reloadLibrary();
+          },
           onRommConnect: controller.handleRommConnect,
           onRommDisconnect: controller.handleRommDisconnect,
-          onLibraryChange: controller.reloadLibrary,
+          rommToken: controller.rommToken,
+          rommUrl: controller.rommUrl,
         }}
       />
       <AppNotifications
@@ -129,7 +148,7 @@ const DesktopView = ({ runtime, controller }) => (
   </WithSounds>
 );
 
-/** @param {{runtime: AppRuntime, controller: AppController}} props */
+/** @param {{runtime: AppRuntime, controller: AppController}} props Application view properties. */
 const AppView = ({ runtime, controller }) => {
   if (controller.showSetup === null) {
     return (

@@ -1,9 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 
-import normalizeUrl from "../utils/normalizeUrl";
+import normalizeUrl from "../utils/normalize-url";
+
+/** @type {<T>(command: string, args?: Record<string, unknown>) => Promise<T> & PromiseLike<T>} */
+const invoke = tauriInvoke;
 
 /** @typedef {"error"|"info"|"success"} WizardStatusType */
 /** @typedef {{message: string, type: WizardStatusType}} WizardStatus */
@@ -13,29 +16,20 @@ import normalizeUrl from "../utils/normalizeUrl";
 /** @typedef {{[platform: string]: number}} PlatformCounts */
 /** @typedef {{platforms: PlatformCounts, total: number}} ScanResult */
 /** @typedef {{total: number}} SyncResult */
+/** @typedef {{attempt: number, deadline: number, deviceCode: string, intervalMs: number, normalizedUrl: string, onError: (error: Error) => void, onSuccess: (result: DeviceAuthResult) => void, pairingAttemptRef: {current: number}}} DevicePollingOptions */
 
 /**
  * @typedef {object} SetupWizardOptions
- * @property {() => void} onComplete
- * @property {(url: string, token: string) => void} [onRommConnect]
+ * @property {() => void} onComplete Completes the setup wizard.
+ * @property {(url: string, token: string) => void} [onRommConnect] Saves the RomM session.
  */
 
 /** @param {unknown} error - Error value returned by an async command. */
 const getErrorMessage = (error) =>
   error instanceof Error ? error.message : String(error);
 
-/**
- * @param {object} options - Device polling options.
- * @param {number} options.attempt - Current pairing attempt.
- * @param {number} options.deadline - Pairing expiry timestamp.
- * @param {number} options.intervalMs - Delay before the next poll.
- * @param {string} options.normalizedUrl - Normalized RomM server URL.
- * @param {React.RefObject<number>} options.pairingAttemptRef - Cancellation ref.
- * @param {string} options.deviceCode - RomM device code.
- * @param {(result: DeviceAuthResult) => void} options.onSuccess - Successful auth callback.
- * @param {(error: Error) => void} options.onError - Failed auth callback.
- */
-const pollDeviceAuth = ({
+/** @param {DevicePollingOptions} options Device polling request. */
+const pollDeviceAuth = async ({
   attempt,
   deadline,
   deviceCode,
@@ -53,75 +47,74 @@ const pollDeviceAuth = ({
     return;
   }
 
-  setTimeout(() => {
-    if (pairingAttemptRef.current !== attempt) {
-      return;
-    }
-    void invoke<DeviceAuthResult>("poll_romm_device_auth", {
+  try {
+    /** @type {DeviceAuthResult} */
+    const result = await invoke("poll_romm_device_auth", {
       deviceCode,
       serverUrl: normalizedUrl,
-    })
-      .then((result) => {
-        if (result.status === "authorization_pending") {
-          pollDeviceAuth({
-            attempt,
-            deadline,
-            deviceCode,
-            intervalMs,
-            normalizedUrl,
-            onError,
-            onSuccess,
-            pairingAttemptRef,
-          });
-          return;
-        }
-        if (result.status === "slow_down") {
-          pollDeviceAuth({
-            attempt,
-            deadline,
-            deviceCode,
-            intervalMs: intervalMs + 5000,
-            normalizedUrl,
-            onError,
-            onSuccess,
-            pairingAttemptRef,
-          });
-          return;
-        }
-        if (
-          result.status !== "approved" ||
-          result.access_token === undefined ||
-          result.access_token === ""
-        ) {
-          onError(
-            new Error(
-              result.status === "access_denied"
-                ? "RomM pairing was denied."
-                : "RomM pairing expired. Try again."
-            )
-          );
-          return;
-        }
-        onSuccess(result);
-      })
-      .catch((error) => {
-        onError(error instanceof Error ? error : new Error(String(error)));
-      });
-  }, intervalMs);
+    });
+    if (result.status === "authorization_pending") {
+      setTimeout(() => {
+        void pollDeviceAuth({
+          attempt,
+          deadline,
+          deviceCode,
+          intervalMs,
+          normalizedUrl,
+          onError,
+          onSuccess,
+          pairingAttemptRef,
+        });
+      }, intervalMs);
+      return;
+    }
+    if (result.status === "slow_down") {
+      setTimeout(() => {
+        void pollDeviceAuth({
+          attempt,
+          deadline,
+          deviceCode,
+          intervalMs: intervalMs + 5000,
+          normalizedUrl,
+          onError,
+          onSuccess,
+          pairingAttemptRef,
+        });
+      }, intervalMs + 5000);
+      return;
+    }
+    if (
+      result.status !== "approved" ||
+      result.access_token === undefined ||
+      result.access_token === ""
+    ) {
+      onError(
+        new Error(
+          result.status === "access_denied"
+            ? "RomM pairing was denied."
+            : "RomM pairing expired. Try again."
+        )
+      );
+      return;
+    }
+    onSuccess(result);
+  } catch (error) {
+    onError(error instanceof Error ? error : new Error(String(error)));
+  }
 };
 
 /**
- * @param {object} options
- * @param {number} options.attempt
- * @param {React.MutableRefObject<number>} options.pairingAttemptRef
- * @param {(status: WizardStatus|null) => void} options.setRommStatus
- * @param {(pairing: DevicePairing|null) => void} options.setRommPairing
- * @param {(connected: boolean) => void} options.setRommConnected
- * @param {(token: string|null) => void} options.setRommToken
- * @param {(error: string|null) => void} options.setError
- * @param {(url: string) => void} options.setRommUrl
- * @param {string} options.rommUrl
- * @param {(url: string, token: string) => void} [options.onRommConnect]
+ * @param {object} options RomM connection state and callbacks.
+ * @param {number} options.attempt Current pairing attempt.
+ * @param {{current: number}} options.pairingAttemptRef Pairing cancellation ref.
+ * @param {(status: WizardStatus|null) => void} options.setRommStatus Updates pairing status.
+ * @param {(pairing: DevicePairing|null) => void} options.setRommPairing Updates pairing details.
+ * @param {(connected: boolean) => void} options.setRommConnected Updates connection state.
+ * @param {(token: string|null) => void} options.setRommToken Updates the RomM token.
+ * @param {(error: string|null) => void} options.setError Updates the setup error.
+ * @param {(url: string) => void} options.setRommUrl Updates the RomM URL.
+ * @param {string} options.rommUrl RomM server URL.
+ * @param {(url: string, token: string) => void} [options.onRommConnect] Reports a successful connection.
  */
 const connectRomM = async ({
   attempt,
@@ -137,10 +130,11 @@ const connectRomM = async ({
 }) => {
   try {
     setError(null);
-    const normalizedUrl = normalizeUrl(rommUrl);
+    const normalizedUrl = normalizeUrl(rommUrl) ?? "";
     setRommUrl(normalizedUrl);
     setRommStatus({ message: "Starting secure RomM pairing...", type: "info" });
-    const pairing = await invoke<DevicePairing>("begin_romm_device_auth", {
+    /** @type {DevicePairing} */
+    const pairing = await invoke("begin_romm_device_auth", {
       serverUrl: normalizedUrl,
     });
     if (pairingAttemptRef.current !== attempt) {
@@ -155,48 +149,56 @@ const connectRomM = async ({
       pairing.verification_path_complete ?? pairing.verification_path
     );
 
-    const deadline = Date.now() + Number(pairing.expires_in ?? 600) * 1000;
-    pollDeviceAuth({
-      attempt,
-      deadline,
-      deviceCode: pairing.device_code,
-      intervalMs: Math.max(2, Number(pairing.interval ?? 5)) * 1000,
-      normalizedUrl,
-      onError: (error) => {
-        if (pairingAttemptRef.current !== attempt) {
-          return;
-        }
-        setRommPairing(null);
-        setRommStatus({ type: "error", message: getErrorMessage(error) });
+    const deadline = Date.now() + (pairing.expires_in ?? 600) * 1000;
+    setTimeout(
+      () => {
+        void pollDeviceAuth({
+          attempt,
+          deadline,
+          deviceCode: pairing.device_code,
+          intervalMs: Math.max(2, pairing.interval ?? 5) * 1000,
+          normalizedUrl,
+          onError: (error) => {
+            if (pairingAttemptRef.current !== attempt) {
+              return;
+            }
+            setRommPairing(null);
+            setRommStatus({ message: getErrorMessage(error), type: "error" });
+          },
+          onSuccess: (result) => {
+            setRommConnected(true);
+            setRommToken(result.access_token ?? null);
+            setRommPairing(null);
+            if (
+              result.access_token !== undefined &&
+              result.access_token !== ""
+            ) {
+              onRommConnect?.(normalizedUrl, result.access_token);
+            }
+            setRommStatus({ message: "Paired successfully!", type: "success" });
+          },
+          pairingAttemptRef,
+        });
       },
-      onSuccess: (result) => {
-        setRommConnected(true);
-        setRommToken(result.access_token ?? null);
-        setRommPairing(null);
-        if (result.access_token !== undefined && result.access_token !== "") {
-          onRommConnect?.(normalizedUrl, result.access_token);
-        }
-        setRommStatus({ message: "Paired successfully!", type: "success" });
-      },
-      pairingAttemptRef,
-    });
+      Math.max(2, pairing.interval ?? 5) * 1000
+    );
   } catch (error) {
     if (pairingAttemptRef.current !== attempt) {
       return;
     }
     setRommPairing(null);
-    setRommStatus({ type: "error", message: getErrorMessage(error) });
+    setRommStatus({ message: getErrorMessage(error), type: "error" });
   }
 };
 
 /**
- * @param {object} options
- * @param {string} options.rommUrl
- * @param {string|null} options.rommToken
- * @param {boolean} options.rommConnected
- * @param {(busy: boolean) => void} options.setSyncing
- * @param {(result: SyncResult|null) => void} options.setSyncResult
- * @param {(error: string|null) => void} options.setError
+ * @param {object} options RomM synchronization state and callbacks.
+ * @param {string} options.rommUrl RomM server URL.
+ * @param {string|null} options.rommToken RomM access token.
+ * @param {boolean} options.rommConnected Whether RomM is connected.
+ * @param {(busy: boolean) => void} options.setSyncing Updates sync activity.
+ * @param {(result: SyncResult|null) => void} options.setSyncResult Updates sync results.
+ * @param {(error: string|null) => void} options.setError Updates the setup error.
  */
 const syncRomM = async ({
   rommConnected,
@@ -216,7 +218,8 @@ const syncRomM = async ({
     if (!rommConnected) {
       throw new Error("Pair Wingosy with RomM before syncing.");
     }
-    const games = await invoke<unknown[]>("sync_romm_library", {
+    /** @type {unknown[]} */
+    const games = await invoke("sync_romm_library", {
       serverUrl: normalizeUrl(rommUrl),
       token: rommToken,
     });
@@ -229,11 +232,11 @@ const syncRomM = async ({
 };
 
 /**
- * @param {object} options
- * @param {string} options.romsDir
- * @param {(busy: boolean) => void} options.setScanning
- * @param {(result: ScanResult|null) => void} options.setScanResult
- * @param {(error: string|null) => void} options.setError
+ * @param {object} options Directory scan state and callbacks.
+ * @param {string} options.romsDir ROM directory to scan.
+ * @param {(busy: boolean) => void} options.setScanning Updates scan activity.
+ * @param {(result: ScanResult|null) => void} options.setScanResult Updates scan results.
+ * @param {(error: string|null) => void} options.setError Updates the setup error.
  */
 const scanDirectory = async ({
   romsDir,
@@ -248,11 +251,13 @@ const scanDirectory = async ({
     setScanning(true);
     setScanResult(null);
     setError(null);
-    const games = await invoke<ScannedGame[]>("scan_directory", {
+    /** @type {ScannedGame[]} */
+    const games = await invoke("scan_directory", {
       path: romsDir,
       recursive: true,
     });
-    const platformCounts = /** @type {PlatformCounts} */ ({});
+    /** @type {PlatformCounts} */
+    const platformCounts = {};
     for (const game of games) {
       platformCounts[game.platform_id] =
         (platformCounts[game.platform_id] ?? 0) + 1;
@@ -266,12 +271,12 @@ const scanDirectory = async ({
 };
 
 /**
- * @param {object} options
- * @param {string} options.rommUrl
- * @param {boolean} options.rommConnected
- * @param {string} options.romsDir
- * @param {() => void} options.onComplete
- * @param {(error: string|null) => void} options.setError
+ * @param {object} options Setup completion state and callbacks.
+ * @param {string} options.rommUrl RomM server URL.
+ * @param {boolean} options.rommConnected Whether RomM is connected.
+ * @param {string} options.romsDir Selected ROM directory.
+ * @param {() => void} options.onComplete Completes setup.
+ * @param {(error: string|null) => void} options.setError Updates the setup error.
  */
 const finishSetup = async ({
   onComplete,
@@ -281,7 +286,7 @@ const finishSetup = async ({
   setError,
 }) => {
   try {
-      await invoke<void>("complete_setup", {
+    await invoke("complete_setup", {
       rommUrl: rommConnected ? rommUrl : null,
       rommUsername: null,
       romsDirectory: romsDir || null,
@@ -292,29 +297,33 @@ const finishSetup = async ({
   }
 };
 
-/** @param {SetupWizardOptions} options */
-export const useSetupWizard = ({ onComplete, onRommConnect }) => {
+/** @returns {DevicePairing|null} Initial RomM pairing. */
+const initialRommPairing = () => null;
+/** @returns {WizardStatus|null} Initial RomM status. */
+const initialRommStatus = () => null;
+/** @returns {string|null} Initial RomM token. */
+const initialRommToken = () => null;
+/** @returns {ScanResult|null} Initial scan result. */
+const initialScanResult = () => null;
+/** @returns {SyncResult|null} Initial sync result. */
+const initialSyncResult = () => null;
+/** @returns {string|null} Initial error. */
+const initialError = () => null;
+
+const useSetupWizardState = () => {
   const [activeStep, setActiveStep] = useState(-1);
   const [rommUrl, setRommUrl] = useState("");
-  const [rommPairing, setRommPairing] = useState(
-    /** @type {DevicePairing|null} */ (null)
-  );
+  const [rommPairing, setRommPairing] = useState(initialRommPairing);
   const pairingAttemptRef = useRef(0);
-  const [rommStatus, setRommStatus] = useState(
-    /** @type {WizardStatus|null} */ (null)
-  );
+  const [rommStatus, setRommStatus] = useState(initialRommStatus);
   const [rommConnected, setRommConnected] = useState(false);
-  const [rommToken, setRommToken] = useState(/** @type {string|null} */ (null));
+  const [rommToken, setRommToken] = useState(initialRommToken);
   const [romsDir, setRomsDir] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(
-    /** @type {ScanResult|null} */ (null)
-  );
-  const [syncResult, setSyncResult] = useState(
-    /** @type {SyncResult|null} */ (null)
-  );
+  const [scanResult, setScanResult] = useState(initialScanResult);
+  const [syncResult, setSyncResult] = useState(initialSyncResult);
   const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState(/** @type {string|null} */ (null));
+  const [error, setError] = useState(initialError);
 
   useEffect(
     () => () => {
@@ -323,68 +332,102 @@ export const useSetupWizard = ({ onComplete, onRommConnect }) => {
     []
   );
 
+  return {
+    activeStep,
+    error,
+    pairingAttemptRef,
+    rommConnected,
+    rommPairing,
+    rommStatus,
+    rommToken,
+    rommUrl,
+    romsDir,
+    scanResult,
+    scanning,
+    setActiveStep,
+    setError,
+    setRommConnected,
+    setRommPairing,
+    setRommStatus,
+    setRommToken,
+    setRommUrl,
+    setRomsDir,
+    setScanResult,
+    setScanning,
+    setSyncResult,
+    setSyncing,
+    syncResult,
+    syncing,
+  };
+};
+
+/** @param {ReturnType<typeof useSetupWizardState>} state Wizard state. @param {SetupWizardOptions} options Wizard callbacks. */
+const useSetupWizardHandlers = (state, { onComplete, onRommConnect }) => {
   const handleConnectRomM = () => {
-    const attempt = pairingAttemptRef.current + 1;
-    pairingAttemptRef.current = attempt;
+    const attempt = state.pairingAttemptRef.current + 1;
+    state.pairingAttemptRef.current = attempt;
     void connectRomM({
       attempt,
       onRommConnect,
-      pairingAttemptRef,
-      rommUrl,
-      setError,
-      setRommConnected,
-      setRommPairing,
-      setRommStatus,
-      setRommToken,
-      setRommUrl,
+      pairingAttemptRef: state.pairingAttemptRef,
+      rommUrl: state.rommUrl,
+      setError: state.setError,
+      setRommConnected: state.setRommConnected,
+      setRommPairing: state.setRommPairing,
+      setRommStatus: state.setRommStatus,
+      setRommToken: state.setRommToken,
+      setRommUrl: state.setRommUrl,
     });
   };
   const handleSyncRomM = () => {
     void syncRomM({
-      rommConnected,
-      rommToken,
-      rommUrl,
-      setError,
-      setSyncResult,
-      setSyncing,
+      rommConnected: state.rommConnected,
+      rommToken: state.rommToken,
+      rommUrl: state.rommUrl,
+      setError: state.setError,
+      setSyncResult: state.setSyncResult,
+      setSyncing: state.setSyncing,
     });
   };
   const handleSelectFolder = () => {
     void (async () => {
       try {
         const selected = await open({ directory: true, multiple: false });
-        if (selected) {
-          setRomsDir(selected);
+        if (selected !== null && selected !== "" && !Array.isArray(selected)) {
+          state.setRomsDir(selected);
         }
       } catch (error) {
-        setError(getErrorMessage(error));
+        state.setError(getErrorMessage(error));
       }
     })();
   };
   const handleScan = () => {
-    void scanDirectory({ romsDir, setError, setScanResult, setScanning });
+    void scanDirectory({
+      romsDir: state.romsDir,
+      setError: state.setError,
+      setScanResult: state.setScanResult,
+      setScanning: state.setScanning,
+    });
   };
   const handleFinish = () => {
     void finishSetup({
       onComplete,
-      rommConnected,
-      rommUrl,
-      romsDir,
-      setError,
+      rommConnected: state.rommConnected,
+      rommUrl: state.rommUrl,
+      romsDir: state.romsDir,
+      setError: state.setError,
     });
   };
   const handleNext = () => {
-    setActiveStep((previous) => previous + 1);
-    setError(null);
+    state.setActiveStep((previous) => previous + 1);
+    state.setError(null);
   };
   const handleBack = () => {
-    setActiveStep((previous) => previous - 1);
-    setError(null);
+    state.setActiveStep((previous) => previous - 1);
+    state.setError(null);
   };
 
   return {
-    activeStep,
-    error,
     handleBack,
     handleConnectRomM,
     handleFinish,
@@ -393,21 +436,31 @@ export const useSetupWizard = ({ onComplete, onRommConnect }) => {
     handleSelectFolder,
     handleSyncRomM,
     onCancelPairing: () => {
-      pairingAttemptRef.current += 1;
-      setRommPairing(null);
-      setRommStatus(null);
+      state.pairingAttemptRef.current += 1;
+      state.setRommPairing(null);
+      state.setRommStatus(null);
     },
-    rommConnected,
-    rommPairing,
-    rommStatus,
-    rommUrl,
-    romsDir,
-    scanResult,
-    scanning,
-    setError,
-    setRommUrl,
-    setRomsDir,
-    syncResult,
-    syncing,
+  };
+};
+
+/** @param {SetupWizardOptions} options Setup wizard options. */
+export const useSetupWizard = (options) => {
+  const state = useSetupWizardState();
+  return {
+    activeStep: state.activeStep,
+    error: state.error,
+    ...useSetupWizardHandlers(state, options),
+    rommConnected: state.rommConnected,
+    rommPairing: state.rommPairing,
+    rommStatus: state.rommStatus,
+    rommUrl: state.rommUrl,
+    romsDir: state.romsDir,
+    scanResult: state.scanResult,
+    scanning: state.scanning,
+    setError: state.setError,
+    setRommUrl: state.setRommUrl,
+    setRomsDir: state.setRomsDir,
+    syncResult: state.syncResult,
+    syncing: state.syncing,
   };
 };

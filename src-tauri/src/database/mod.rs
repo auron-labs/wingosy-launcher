@@ -1,7 +1,7 @@
+mod collections;
 mod connection;
+mod emulators;
 mod games;
 mod platforms;
-mod collections;
-mod emulators;
 
 pub use connection::*;

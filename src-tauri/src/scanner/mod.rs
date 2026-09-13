@@ -30,16 +30,18 @@ impl RomScanner {
         recursive: bool,
         tx: mpsc::Sender<ScanEvent>,
     ) -> Result<Vec<Game>> {
-        tracing::info!("[Scanner] Starting scan of {:?} (recursive={})", directory, recursive);
-        
+        tracing::info!(
+            "[Scanner] Starting scan of {:?} (recursive={})",
+            directory,
+            recursive
+        );
+
         let files = self.collect_files(directory, recursive)?;
         let total_files = files.len();
-        
+
         tracing::info!("[Scanner] Found {} ROM files to process", total_files);
 
-        tx.send(ScanEvent::Started { total_files })
-            .await
-            .ok();
+        tx.send(ScanEvent::Started { total_files }).await.ok();
 
         let mut games = Vec::new();
         let mut errors = 0;
@@ -74,8 +76,12 @@ impl RomScanner {
             }
         }
 
-        tracing::info!("[Scanner] Scan complete: {} games found, {} errors", games.len(), errors);
-        
+        tracing::info!(
+            "[Scanner] Scan complete: {} games found, {} errors",
+            games.len(),
+            errors
+        );
+
         tx.send(ScanEvent::Completed {
             games_found: games.len(),
         })
@@ -205,10 +211,7 @@ mod tests {
             clean_rom_name("Final Fantasy VII (USA) (Disc 1)"),
             "Final Fantasy VII"
         );
-        assert_eq!(
-            clean_rom_name("Chrono_Trigger_(USA)"),
-            "Chrono Trigger"
-        );
+        assert_eq!(clean_rom_name("Chrono_Trigger_(USA)"), "Chrono Trigger");
         assert_eq!(
             clean_rom_name("Legend of Zelda, The [USA] [Rev 1]"),
             "Legend of Zelda, The"
@@ -243,7 +246,10 @@ mod tests {
 
     #[test]
     fn test_clean_rom_name_normalizes_whitespace() {
-        assert_eq!(clean_rom_name("Game   Extra    Spaces"), "Game Extra Spaces");
+        assert_eq!(
+            clean_rom_name("Game   Extra    Spaces"),
+            "Game Extra Spaces"
+        );
         assert_eq!(clean_rom_name("  Leading Trailing  "), "Leading Trailing");
     }
 
@@ -270,12 +276,12 @@ mod tests {
         let (name, disc) = detect_multi_disc("Game (Disc 3)").unwrap();
         assert_eq!(name, "Game");
         assert_eq!(disc, 3);
-        
+
         // (CD X)
         let (name, disc) = detect_multi_disc("Game (CD 2)").unwrap();
         assert_eq!(name, "Game");
         assert_eq!(disc, 2);
-        
+
         // Disc X (no parens)
         let (name, disc) = detect_multi_disc("Game Disc 4").unwrap();
         assert_eq!(name, "Game");
@@ -286,7 +292,7 @@ mod tests {
     fn test_detect_multi_disc_case_insensitive() {
         let (_, disc) = detect_multi_disc("Game (DISC 1)").unwrap();
         assert_eq!(disc, 1);
-        
+
         let (_, disc) = detect_multi_disc("Game (disc 2)").unwrap();
         assert_eq!(disc, 2);
     }
@@ -308,9 +314,11 @@ mod tests {
 
     #[test]
     fn test_rom_scanner_new() {
-        let platforms = vec![
-            Platform::new("snes", "Super Nintendo", vec![".sfc", ".smc"]),
-        ];
+        let platforms = vec![Platform::new(
+            "snes",
+            "Super Nintendo",
+            vec![".sfc", ".smc"],
+        )];
         let scanner = RomScanner::new(platforms);
         assert_eq!(scanner.platforms.len(), 1);
     }

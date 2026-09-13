@@ -2,24 +2,19 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import * as Mui from "@mui/material";
 
+import AmbientMusicSettings from "./settings-ambient-music";
 import * as Components from "./settings-components";
 import * as Shared from "./settings-view-shared";
 
-/** @param {import("./settings-types").SettingsPanelProps} settings - Settings panel state and actions. */
-export default function SoundSettings(settings) {
-  return (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box
-      sx={{ alignItems: "center", display: "flex", gap: 1, mb: 1 }}
-    >
-      <VolumeUpIcon color="primary" />
-      <Mui.Typography variant="h6">Sound</Mui.Typography>
-    </Mui.Box>
-    <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-      UI feedback and background music are used while Immersive mode
-      is active; desktop mode remains silent.
-    </Mui.Typography>
+/** @typedef {import("./settings-types").SettingsPanelProps} SettingsPanelProps */
+/** @typedef {import("./settings-types").SettingsSliderValue} SettingsSliderValue */
 
+/** @param {SettingsSliderValue} value Slider value. @returns {number} Scalar value. */
+const getSliderValue = (value) => (Array.isArray(value) ? value[0] : value);
+
+/** @param {SettingsPanelProps} settings Settings panel state and actions. */
+const UiSoundSettings = (settings) => (
+  <>
     <Mui.Typography variant="subtitle2" sx={{ mb: 0.5 }}>
       UI sounds
     </Mui.Typography>
@@ -28,15 +23,14 @@ export default function SoundSettings(settings) {
       color="text.secondary"
       sx={{ display: "block", mb: 1 }}
     >
-      Argosy-style feedback sounds (bundled clips). Preview each sound
-      below.
+      Argosy-style feedback sounds (bundled clips). Preview each sound below.
     </Mui.Typography>
     <Mui.FormControlLabel
       control={
         <Mui.Switch
           checked={settings.uiSoundsEnabled}
-          onChange={async (e) => {
-            await settings.persistUiSounds(e.target.checked);
+          onChange={(event) => {
+            void settings.persistUiSounds(event.target.checked);
           }}
         />
       }
@@ -53,10 +47,12 @@ export default function SoundSettings(settings) {
         min={0}
         max={100}
         valueLabelDisplay="auto"
-        onChange={(_, v) => {
-          settings.setUiSoundsVolume(Array.isArray(v) ? v[0] : v);
+        onChange={(_, value) => {
+          settings.setUiSoundsVolume(getSliderValue(value));
         }}
-        onChangeCommitted={async (_, v) => settings.persistUiSoundsVolume(v)}
+        onChangeCommitted={(_, value) => {
+          void settings.persistUiSoundsVolume(value);
+        }}
       />
     </Mui.Box>
     <Mui.List dense sx={{ maxWidth: 520, mb: 2 }}>
@@ -70,7 +66,7 @@ export default function SoundSettings(settings) {
               startIcon={<PlayArrowIcon />}
               disabled={!settings.uiSoundsEnabled}
               onClick={() => {
-                settings.previewArgosySound?.(/** @type {import("./settings-types").SettingsSoundId} */ (id));
+                settings.previewArgosySound?.(id);
               }}
               data-testid={`ui-sound-preview-${id}`}
             >
@@ -82,126 +78,23 @@ export default function SoundSettings(settings) {
         </Mui.ListItem>
       ))}
     </Mui.List>
+  </>
+);
 
-    <Mui.Typography variant="subtitle2" sx={{ mb: 0.5, mt: 1 }}>
-      Background music
-    </Mui.Typography>
-    <Mui.Typography
-      variant="caption"
-      color="text.secondary"
-      sx={{ display: "block", mb: 1 }}
-    >
-      Optional looping track or shuffled folder playback while
-      browsing in Immersive mode.
-    </Mui.Typography>
-    <Mui.FormControlLabel
-      control={
-        <Mui.Switch
-          checked={settings.ambientEnabled}
-          onChange={async (e) => {
-            await settings.persistAmbient({
-              ambient_enabled: e.target.checked,
-            });
-          }}
-        />
-      }
-      label="Play background music"
-    />
-    {settings.ambientPath ? null : (
-      <Mui.Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ display: "block", mb: 1, ml: 4.5 }}
-      >
-        {settings.ambientEnabled
-          ? "Choose an audio file or folder below to start playback."
-          : "Turn on background music to choose an audio source."}
-      </Mui.Typography>
-    )}
-    <Mui.Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
-      <Mui.Button
-        size="small"
-        variant="outlined"
-        onClick={settings.pickAmbientFile}
-        disabled={!settings.ambientEnabled}
-      >
-        Audio file…
-      </Mui.Button>
-      <Mui.Button
-        size="small"
-        variant="outlined"
-        onClick={settings.pickAmbientFolder}
-        disabled={!settings.ambientEnabled}
-      >
-        Folder…
-      </Mui.Button>
-      {settings.ambientPath ? (
-        <Mui.Button
-          size="small"
-          color="inherit"
-          onClick={settings.clearAmbientSource}
-        >
-          Clear
-        </Mui.Button>
-      ) : null}
+/** @param {SettingsPanelProps} settings Settings panel state and actions. */
+const SoundSettings = (settings) => (
+  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
+    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 1 }}>
+      <VolumeUpIcon color="primary" />
+      <Mui.Typography variant="h6">Sound</Mui.Typography>
     </Mui.Box>
-    {settings.ambientPath ? (
-      <Mui.Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{
-          fontFamily: "monospace",
-          fontSize: "0.8125rem",
-          mb: 2,
-          wordBreak: "break-all",
-        }}
-      >
-        {settings.ambientIsFolder ? "[Folder] " : "[File] "}
-        {settings.ambientPath}
-      </Mui.Typography>
-    ) : null}
-    {settings.ambientIsFolder ? (
-      <Mui.FormControlLabel
-        sx={{ mb: 2 }}
-        control={
-          <Mui.Switch
-            checked={settings.ambientShuffle}
-            onChange={async (e) => {
-              await settings.persistAmbient({
-                ambient_shuffle: e.target.checked,
-              });
-            }}
-            disabled={!settings.ambientEnabled || !settings.ambientPath}
-          />
-        }
-        label="Shuffle tracks"
-      />
-    ) : null}
-    <Mui.Box sx={{ maxWidth: 400, px: 1 }}>
-      <Components.SettingSlider
-        label="Background music volume"
-        value={settings.ambientVolume}
-        valueTestId="ambient-volume-value"
-        formatValue={(value) => `${Math.round(value)}%`}
-        size="small"
-        disabled={!settings.ambientEnabled || !settings.ambientPath}
-        min={0}
-        max={100}
-        valueLabelDisplay="auto"
-        onChange={(_, v) => {
-          settings.setAmbientVolume(Array.isArray(v) ? v[0] : v);
-        }}
-        onChangeCommitted={(_, v) => {
-          const value = Array.isArray(v) ? v[0] : v;
-          settings.persistAmbient({
-            ambient_volume: Math.min(
-              100,
-              Math.max(0, Math.round(value))
-            ),
-          });
-        }}
-      />
-    </Mui.Box>
+    <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      UI feedback and background music are used while Immersive mode is active;
+      desktop mode remains silent.
+    </Mui.Typography>
+    <UiSoundSettings {...settings} />
+    <AmbientMusicSettings {...settings} />
   </Mui.Paper>
-  );
-}
+);
+
+export default SoundSettings;

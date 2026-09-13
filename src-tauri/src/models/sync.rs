@@ -86,8 +86,12 @@ mod tests {
     #[test]
     fn sync_state_roundtrip_all_variants() {
         let variants = [
-            SyncState::LocalOnly, SyncState::Synced, SyncState::PendingUpload,
-            SyncState::PendingDownload, SyncState::Conflict, SyncState::RemoteOnly,
+            SyncState::LocalOnly,
+            SyncState::Synced,
+            SyncState::PendingUpload,
+            SyncState::PendingDownload,
+            SyncState::Conflict,
+            SyncState::RemoteOnly,
         ];
         for variant in &variants {
             let s = variant.to_db_str();

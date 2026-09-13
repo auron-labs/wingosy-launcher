@@ -5,11 +5,7 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
     download_file_with_progress(url, dest, |_| {}).await
 }
 
-pub async fn download_file_with_progress<F>(
-    url: &str,
-    dest: &Path,
-    progress: F,
-) -> Result<()>
+pub async fn download_file_with_progress<F>(url: &str, dest: &Path, progress: F) -> Result<()>
 where
     F: Fn(crate::api::download::DownloadProgress) + Send + 'static,
 {
@@ -50,8 +46,7 @@ fn extract_zip(archive: &Path, dest_dir: &Path) -> Result<PathBuf> {
 }
 
 fn extract_7z(archive: &Path, dest_dir: &Path) -> Result<PathBuf> {
-    sevenz_rust::decompress_file(archive, dest_dir)
-        .context("Failed to extract 7z archive")?;
+    sevenz_rust::decompress_file(archive, dest_dir).context("Failed to extract 7z archive")?;
     Ok(dest_dir.to_path_buf())
 }
 
@@ -83,11 +78,11 @@ pub fn find_executable(dir: &Path, exe_names: &[&str]) -> Option<PathBuf> {
         if depth > 3 {
             return None;
         }
-        
+
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                
+
                 if path.is_file() {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         for exe in exe_names {

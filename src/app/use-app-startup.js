@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { debugLog } from "../utils/debugLog";
-import { isTauri } from "../utils/isTauri";
-import { isText } from "../utils/value-guards";
-import { setFullscreenReliable } from "../windowFullscreen";
+import { debugLog } from "../utils/debug-log";
+import { isTauri } from "../utils/is-tauri";
+import { setFullscreenReliable } from "../window-fullscreen";
 
-/** @typedef {{getCurrentWindow: () => {isFullscreen: () => Promise<boolean>, onResized: (handler: () => void) => Promise<() => void>, startDragging: () => Promise<void>}, invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>, listen: (event: string, handler: (event: {payload?: unknown}) => void) => Promise<() => void>, openUrl: (url: string) => Promise<unknown>}} AppRuntime */
-/** @typedef {{id: string|number, name: string}} AppPlatform */
+/** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
+/** @typedef {{id: string, name: string}} AppPlatform */
 /** @typedef {{server_url?: string, auth_token?: string}} RommConfig */
 /** @typedef {{big_picture?: boolean, fullscreen?: boolean, controller_deadzone?: number, theme?: string}} DisplayConfig */
 /** @typedef {{auto_update_enabled?: boolean, channel?: string, check_on_startup?: boolean}} UpdaterConfig */
@@ -15,12 +14,12 @@ import { setFullscreenReliable } from "../windowFullscreen";
 /** @typedef {{canInstall: boolean, channel: "stable"|"beta"|"nightly", installing: boolean, open: boolean, progressLabel: string, url: string, version: string}} UpdateSnack */
 
 /** @param {unknown} error - Error value from an IPC boundary. */
-const getErrorMessage = (error) =>
-  isText(error)
-    ? error
-    : error instanceof Error
-      ? error.message
-      : String(error);
+const getErrorMessage = (error) => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+};
 
 /** @param {unknown} value - Configured release channel. */
 const toUpdateChannel = (value) =>
@@ -40,10 +39,10 @@ const INITIAL_UPDATE_SNACK = {
   version: "",
 };
 
-/** @returns {boolean|null} */
+/** @returns {boolean|null} Initial setup state. */
 const initialSetupState = () => null;
 
-/** @returns {string|null} */
+/** @returns {string|null} Initial session token. */
 const initialToken = () => null;
 
 /** @param {{config: AppConfig, runtime: AppRuntime, setRommToken: (token: string) => void, setRommUrl: (url: string) => void}} options - Session restore dependencies. */
@@ -53,14 +52,10 @@ const restoreRomMSession = async ({
   setRommUrl,
   setRommToken,
 }) => {
-  if (
-    config.romm?.server_url === undefined ||
-    config.romm.server_url === ""
-  ) {
+  if (config.romm?.server_url === undefined || config.romm.server_url === "") {
     return;
   }
   try {
-    /** @type {{server_url?: string, access_token?: string}} */
     const session = await runtime.invoke("restore_romm_session");
     if (
       session.access_token === undefined ||
@@ -89,7 +84,6 @@ const checkStartupUpdate = async ({
   }
   const channel = toUpdateChannel(config.updater?.channel);
   try {
-    /** @type {UpdateResult} */
     const result = await runtime.invoke("check_for_app_update", { channel });
     if (result.is_update_available !== true) {
       return;
@@ -122,26 +116,11 @@ const checkStartupUpdate = async ({
   }
 };
 
-/** @param {{config: AppConfig, runtime: AppRuntime, rommSessionRestoreStarted: {current: boolean}, setError: (message: string) => void, setImmersiveModeEnabled: (enabled: boolean) => void, setImmersiveModeFullscreen: (enabled: boolean) => void, setRommToken: (token: string) => void, setRommUrl: (url: string) => void, setUpdateSnack: (snack: UpdateSnack) => void, startupUpdateCheckDone: {current: boolean}} options - Startup configuration dependencies. */
-const applyStartupConfig = ({
-  config,
-  runtime,
-  rommSessionRestoreStarted,
-  setImmersiveModeEnabled,
-  setImmersiveModeFullscreen,
-  setRommToken,
-  setRommUrl,
-  setError,
-  setUpdateSnack,
-  startupUpdateCheckDone,
-}) => {
-  const romm = config.romm;
-  if (romm?.server_url !== undefined && romm.server_url !== "") {
-    setRommUrl(romm.server_url);
-  }
-  if (romm?.auth_token !== undefined && romm.auth_token !== "") {
-    setRommToken(romm.auth_token);
-  }
+/** @param {string|undefined} value Configured string value. @returns {value is string} Whether the value is configured. */
+const hasConfiguredValue = (value) => value !== undefined && value !== "";
+
+/** @param {AppConfig} config Loaded application configuration. @param {RommConfig|undefined} romm RomM configuration. */
+const logStartupConfig = (config, romm) => {
   debugLog("startup", "configuration loaded", {
     controllerDeadzone: config.display?.controller_deadzone ?? null,
     fullscreen: Boolean(config.display?.fullscreen),
@@ -155,28 +134,65 @@ const applyStartupConfig = ({
       checkOnStartup: config.updater?.check_on_startup !== false,
     },
   });
+};
+
+/** @param {RommConfig|undefined} romm RomM configuration. @param {(url: string) => void} setRommUrl URL setter. @param {(token: string) => void} setRommToken Token setter. */
+const applyRommConfig = (romm, setRommUrl, setRommToken) => {
+  if (hasConfiguredValue(romm?.server_url)) {
+    setRommUrl(romm.server_url);
+  }
+  if (hasConfiguredValue(romm?.auth_token)) {
+    setRommToken(romm.auth_token);
+  }
+};
+
+/**
+ * @typedef {object} StartupConfigOptions
+ * @property {AppConfig} config - Loaded application configuration.
+ * @property {AppRuntime} runtime - Tauri runtime adapter.
+ * @property {{current: boolean}} rommSessionRestoreStarted - RomM restore guard.
+ * @property {(message: string|null) => void} setError - Error state setter.
+ * @property {(enabled: boolean) => void} setImmersiveModeEnabled - Immersive mode setter.
+ * @property {(enabled: boolean) => void} setImmersiveModeFullscreen - Fullscreen state setter.
+ * @property {(token: string|null) => void} setRommToken - RomM token setter.
+ * @property {(url: string) => void} setRommUrl - RomM URL setter.
+ * @property {(snack: UpdateSnack) => void} setUpdateSnack - Update notification setter.
+ * @property {{current: boolean}} startupUpdateCheckDone - Update check guard.
+ */
+/** @param {StartupConfigOptions} options - Startup configuration dependencies. */
+const applyStartupConfig = ({
+  config,
+  runtime,
+  rommSessionRestoreStarted,
+  setImmersiveModeEnabled,
+  setImmersiveModeFullscreen,
+  setRommToken,
+  setRommUrl,
+  setError,
+  setUpdateSnack,
+  startupUpdateCheckDone,
+}) => {
+  const { romm } = config;
+  applyRommConfig(romm, setRommUrl, setRommToken);
+  logStartupConfig(config, romm);
   setImmersiveModeEnabled(Boolean(config.display?.big_picture));
   setImmersiveModeFullscreen(Boolean(config.display?.fullscreen));
   if (
-    romm?.server_url !== undefined &&
-    romm.server_url !== "" &&
+    hasConfiguredValue(romm?.server_url) &&
     !rommSessionRestoreStarted.current
   ) {
     rommSessionRestoreStarted.current = true;
-    void restoreRomMSession({ runtime, config, setRommUrl, setRommToken });
+    void restoreRomMSession({ config, runtime, setRommToken, setRommUrl });
   }
   if (!startupUpdateCheckDone.current) {
     startupUpdateCheckDone.current = true;
-    void checkStartupUpdate({ runtime, config, setError, setUpdateSnack });
+    void checkStartupUpdate({ config, runtime, setError, setUpdateSnack });
   }
 };
 
 /** @param {AppRuntime} runtime - Tauri boundary used for window operations. */
 const useFullscreenHotkey = (runtime) => {
   useEffect(() => {
-    if (!isTauri()) {
-      return;
-    }
     /** @param {KeyboardEvent} event - Keyboard input from the app window. */
     const onKeyDown = (event) => {
       if (event.key !== "F11") {
@@ -193,15 +209,19 @@ const useFullscreenHotkey = (runtime) => {
         }
       })();
     };
-    window.addEventListener("keydown", onKeyDown);
+    if (isTauri()) {
+      window.addEventListener("keydown", onKeyDown);
+    }
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      if (isTauri()) {
+        window.removeEventListener("keydown", onKeyDown);
+      }
     };
   }, [runtime]);
 };
 
-/** @param {{runtime: AppRuntime, setError: (message: string|null) => void}} options - Startup dependencies. */
-export const useAppStartup = ({ runtime, setError }) => {
+/** @param {{runtime: AppRuntime, setError: (message: string|null) => void}} options Startup data dependencies. */
+const useStartupData = ({ runtime, setError }) => {
   const [showSetup, setShowSetup] = useState(initialSetupState);
   const [platforms, setPlatforms] = useState(EMPTY_PLATFORMS);
   const [rommToken, setRommToken] = useState(initialToken);
@@ -215,7 +235,7 @@ export const useAppStartup = ({ runtime, setError }) => {
   const checkFirstRun = useCallback(async () => {
     try {
       const firstRun = await runtime.invoke("is_first_run");
-      setShowSetup(firstRun === true);
+      setShowSetup(firstRun);
       debugLog("startup", "first-run check complete", { firstRun });
     } catch {
       setShowSetup(false);
@@ -223,21 +243,21 @@ export const useAppStartup = ({ runtime, setError }) => {
   }, [runtime]);
 
   useEffect(() => {
-    void checkFirstRun();
+    queueMicrotask(() => {
+      void checkFirstRun();
+    });
   }, [checkFirstRun]);
 
   const loadData = useCallback(async () => {
     try {
-      /** @type {[AppPlatform, number][]} */
       const platformData = await runtime.invoke("get_platforms_with_games");
       setPlatforms(platformData);
       try {
-        /** @type {AppConfig} */
         const config = await runtime.invoke("get_config");
         applyStartupConfig({
           config,
-          runtime,
           rommSessionRestoreStarted,
+          runtime,
           setError,
           setImmersiveModeEnabled,
           setImmersiveModeFullscreen,
@@ -256,10 +276,38 @@ export const useAppStartup = ({ runtime, setError }) => {
 
   useEffect(() => {
     if (showSetup === false) {
-      void loadData();
+      queueMicrotask(() => {
+        void loadData();
+      });
     }
   }, [loadData, showSetup]);
 
+  return {
+    checkFirstRun,
+    immersiveModeEnabled,
+    immersiveModeFullscreen,
+    loadData,
+    platforms,
+    rommToken,
+    rommUrl,
+    setImmersiveModeEnabled,
+    setImmersiveModeFullscreen,
+    setRommToken,
+    setRommUrl,
+    setShowSetup,
+    setUpdateSnack,
+    showSetup,
+    updateSnack,
+  };
+};
+
+/** @param {{runtime: AppRuntime, setError: (message: string|null) => void, updateSnack: UpdateSnack, setUpdateSnack: import("react").Dispatch<import("react").SetStateAction<UpdateSnack>>}} options Update action dependencies. */
+const useStartupUpdate = ({
+  runtime,
+  setError,
+  updateSnack,
+  setUpdateSnack,
+}) => {
   const runSignedUpdateInstall = useCallback(async () => {
     if (!updateSnack.channel || updateSnack.installing) {
       return;
@@ -269,15 +317,14 @@ export const useAppStartup = ({ runtime, setError }) => {
       installing: true,
       progressLabel: "Downloading…",
     }));
-    let unlistenProgress = () => {};
+    /** @type {(() => void)|null} */
+    let unlistenProgress = null;
     try {
       unlistenProgress = await runtime.listen(
         "signed-updater-progress",
+        /** @param {{payload: {downloaded?: number, total?: number}}} event Update progress event. */
         (event) => {
-          /** @type {{downloaded?: number, total?: number}} */
-          const progress = event.payload ?? {};
-          const downloaded = progress.downloaded;
-          const total = progress.total;
+          const { downloaded, total } = event.payload;
           setUpdateSnack((current) => ({
             ...current,
             progressLabel:
@@ -288,7 +335,7 @@ export const useAppStartup = ({ runtime, setError }) => {
         }
       );
     } catch {
-      unlistenProgress = () => {};
+      // Progress reporting is optional when the updater event bridge is unavailable.
     }
     try {
       await runtime.invoke("install_signed_app_update", {
@@ -301,39 +348,21 @@ export const useAppStartup = ({ runtime, setError }) => {
         installing: false,
         progressLabel: "",
       }));
-    } finally {
-      unlistenProgress();
     }
-  }, [runtime, setError, updateSnack.channel, updateSnack.installing]);
-
-  /** @param {() => Promise<void>} reloadLibrary - Refreshes the desktop library. */
-  const handleImmersiveExit = useCallback(async (reloadLibrary) => {
-    setImmersiveModeEnabled(false);
-    setImmersiveModeFullscreen(false);
-    await reloadLibrary();
-    setImmersiveModeEnabled(false);
-    setImmersiveModeFullscreen(false);
-  }, []);
-
-  /** @param {string} url - RomM server URL. @param {string} token - RomM access token. */
-  const handleRommConnect = useCallback((url, token) => {
-    setRommUrl(url);
-    setRommToken(token);
-  }, []);
-
-  const handleRommDisconnect = useCallback(() => {
-    setRommToken(null);
-  }, []);
-
-  const handleSetupComplete = useCallback(() => {
-    setShowSetup(false);
-  }, []);
+    unlistenProgress?.();
+  }, [
+    runtime,
+    setError,
+    setUpdateSnack,
+    updateSnack.channel,
+    updateSnack.installing,
+  ]);
 
   const handleCloseUpdate = useCallback(() => {
     if (!updateSnack.installing) {
       setUpdateSnack((current) => ({ ...current, open: false }));
     }
-  }, [updateSnack.installing]);
+  }, [setUpdateSnack, updateSnack.installing]);
 
   const handleInstallUpdate = useCallback(() => {
     void runSignedUpdateInstall();
@@ -345,25 +374,87 @@ export const useAppStartup = ({ runtime, setError }) => {
     }
   }, [runtime, updateSnack.url]);
 
-  useFullscreenHotkey(runtime);
-
   return {
-    checkFirstRun,
-    handleSetupComplete,
-    handleImmersiveExit,
     handleCloseUpdate,
     handleInstallUpdate,
     handleOpenRelease,
+    runSignedUpdateInstall,
+  };
+};
+
+/** @param {{setImmersiveModeEnabled: (enabled: boolean) => void, setImmersiveModeFullscreen: (enabled: boolean) => void, setRommToken: (token: string|null) => void, setRommUrl: (url: string) => void, setShowSetup: (show: boolean) => void}} options Startup action setters. */
+const useStartupActions = ({
+  setImmersiveModeEnabled,
+  setImmersiveModeFullscreen,
+  setRommToken,
+  setRommUrl,
+  setShowSetup,
+}) => {
+  const handleImmersiveExit = useCallback(
+    /** @type {(reloadLibrary: () => Promise<void>) => Promise<void>} */
+    async (reloadLibrary) => {
+      setImmersiveModeEnabled(false);
+      setImmersiveModeFullscreen(false);
+      await reloadLibrary();
+      setImmersiveModeEnabled(false);
+      setImmersiveModeFullscreen(false);
+    },
+    [setImmersiveModeEnabled, setImmersiveModeFullscreen]
+  );
+
+  const handleRommConnect = useCallback(
+    /** @type {(url: string, token: string) => void} */
+    (url, token) => {
+      setRommUrl(url);
+      setRommToken(token);
+    },
+    [setRommToken, setRommUrl]
+  );
+
+  const handleRommDisconnect = useCallback(() => {
+    setRommToken(null);
+  }, [setRommToken]);
+
+  const handleSetupComplete = useCallback(() => {
+    setShowSetup(false);
+  }, [setShowSetup]);
+
+  return {
+    handleImmersiveExit,
     handleRommConnect,
     handleRommDisconnect,
-    immersiveModeEnabled,
-    immersiveModeFullscreen,
-    loadData,
-    platforms,
-    rommToken,
-    rommUrl,
-    runSignedUpdateInstall,
-    showSetup,
-    updateSnack,
+    handleSetupComplete,
+  };
+};
+
+/** @param {{runtime: AppRuntime, setError: (message: string|null) => void}} options - Startup dependencies. */
+export const useAppStartup = ({ runtime, setError }) => {
+  const startup = useStartupData({ runtime, setError });
+  const update = useStartupUpdate({
+    runtime,
+    setError,
+    setUpdateSnack: startup.setUpdateSnack,
+    updateSnack: startup.updateSnack,
+  });
+  const actions = useStartupActions({
+    setImmersiveModeEnabled: startup.setImmersiveModeEnabled,
+    setImmersiveModeFullscreen: startup.setImmersiveModeFullscreen,
+    setRommToken: startup.setRommToken,
+    setRommUrl: startup.setRommUrl,
+    setShowSetup: startup.setShowSetup,
+  });
+  useFullscreenHotkey(runtime);
+  return {
+    ...actions,
+    ...update,
+    checkFirstRun: startup.checkFirstRun,
+    immersiveModeEnabled: startup.immersiveModeEnabled,
+    immersiveModeFullscreen: startup.immersiveModeFullscreen,
+    loadData: startup.loadData,
+    platforms: startup.platforms,
+    rommToken: startup.rommToken,
+    rommUrl: startup.rommUrl,
+    showSetup: startup.showSetup,
+    updateSnack: startup.updateSnack,
   };
 };

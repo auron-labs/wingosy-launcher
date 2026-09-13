@@ -3,25 +3,25 @@ import React from "react";
 
 import "./index.css";
 import "./tauri-drag.css";
-import "./iconifySetup";
+import "./iconify-setup";
 import ReactDOM from "react-dom/client";
 
-import App from "./App";
-import { RomDownloadsProvider } from "./RomDownloadsContext";
-import { AppThemeProvider } from "./ThemeContext";
+import App from "./app";
+import { RomDownloadsProvider } from "./rom-downloads-context";
+import { AppThemeProvider } from "./theme-provider";
 import {
   debugLog,
   installNativeConsoleForwarding,
   isVerboseDebugEnabled,
-} from "./utils/debugLog";
-import { isTauri } from "./utils/isTauri";
+} from "./utils/debug-log";
+import { isTauri } from "./utils/is-tauri";
 
 if (isTauri() && isVerboseDebugEnabled()) {
   installNativeConsoleForwarding(invoke);
 }
 
 debugLog("startup", "frontend initialized", {
-  gamepadApi: typeof navigator.getGamepads === "function",
+  gamepadApi: navigator.getGamepads !== undefined,
   runtime: isTauri() ? "tauri" : "browser",
 });
 

@@ -12,18 +12,27 @@ mod romm_live_tests {
     }
 
     fn make_client() -> reqwest::Client {
-        reqwest::Client::builder().cookie_store(true).build().unwrap()
+        reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap()
     }
 
     async fn authenticate(client: &reqwest::Client, url: &str, user: &str, pass: &str) -> String {
         let resp = client
             .post(format!("{}/api/token", url))
             .form(&[
-                ("username", user), ("password", pass),
+                ("username", user),
+                ("password", pass),
                 ("grant_type", "password"),
-                ("scope", "me.read me.write roms.read platforms.read roms.user.read roms.user.write"),
+                (
+                    "scope",
+                    "me.read me.write roms.read platforms.read roms.user.read roms.user.write",
+                ),
             ])
-            .send().await.expect("Failed to connect");
+            .send()
+            .await
+            .expect("Failed to connect");
         assert!(resp.status().is_success(), "Auth failed: {}", resp.status());
         let body: serde_json::Value = resp.json().await.unwrap();
         body["access_token"].as_str().unwrap().to_string()
@@ -43,7 +52,10 @@ mod romm_live_tests {
         let payload: serde_json::Value = serde_json::from_slice(&base64_decode(parts[1])).unwrap();
         let scopes = payload["scopes"].as_str().unwrap_or("");
         assert!(scopes.contains("roms.read"), "Missing roms.read scope");
-        assert!(scopes.contains("platforms.read"), "Missing platforms.read scope");
+        assert!(
+            scopes.contains("platforms.read"),
+            "Missing platforms.read scope"
+        );
         println!("JWT OK: sub={}, scopes={}", payload["sub"], scopes);
     }
 
@@ -52,9 +64,12 @@ mod romm_live_tests {
     async fn auth_bad_password_rejected() {
         let (url, user, _) = load_env();
         let client = make_client();
-        let resp = client.post(format!("{}/api/token", url))
+        let resp = client
+            .post(format!("{}/api/token", url))
             .form(&[("username", user.as_str()), ("password", "wrong")])
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert!(!resp.status().is_success());
         println!("Bad password correctly rejected: {}", resp.status());
     }
@@ -64,8 +79,14 @@ mod romm_live_tests {
     async fn heartbeat_returns_version() {
         let (url, _, _) = load_env();
         let client = make_client();
-        let body: serde_json::Value = client.get(format!("{}/api/heartbeat", url))
-            .send().await.unwrap().json().await.unwrap();
+        let body: serde_json::Value = client
+            .get(format!("{}/api/heartbeat", url))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         let version = body["SYSTEM"]["VERSION"].as_str().unwrap_or("?");
         assert!(!version.is_empty());
         println!("RomM v{}", version);
@@ -83,7 +104,12 @@ mod romm_live_tests {
         let platforms: Vec<serde_json::Value> = client
             .get(format!("{}/api/platforms", url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap().json().await.unwrap();
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
 
         assert!(!platforms.is_empty(), "No platforms");
         for p in &platforms {
@@ -108,7 +134,9 @@ mod romm_live_tests {
             .get(format!("{}/api/roms", url))
             .query(&[("limit", "20"), ("offset", "0")])
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
 
         assert!(resp.status().is_success());
         let text = resp.text().await.unwrap();
@@ -123,35 +151,51 @@ mod romm_live_tests {
         for v in items {
             let id = match v["id"].as_i64() {
                 Some(id) => id as i32,
-                None => { skipped_count += 1; continue; }
+                None => {
+                    skipped_count += 1;
+                    continue;
+                }
             };
 
             let name = v["name"].as_str().unwrap_or("").to_string();
-            let _fs_name = v["fs_name"].as_str()
+            let _fs_name = v["fs_name"]
+                .as_str()
                 .or_else(|| v["file_name"].as_str())
-                .unwrap_or("").to_string();
+                .unwrap_or("")
+                .to_string();
             let platform_slug = v["platform_slug"].as_str().unwrap_or("").to_string();
             let url_cover = v["url_cover"].as_str().map(|s| s.to_string());
             let igdb_id = v["igdb_id"].as_i64().map(|x| x as i32);
 
             assert!(id > 0, "ROM id should be positive");
-            assert!(!platform_slug.is_empty(), "ROM {} missing platform_slug", id);
+            assert!(
+                !platform_slug.is_empty(),
+                "ROM {} missing platform_slug",
+                id
+            );
 
             // Verify igdb_metadata parses without panic
             if let Some(meta) = v.get("igdb_metadata") {
                 if meta.is_object() && !meta.as_object().unwrap().is_empty() {
-                    let _genres: Option<Vec<String>> = meta.get("genres")
+                    let _genres: Option<Vec<String>> = meta
+                        .get("genres")
                         .and_then(|g| serde_json::from_value(g.clone()).ok());
-                    let _release: Option<i64> = meta.get("first_release_date")
-                        .and_then(|d| d.as_i64());
-                    let _rating: Option<f64> = meta.get("aggregated_rating")
-                        .and_then(|r| r.as_f64());
+                    let _release: Option<i64> =
+                        meta.get("first_release_date").and_then(|d| d.as_i64());
+                    let _rating: Option<f64> =
+                        meta.get("aggregated_rating").and_then(|r| r.as_f64());
                 }
             }
 
             parsed_count += 1;
-            println!("  [{}] {} ({}) cover={} igdb={:?}",
-                id, name, platform_slug, url_cover.is_some(), igdb_id);
+            println!(
+                "  [{}] {} ({}) cover={} igdb={:?}",
+                id,
+                name,
+                platform_slug,
+                url_cover.is_some(),
+                igdb_id
+            );
         }
 
         println!("\nParsed: {}, Skipped: {}", parsed_count, skipped_count);
@@ -172,7 +216,12 @@ mod romm_live_tests {
             .get(format!("{}/api/roms", url))
             .query(&[("limit", "20"), ("offset", "0")])
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap().json().await.unwrap();
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
 
         let items = resp["items"].as_array().unwrap();
         let with_cover = items.iter().find(|r| r["url_cover"].is_string());
@@ -211,23 +260,38 @@ mod romm_live_tests {
                 .get(format!("{}/api/roms", url))
                 .query(&[("limit", "100"), ("offset", &offset.to_string())])
                 .header("Authorization", format!("Bearer {}", token))
-                .send().await.unwrap().json().await.unwrap();
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
 
             let items = resp["items"].as_array().unwrap();
             let total = resp["total"].as_i64().unwrap_or(0);
 
-            if items.is_empty() { break; }
+            if items.is_empty() {
+                break;
+            }
 
             for rom in items {
                 let id = rom["id"].as_i64().unwrap_or(0);
-                if !all_rom_ids.insert(id) { continue; }
+                if !all_rom_ids.insert(id) {
+                    continue;
+                }
 
-                if rom["url_cover"].is_string() { total_covers += 1; }
-                if rom["igdb_id"].is_number() { total_with_metadata += 1; }
+                if rom["url_cover"].is_string() {
+                    total_covers += 1;
+                }
+                if rom["igdb_id"].is_number() {
+                    total_with_metadata += 1;
+                }
             }
 
             offset += items.len();
-            if offset as i64 >= total { break; }
+            if offset as i64 >= total {
+                break;
+            }
         }
 
         let elapsed = start.elapsed();
@@ -238,8 +302,11 @@ mod romm_live_tests {
         println!("  With IGDB metadata: {}", total_with_metadata);
 
         assert!(!all_rom_ids.is_empty(), "No ROMs synced");
-        assert!(elapsed.as_secs() < 60,
-            "Sync took {}s, should complete within 60s (no cover downloads)", elapsed.as_secs());
+        assert!(
+            elapsed.as_secs() < 60,
+            "Sync took {}s, should complete within 60s (no cover downloads)",
+            elapsed.as_secs()
+        );
         println!("Performance OK: {:.1}s < 60s limit", elapsed.as_secs_f64());
     }
 
@@ -251,11 +318,26 @@ mod romm_live_tests {
         };
         let padded = padded.replace('-', "+").replace('_', "/");
         fn decode_group(chars: &[u8]) -> Vec<u8> {
-            let table = |c: u8| -> u8 { match c { b'A'..=b'Z' => c-b'A', b'a'..=b'z' => c-b'a'+26, b'0'..=b'9' => c-b'0'+52, b'+' => 62, b'/' => 63, _ => 0 } };
+            let table = |c: u8| -> u8 {
+                match c {
+                    b'A'..=b'Z' => c - b'A',
+                    b'a'..=b'z' => c - b'a' + 26,
+                    b'0'..=b'9' => c - b'0' + 52,
+                    b'+' => 62,
+                    b'/' => 63,
+                    _ => 0,
+                }
+            };
             let mut out = Vec::new();
-            if chars.len() >= 2 { out.push((table(chars[0])<<2)|(table(chars[1])>>4)); }
-            if chars.len() >= 3 && chars[2] != b'=' { out.push((table(chars[1])<<4)|(table(chars[2])>>2)); }
-            if chars.len() >= 4 && chars[3] != b'=' { out.push((table(chars[2])<<6)|table(chars[3])); }
+            if chars.len() >= 2 {
+                out.push((table(chars[0]) << 2) | (table(chars[1]) >> 4));
+            }
+            if chars.len() >= 3 && chars[2] != b'=' {
+                out.push((table(chars[1]) << 4) | (table(chars[2]) >> 2));
+            }
+            if chars.len() >= 4 && chars[3] != b'=' {
+                out.push((table(chars[2]) << 6) | table(chars[3]));
+            }
             out
         }
         padded.as_bytes().chunks(4).flat_map(decode_group).collect()
@@ -335,8 +417,10 @@ mod rom_parsing_tests {
 
         let meta = json.get("igdb_metadata").unwrap();
         assert!(meta.is_object());
-        assert!(meta.as_object().unwrap().is_empty() ||
-            meta.get("genres").and_then(|g| g.as_array()).is_none());
+        assert!(
+            meta.as_object().unwrap().is_empty()
+                || meta.get("genres").and_then(|g| g.as_array()).is_none()
+        );
     }
 
     #[test]

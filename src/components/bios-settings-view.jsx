@@ -25,6 +25,22 @@ const CARD_SX = {
   width: "100%",
 };
 
+/** @param {BiosTotals} totals BIOS counts. @returns {"success"|"default"} Summary chip color. */
+const getBiosSummaryColor = (totals) => {
+  if (totals.missing === 0 && totals.available > 0) {
+    return "success";
+  }
+  return "default";
+};
+
+/** @param {BiosTotals} totals BIOS counts. @returns {string} Availability explanation. */
+const getAvailabilityExplanation = (totals) => {
+  if (totals.unavailable > 0) {
+    return `${totals.unavailable} listed file${totals.unavailable === 1 ? " is" : "s are"} unavailable on the RomM filesystem and excluded from the missing count.`;
+  }
+  return "Missing counts include only files that RomM can provide.";
+};
+
 /**
  * @typedef {object} BiosSettingsViewProps
  * @property {string} biosDirectory - Current BIOS directory.
@@ -45,6 +61,123 @@ const CARD_SX = {
  * @property {BiosTotals} totals - Aggregate firmware counts.
  */
 
+/** @param {Pick<BiosSettingsViewProps, "busy"|"load"|"loading"|"totals">} props BIOS summary state. */
+const BiosSummaryHeader = ({ busy, load, loading, totals }) => (
+  <Box
+    sx={{
+      alignItems: "center",
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 1,
+      mb: 2,
+    }}
+  >
+    <MemoryIcon color="primary" />
+    <Typography variant="h6" sx={{ flex: 1 }}>
+      BIOS &amp; Firmware
+    </Typography>
+    <Chip
+      size="small"
+      label={`${totals.downloaded} downloaded · ${totals.missing} missing`}
+      color={getBiosSummaryColor(totals)}
+    />
+    <Button
+      size="small"
+      variant="outlined"
+      startIcon={<RefreshIcon />}
+      onClick={() => {
+        void load();
+      }}
+      disabled={loading || Boolean(busy)}
+    >
+      Refresh list
+    </Button>
+  </Box>
+);
+
+/** @param {{biosDirectory: string, chooseDirectory: () => Promise<void>, resetDirectory: () => Promise<void>}} props Directory controls. */
+const BiosDirectoryControls = ({
+  biosDirectory,
+  chooseDirectory,
+  resetDirectory,
+}) => (
+  <Box
+    sx={{
+      alignItems: "center",
+      bgcolor: "rgba(0,0,0,0.2)",
+      borderRadius: 2,
+      display: "flex",
+      gap: 1.5,
+      mb: 2,
+      p: 1.5,
+    }}
+  >
+    <FolderOpenIcon color="action" />
+    <Typography
+      variant="body2"
+      sx={{ flex: 1, fontFamily: "monospace", overflowWrap: "anywhere" }}
+    >
+      {biosDirectory === "" ? "Loading..." : biosDirectory}
+    </Typography>
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={() => {
+        void chooseDirectory();
+      }}
+    >
+      Change
+    </Button>
+    <Button
+      size="small"
+      onClick={() => {
+        void resetDirectory();
+      }}
+    >
+      Default
+    </Button>
+  </Box>
+);
+
+/** @param {{busy: string|null, distribute: () => Promise<void>, downloadAll: () => Promise<void>, loading: boolean, totals: BiosTotals}} props BIOS actions. */
+const BiosSummaryActions = ({
+  busy,
+  distribute,
+  downloadAll,
+  loading,
+  totals,
+}) => (
+  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+    <Button
+      variant="contained"
+      startIcon={
+        busy === "all" ? (
+          <CircularProgress size={16} color="inherit" />
+        ) : (
+          <DownloadIcon />
+        )
+      }
+      onClick={() => {
+        void downloadAll();
+      }}
+      disabled={loading || Boolean(busy) || totals.available === 0}
+    >
+      {totals.missing > 0
+        ? `Download ${totals.missing} missing`
+        : "Verify / redownload"}
+    </Button>
+    <Button
+      variant="outlined"
+      onClick={() => {
+        void distribute();
+      }}
+      disabled={loading || Boolean(busy) || totals.downloaded === 0}
+    >
+      {busy === "distribute" ? "Distributing..." : "Distribute to emulators"}
+    </Button>
+  </Box>
+);
+
 /** @param {BiosSettingsViewProps} props - BIOS settings view state and actions. */
 const BiosSummaryCard = ({
   biosDirectory,
@@ -59,37 +192,12 @@ const BiosSummaryCard = ({
   totals,
 }) => (
   <Paper sx={CARD_SX}>
-    <Box
-      sx={{
-        alignItems: "center",
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 1,
-        mb: 2,
-      }}
-    >
-      <MemoryIcon color="primary" />
-      <Typography variant="h6" sx={{ flex: 1 }}>
-        BIOS &amp; Firmware
-      </Typography>
-      <Chip
-        size="small"
-        label={`${totals.downloaded} downloaded · ${totals.missing} missing`}
-        color={totals.missing === 0 && totals.available ? "success" : "default"}
-      />
-      <Button
-        size="small"
-        variant="outlined"
-        startIcon={<RefreshIcon />}
-        onClick={() => {
-          void load();
-        }}
-        disabled={loading || Boolean(busy)}
-      >
-        Refresh list
-      </Button>
-    </Box>
-
+    <BiosSummaryHeader
+      busy={busy}
+      load={load}
+      loading={loading}
+      totals={totals}
+    />
     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       Download firmware from your RomM server, verify its checksum, then install
       it into known emulator BIOS folders. For Switch, Wingosy installs
@@ -102,78 +210,21 @@ const BiosSummaryCard = ({
       data-testid="bios-count-explanation"
     >
       {totals.available} file{totals.available === 1 ? "" : "s"} are available
-      from RomM for download.{" "}
-      {totals.unavailable > 0
-        ? `${totals.unavailable} listed file${totals.unavailable === 1 ? " is" : "s are"} unavailable on the RomM filesystem and excluded from the missing count.`
-        : "Missing counts include only files that RomM can provide."}
+      from RomM for download. {getAvailabilityExplanation(totals)}
     </Typography>
 
-    <Box
-      sx={{
-        alignItems: "center",
-        bgcolor: "rgba(0,0,0,0.2)",
-        borderRadius: 2,
-        display: "flex",
-        gap: 1.5,
-        mb: 2,
-        p: 1.5,
-      }}
-    >
-      <FolderOpenIcon color="action" />
-      <Typography
-        variant="body2"
-        sx={{ flex: 1, fontFamily: "monospace", overflowWrap: "anywhere" }}
-      >
-        {biosDirectory || "Loading..."}
-      </Typography>
-      <Button
-        size="small"
-        variant="outlined"
-        onClick={() => {
-          void chooseDirectory();
-        }}
-      >
-        Change
-      </Button>
-      <Button
-        size="small"
-        onClick={() => {
-          void resetDirectory();
-        }}
-      >
-        Default
-      </Button>
-    </Box>
-
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-      <Button
-        variant="contained"
-        startIcon={
-          busy === "all" ? (
-            <CircularProgress size={16} color="inherit" />
-          ) : (
-            <DownloadIcon />
-          )
-        }
-        onClick={() => {
-          void downloadAll();
-        }}
-        disabled={loading || Boolean(busy) || totals.available === 0}
-      >
-        {totals.missing > 0
-          ? `Download ${totals.missing} missing`
-          : "Verify / redownload"}
-      </Button>
-      <Button
-        variant="outlined"
-        onClick={() => {
-          void distribute();
-        }}
-        disabled={loading || Boolean(busy) || totals.downloaded === 0}
-      >
-        {busy === "distribute" ? "Distributing..." : "Distribute to emulators"}
-      </Button>
-    </Box>
+    <BiosDirectoryControls
+      biosDirectory={biosDirectory}
+      chooseDirectory={chooseDirectory}
+      resetDirectory={resetDirectory}
+    />
+    <BiosSummaryActions
+      busy={busy}
+      distribute={distribute}
+      downloadAll={downloadAll}
+      loading={loading}
+      totals={totals}
+    />
     {message && (
       <Alert severity={message.type} sx={{ mt: 2 }}>
         {message.text}
@@ -181,6 +232,45 @@ const BiosSummaryCard = ({
     )}
   </Paper>
 );
+
+/** @param {Pick<BiosSettingsViewProps, "busy"|"downloadGroup"|"downloadOne"|"expanded"|"groups"|"libraryPlatformIds"|"loading"|"setExpanded">} props BIOS group content. */
+const BiosGroupsContent = ({
+  busy,
+  downloadGroup,
+  downloadOne,
+  expanded,
+  groups,
+  libraryPlatformIds,
+  loading,
+  setExpanded,
+}) => {
+  if (loading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (groups.length === 0) {
+    return (
+      <Alert severity="info">
+        No firmware was returned by RomM. Sync the library and confirm the token
+        has the firmware.read scope.
+      </Alert>
+    );
+  }
+  return (
+    <BiosFirmwareGroups
+      busy={busy}
+      downloadGroup={downloadGroup}
+      downloadOne={downloadOne}
+      expanded={expanded}
+      groups={groups}
+      libraryPlatformIds={libraryPlatformIds}
+      setExpanded={setExpanded}
+    />
+  );
+};
 
 /** @param {BiosSettingsViewProps} props - BIOS settings view state and actions. */
 const BiosGroupsCard = ({
@@ -197,26 +287,16 @@ const BiosGroupsCard = ({
     <Typography variant="h6" gutterBottom>
       Available from RomM
     </Typography>
-    {loading ? (
-      <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-        <CircularProgress />
-      </Box>
-    ) : groups.length === 0 ? (
-      <Alert severity="info">
-        No firmware was returned by RomM. Sync the library and confirm the token
-        has the firmware.read scope.
-      </Alert>
-    ) : (
-      <BiosFirmwareGroups
-        busy={busy}
-        downloadGroup={downloadGroup}
-        downloadOne={downloadOne}
-        expanded={expanded}
-        groups={groups}
-        libraryPlatformIds={libraryPlatformIds}
-        setExpanded={setExpanded}
-      />
-    )}
+    <BiosGroupsContent
+      busy={busy}
+      downloadGroup={downloadGroup}
+      downloadOne={downloadOne}
+      expanded={expanded}
+      groups={groups}
+      libraryPlatformIds={libraryPlatformIds}
+      loading={loading}
+      setExpanded={setExpanded}
+    />
   </Paper>
 );
 

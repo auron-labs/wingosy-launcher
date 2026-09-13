@@ -7,8 +7,8 @@
 mod api;
 mod bios;
 mod commands;
-mod controller;
 mod config;
+mod controller;
 mod database;
 mod emulators;
 mod models;
@@ -26,14 +26,14 @@ fn logging_directory() -> std::path::PathBuf {
 
 fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let log_dir = logging_directory();
-    
+
     // Create log directory if it doesn't exist
     std::fs::create_dir_all(&log_dir).ok();
-    
+
     // Set up a daily rolling file appender. Older files are retained until removed by the user.
     let file_appender = tracing_appender::rolling::daily(&log_dir, "wingosy.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-    
+
     // Create file layer with more detailed output
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
@@ -42,29 +42,27 @@ fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
         .with_thread_ids(true)
         .with_file(true)
         .with_line_number(true);
-    
+
     // Console layer (only in debug builds or when RUST_LOG is set)
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_target(false);
-    
+    let console_layer = tracing_subscriber::fmt::layer().with_target(false);
+
     // Set log level: debug for dev, info for release
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            if cfg!(debug_assertions) {
-                "wingosy_launcher=debug".into()
-            } else {
-                "wingosy_launcher=info".into()
-            }
-        });
-    
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+            "wingosy_launcher=debug".into()
+        } else {
+            "wingosy_launcher=info".into()
+        }
+    });
+
     tracing_subscriber::registry()
         .with(env_filter)
         .with(file_layer)
         .with(console_layer)
         .init();
-    
+
     tracing::info!("Log file: {:?}", log_dir.join("wingosy.log"));
-    
+
     Some(guard)
 }
 
@@ -73,7 +71,14 @@ fn main() {
     let _log_guard = setup_logging();
 
     tracing::info!("Starting Wingosy Launcher v{}", env!("CARGO_PKG_VERSION"));
-    tracing::info!("Build type: {}", if cfg!(debug_assertions) { "debug" } else { "release" });
+    tracing::info!(
+        "Build type: {}",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
+    );
 
     let builder = tauri::Builder::default();
 
@@ -170,8 +175,7 @@ fn main() {
             commands::install_signed_app_update,
         ])
         .setup(|_app| {
-            let db = database::Database::open()
-                .expect("Failed to open database");
+            let db = database::Database::open().expect("Failed to open database");
 
             if db.get_all_platforms().unwrap_or_default().is_empty() {
                 db.initialize_default_platforms()
@@ -190,7 +194,8 @@ fn main() {
 mod tests {
     #[test]
     fn logging_path_uses_the_public_config_logs_directory() {
-        let configured = crate::config::AppConfig::logs_dir().expect("logs directory should be available");
+        let configured =
+            crate::config::AppConfig::logs_dir().expect("logs directory should be available");
         assert_eq!(super::logging_directory(), configured);
     }
 }

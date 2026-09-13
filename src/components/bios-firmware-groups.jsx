@@ -13,7 +13,7 @@ import ListItemText from "@mui/material/ListItemText";
 /** @typedef {import("./bios-types").BiosFirmware} BiosFirmware */
 /** @typedef {import("./bios-types").BiosGroup} BiosGroup */
 
-/** @param {number} bytes */
+/** @param {number} bytes Byte count to format. */
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return "Unknown size";
@@ -37,125 +37,23 @@ const formatBytes = (bytes) => {
  * @property {() => void} onToggle - Toggle group expansion.
  */
 
-/** @param {BiosGroupRowProps} props - Group state and download actions. */
-const BiosGroupRow = ({
-  busy,
-  downloadGroup,
-  downloadOne,
-  expanded,
-  group,
-  libraryRelevant,
-  onToggle,
-}) => {
-  const availableItems = group.items.filter((item) => !item.missing_from_fs);
-  const downloaded = group.items.filter((item) => item.is_downloaded).length;
-  const unavailable = group.items.length - availableItems.length;
-  const missing = availableItems.filter((item) => !item.is_downloaded).length;
-  const complete = availableItems.length > 0 && missing === 0;
-  const platformBusy = busy === `platform:${group.slug}`;
-  const groupCount =
-    availableItems.length === 0
-      ? `${downloaded} downloaded · ${unavailable} unavailable on RomM`
-      : `${downloaded} of ${availableItems.length} available downloaded${unavailable > 0 ? ` · ${unavailable} unavailable on RomM` : ""}`;
-
-  return (
-    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-      <ListItem sx={{ cursor: "pointer", pr: 2, gap: 1 }} onClick={onToggle}>
-        <ListItemText
-          sx={{ flex: "1 1 auto", minWidth: 0 }}
-          primary={
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                flexWrap: "wrap",
-              }}
-            >
-              <span>{group.name}</span>
-              {libraryRelevant && (
-                <Chip
-                  size="small"
-                  label="Needed by your library"
-                  color="primary"
-                  variant="outlined"
-                />
-              )}
-            </Box>
-          }
-          secondary={groupCount}
-        />
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.5,
-            flexShrink: 0,
-          }}
-        >
-          <Chip
-            size="small"
-            label={
-              unavailable === group.items.length
-                ? "Unavailable"
-                : complete
-                  ? "Ready"
-                  : "Missing"
-            }
-            color={complete ? "success" : "default"}
-          />
-          {missing > 0 && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={
-                platformBusy ? <CircularProgress size={14} /> : <DownloadIcon />
-              }
-              disabled={Boolean(busy)}
-              onClick={(event) => {
-                event.stopPropagation();
-                void downloadGroup(group);
-              }}
-            >
-              {platformBusy ? "Downloading…" : `Download missing (${missing})`}
-            </Button>
-          )}
-          <Button
-            size="small"
-            variant="text"
-            startIcon={expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            aria-expanded={expanded}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggle();
-            }}
-          >
-            {expanded ? "Hide files" : "Show files"}
-          </Button>
-        </Box>
-      </ListItem>
-      <Collapse in={expanded} unmountOnExit>
-        <List disablePadding sx={{ pl: 3, pb: 1 }}>
-          {group.items.map((item) => (
-            <BiosFirmwareItem
-              busy={busy}
-              item={item}
-              key={item.id}
-              onDownload={downloadOne}
-            />
-          ))}
-        </List>
-      </Collapse>
-    </Box>
-  );
-};
-
 /**
  * @typedef {object} BiosFirmwareItemProps
  * @property {string|null} busy - Current BIOS operation identifier.
  * @property {BiosFirmware} item - Firmware item to display.
  * @property {(id: number, fileName: string) => Promise<void>} onDownload - Download one file.
  */
+
+/** @param {BiosFirmware} item Firmware item. @returns {string} Secondary item text. */
+const getFirmwareSecondary = (item) => {
+  if (item.missing_from_fs) {
+    return "Missing from RomM filesystem";
+  }
+  if (item.is_downloaded) {
+    return item.local_path ?? formatBytes(item.file_size_bytes);
+  }
+  return formatBytes(item.file_size_bytes);
+};
 
 /** @param {BiosFirmwareItemProps} props - Firmware item and download action. */
 const BiosFirmwareItem = ({ busy, item, onDownload }) => (
@@ -181,13 +79,7 @@ const BiosFirmwareItem = ({ busy, item, onDownload }) => (
   >
     <ListItemText
       primary={item.file_name}
-      secondary={
-        item.missing_from_fs
-          ? "Missing from RomM filesystem"
-          : item.is_downloaded
-            ? item.local_path
-            : formatBytes(item.file_size_bytes)
-      }
+      secondary={getFirmwareSecondary(item)}
       slotProps={{
         primary: { sx: { fontFamily: "monospace" }, variant: "body2" },
         secondary: { sx: { overflowWrap: "anywhere", pr: 12 } },
@@ -195,6 +87,157 @@ const BiosFirmwareItem = ({ busy, item, onDownload }) => (
     />
   </ListItem>
 );
+
+/** @param {BiosGroup} group Firmware group. @param {number} downloaded Downloaded count. @param {number} unavailable Unavailable count. @returns {string} Group summary. */
+const getGroupCount = (group, downloaded, unavailable) => {
+  if (group.items.length - unavailable === 0) {
+    return `${downloaded} downloaded · ${unavailable} unavailable on RomM`;
+  }
+  const suffix = unavailable > 0 ? ` · ${unavailable} unavailable on RomM` : "";
+  return `${downloaded} of ${group.items.length - unavailable} available downloaded${suffix}`;
+};
+
+/** @param {boolean} allUnavailable Every file is unavailable. @param {boolean} complete Every available file is downloaded. @returns {string} Status label. */
+const getGroupStatus = (allUnavailable, complete) => {
+  if (allUnavailable) {
+    return "Unavailable";
+  }
+  return complete ? "Ready" : "Missing";
+};
+
+/** @param {{busy: string|null, complete: boolean, allUnavailable: boolean, downloadGroup: (group: BiosGroup) => Promise<void>, group: BiosGroup, missing: number, platformBusy: boolean}} props Group action properties. */
+const BiosGroupActions = ({
+  allUnavailable,
+  busy,
+  complete,
+  downloadGroup,
+  group,
+  missing,
+  platformBusy,
+}) => (
+  <Box
+    sx={{
+      alignItems: "center",
+      display: "flex",
+      flexShrink: 0,
+      gap: 0.5,
+    }}
+  >
+    <Chip
+      size="small"
+      label={getGroupStatus(allUnavailable, complete)}
+      color={complete ? "success" : "default"}
+    />
+    {missing > 0 && (
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={
+          platformBusy ? <CircularProgress size={14} /> : <DownloadIcon />
+        }
+        disabled={busy !== null}
+        onClick={(event) => {
+          event.stopPropagation();
+          void downloadGroup(group);
+        }}
+      >
+        {platformBusy ? "Downloading…" : `Download missing (${missing})`}
+      </Button>
+    )}
+  </Box>
+);
+
+/** @param {{busy: string|null, downloadOne: (id: number, fileName: string) => Promise<void>, expanded: boolean, group: BiosGroup}} props Group file properties. */
+const BiosGroupFiles = ({ busy, downloadOne, expanded, group }) => (
+  <Collapse in={expanded} unmountOnExit>
+    <List disablePadding sx={{ pb: 1, pl: 3 }}>
+      {group.items.map((item) => (
+        <BiosFirmwareItem
+          busy={busy}
+          item={item}
+          key={item.id}
+          onDownload={downloadOne}
+        />
+      ))}
+    </List>
+  </Collapse>
+);
+
+/** @param {BiosGroupRowProps} props Group state and download actions. */
+const BiosGroupRow = ({
+  busy,
+  downloadGroup,
+  downloadOne,
+  expanded,
+  group,
+  libraryRelevant,
+  onToggle,
+}) => {
+  const availableItems = group.items.filter((item) => !item.missing_from_fs);
+  const downloaded = group.items.filter((item) => item.is_downloaded).length;
+  const unavailable = group.items.length - availableItems.length;
+  const missing = availableItems.filter((item) => !item.is_downloaded).length;
+  const complete = availableItems.length > 0 && missing === 0;
+  const platformBusy = busy === `platform:${group.slug}`;
+  const allUnavailable = unavailable === group.items.length;
+  return (
+    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+      <ListItem sx={{ cursor: "pointer", gap: 1, pr: 2 }} onClick={onToggle}>
+        <ListItemText
+          sx={{ flex: "1 1 auto", minWidth: 0 }}
+          primary={
+            <Box
+              sx={{
+                alignItems: "center",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 1,
+              }}
+            >
+              <span>{group.name}</span>
+              {libraryRelevant && (
+                <Chip
+                  size="small"
+                  label="Needed by your library"
+                  color="primary"
+                  variant="outlined"
+                />
+              )}
+            </Box>
+          }
+          secondary={getGroupCount(group, downloaded, unavailable)}
+        />
+        <BiosGroupActions
+          busy={busy}
+          complete={complete}
+          allUnavailable={allUnavailable}
+          downloadGroup={downloadGroup}
+          group={group}
+          missing={missing}
+          platformBusy={platformBusy}
+        />
+        <Button
+          size="small"
+          variant="text"
+          startIcon={expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          aria-expanded={expanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          {expanded ? "Hide files" : "Show files"}
+        </Button>
+      </ListItem>
+      <BiosGroupFiles
+        busy={busy}
+        downloadOne={downloadOne}
+        expanded={expanded}
+        group={group}
+      />
+    </Box>
+  );
+};
 
 /**
  * @typedef {object} BiosFirmwareGroupsProps
@@ -223,7 +266,7 @@ export const BiosFirmwareGroups = ({
         busy={busy}
         downloadGroup={downloadGroup}
         downloadOne={downloadOne}
-        expanded={Boolean(expanded[group.slug])}
+        expanded={expanded[group.slug]}
         group={group}
         key={group.slug}
         libraryRelevant={libraryPlatformIds.has(group.slug)}

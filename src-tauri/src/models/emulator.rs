@@ -66,7 +66,9 @@ pub fn default_emulators() -> Vec<Emulator> {
             is_installed: false,
             github_repo: None,
             asset_pattern: None,
-            download_url: Some("https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch.7z".into()),
+            download_url: Some(
+                "https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch.7z".into(),
+            ),
             archive_format: Some("7z".into()),
         },
         Emulator {

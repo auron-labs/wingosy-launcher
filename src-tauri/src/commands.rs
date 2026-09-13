@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::api::{
@@ -11,8 +11,8 @@ use crate::api::{
 };
 use crate::config::{AppConfig, RetroArchInstallKind, RomMConfig, UpdateChannel};
 use crate::database::Database;
-use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::emulators::detection::detect_installed_emulators;
+use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::models::{
     default_emulators, retroarch_cores, Collection, Game, GameFilter, GameSort, GameSource,
     Platform,
@@ -94,12 +94,12 @@ fn retroarch_has_core_ready_for_platform(platform_id: &str) -> Result<bool, Stri
 /// If the file already has a valid extension, returns it unchanged.
 fn ensure_rom_extension(filename: &str, platform_id: &str) -> String {
     let path = Path::new(filename);
-    
+
     // If it already has an extension, return as-is
     if path.extension().is_some() {
         return filename.to_string();
     }
-    
+
     // Map platform IDs to their primary ROM extension
     let extension = match platform_id {
         "gba" => "gba",
@@ -128,7 +128,7 @@ fn ensure_rom_extension(filename: &str, platform_id: &str) -> String {
         "arcade" => "zip",
         _ => return filename.to_string(), // Unknown platform, return as-is
     };
-    
+
     format!("{}.{}", filename, extension)
 }
 
@@ -238,7 +238,7 @@ pub async fn get_all_games() -> Result<Vec<Game>, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
     let games = db.get_all_games().map_err(|e| e.to_string())?;
     tracing::info!("[Library] Loaded {} games from database", games.len());
-    
+
     // Validate local paths and update sync states
     let validated_games = validate_game_paths(games, &db);
     Ok(validated_games)
@@ -247,89 +247,110 @@ pub async fn get_all_games() -> Result<Vec<Game>, String> {
 /// Validate that local ROM files exist and update sync states accordingly
 fn validate_game_paths(games: Vec<Game>, db: &Database) -> Vec<Game> {
     let config = AppConfig::load().ok();
-    
-    games.into_iter().map(|mut game| {
-        let original_state = game.sync_state;
-        let original_path = game.local_file_path.clone();
-        
-        // Check if local file path exists
-        if let Some(ref local_path) = game.local_file_path {
-            // Normalize the path for Windows (handle forward/back slashes)
-            let normalized_path = std::path::PathBuf::from(local_path);
-            let path_exists = normalized_path.exists() || {
-                // Also try canonicalizing the path
-                normalized_path.canonicalize().map(|p| p.exists()).unwrap_or(false)
-            };
-            
-            if path_exists {
-                // File exists - mark as synced if it was remote_only
-                if game.sync_state == crate::models::SyncState::RemoteOnly {
-                    game.sync_state = crate::models::SyncState::Synced;
-                    tracing::debug!("[Validation] Game {} file exists, marking as synced", game.name);
-                }
-            } else {
-                tracing::debug!("[Validation] Game {} file not found at: {:?}", game.name, normalized_path);
-                // File doesn't exist - mark as remote only if from RomM
-                // But only reset if it's been a while (file might be temporarily unavailable)
-                if game.romm_id.is_some() {
-                    // Try to discover the file in case it was moved
-                    if let Some(ref cfg) = config {
-                        if let Some(discovered_path) = discover_rom_file(&game, cfg) {
-                            tracing::info!("[Validation] Re-discovered ROM at: {}", discovered_path);
-                            game.local_file_path = Some(discovered_path);
-                            game.sync_state = crate::models::SyncState::Synced;
+
+    games
+        .into_iter()
+        .map(|mut game| {
+            let original_state = game.sync_state;
+            let original_path = game.local_file_path.clone();
+
+            // Check if local file path exists
+            if let Some(ref local_path) = game.local_file_path {
+                // Normalize the path for Windows (handle forward/back slashes)
+                let normalized_path = std::path::PathBuf::from(local_path);
+                let path_exists = normalized_path.exists() || {
+                    // Also try canonicalizing the path
+                    normalized_path
+                        .canonicalize()
+                        .map(|p| p.exists())
+                        .unwrap_or(false)
+                };
+
+                if path_exists {
+                    // File exists - mark as synced if it was remote_only
+                    if game.sync_state == crate::models::SyncState::RemoteOnly {
+                        game.sync_state = crate::models::SyncState::Synced;
+                        tracing::debug!(
+                            "[Validation] Game {} file exists, marking as synced",
+                            game.name
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        "[Validation] Game {} file not found at: {:?}",
+                        game.name,
+                        normalized_path
+                    );
+                    // File doesn't exist - mark as remote only if from RomM
+                    // But only reset if it's been a while (file might be temporarily unavailable)
+                    if game.romm_id.is_some() {
+                        // Try to discover the file in case it was moved
+                        if let Some(ref cfg) = config {
+                            if let Some(discovered_path) = discover_rom_file(&game, cfg) {
+                                tracing::info!(
+                                    "[Validation] Re-discovered ROM at: {}",
+                                    discovered_path
+                                );
+                                game.local_file_path = Some(discovered_path);
+                                game.sync_state = crate::models::SyncState::Synced;
+                            } else {
+                                game.sync_state = crate::models::SyncState::RemoteOnly;
+                                game.local_file_path = None;
+                            }
                         } else {
                             game.sync_state = crate::models::SyncState::RemoteOnly;
                             game.local_file_path = None;
                         }
+                    }
+                }
+            } else if game.romm_id.is_some() {
+                // No local path but has RomM ID - try to discover file
+                if let Some(ref cfg) = config {
+                    if let Some(discovered_path) = discover_rom_file(&game, cfg) {
+                        game.local_file_path = Some(discovered_path);
+                        game.sync_state = crate::models::SyncState::Synced;
                     } else {
                         game.sync_state = crate::models::SyncState::RemoteOnly;
-                        game.local_file_path = None;
                     }
                 }
             }
-        } else if game.romm_id.is_some() {
-            // No local path but has RomM ID - try to discover file
-            if let Some(ref cfg) = config {
-                if let Some(discovered_path) = discover_rom_file(&game, cfg) {
-                    game.local_file_path = Some(discovered_path);
-                    game.sync_state = crate::models::SyncState::Synced;
-                } else {
-                    game.sync_state = crate::models::SyncState::RemoteOnly;
+
+            // Persist changes if state or path changed
+            if game.sync_state != original_state || game.local_file_path != original_path {
+                tracing::debug!(
+                    "[Validation] Game {} state changed: {:?} -> {:?}",
+                    game.name,
+                    original_state,
+                    game.sync_state
+                );
+                if let Err(e) = db.update_game(&game) {
+                    tracing::warn!("[Library] Failed to update game {}: {}", game.id, e);
                 }
             }
-        }
-        
-        // Persist changes if state or path changed
-        if game.sync_state != original_state || game.local_file_path != original_path {
-            tracing::debug!("[Validation] Game {} state changed: {:?} -> {:?}", game.name, original_state, game.sync_state);
-            if let Err(e) = db.update_game(&game) {
-                tracing::warn!("[Library] Failed to update game {}: {}", game.id, e);
-            }
-        }
-        
-        game
-    }).collect()
+
+            game
+        })
+        .collect()
 }
 
 /// Try to discover a ROM file in expected locations
 fn discover_rom_file(game: &Game, config: &AppConfig) -> Option<String> {
     let roms_dir = config.roms_dir();
     let platform_dir = roms_dir.join(&game.platform_id);
-    
+
     if !platform_dir.exists() {
         return None;
     }
-    
+
     // Normalize game name for matching
     let normalized_name = normalize_for_match(&game.name);
-    
+
     // Also try matching the file_path (which contains the original filename)
     let file_path_stem = std::path::Path::new(&game.file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .map(normalize_for_match);
-    
+
     // Search for matching files
     if let Ok(entries) = std::fs::read_dir(&platform_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -337,13 +358,13 @@ fn discover_rom_file(game: &Game, config: &AppConfig) -> Option<String> {
             if path.is_file() {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     let normalized_stem = normalize_for_match(stem);
-                    
+
                     // Match by game name or original filename
                     if normalized_stem == normalized_name {
                         tracing::debug!("[Discovery] Found ROM by name: {:?}", path);
                         return Some(path.to_string_lossy().to_string());
                     }
-                    
+
                     if let Some(ref fp_stem) = file_path_stem {
                         if &normalized_stem == fp_stem {
                             tracing::debug!("[Discovery] Found ROM by filename: {:?}", path);
@@ -354,7 +375,7 @@ fn discover_rom_file(game: &Game, config: &AppConfig) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -378,16 +399,19 @@ pub async fn get_games_filtered(
     sort_by: Option<String>,
 ) -> Result<Vec<Game>, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
-    
-    let sort = sort_by.as_deref().map(|s| match s {
-        "name" => GameSort::Name,
-        "last_played" => GameSort::LastPlayed,
-        "play_count" => GameSort::PlayCount,
-        "play_time" => GameSort::PlayTime,
-        "release_year" => GameSort::ReleaseYear,
-        _ => GameSort::Name,
-    }).unwrap_or(GameSort::Name);
-    
+
+    let sort = sort_by
+        .as_deref()
+        .map(|s| match s {
+            "name" => GameSort::Name,
+            "last_played" => GameSort::LastPlayed,
+            "play_count" => GameSort::PlayCount,
+            "play_time" => GameSort::PlayTime,
+            "release_year" => GameSort::ReleaseYear,
+            _ => GameSort::Name,
+        })
+        .unwrap_or(GameSort::Name);
+
     let filter = GameFilter {
         platform_id,
         genre: None,
@@ -396,7 +420,7 @@ pub async fn get_games_filtered(
         sort_by: sort,
         sort_descending: false,
     };
-    
+
     db.get_games_filtered(&filter).map_err(|e| e.to_string())
 }
 
@@ -461,10 +485,13 @@ pub async fn get_favorite_games() -> Result<Vec<Game>, String> {
 #[tauri::command]
 pub async fn toggle_favorite(game_id: i64) -> Result<bool, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
     let new_state = !game.is_favorite;
-    db.set_favorite(game_id, new_state).map_err(|e| e.to_string())?;
+    db.set_favorite(game_id, new_state)
+        .map_err(|e| e.to_string())?;
     Ok(new_state)
 }
 
@@ -502,14 +529,27 @@ impl LaunchStage {
             (
                 Self::Resolving,
                 Self::Downloading | Self::BiosPreparation | Self::SaveSync | Self::Failure,
-            )
-                | (Self::Downloading, Self::Downloading | Self::Validating | Self::Failure)
-                | (Self::Validating, Self::Finalizing | Self::Failure)
-                | (Self::Finalizing, Self::BiosPreparation | Self::SaveSync | Self::Failure)
+            ) | (
+                Self::Downloading,
+                Self::Downloading | Self::Validating | Self::Failure
+            ) | (Self::Validating, Self::Finalizing | Self::Failure)
+                | (
+                    Self::Finalizing,
+                    Self::BiosPreparation | Self::SaveSync | Self::Failure
+                )
                 | (Self::BiosPreparation, Self::SaveSync | Self::Failure)
-                | (Self::SaveSync, Self::Launching | Self::Completion | Self::Failure)
-                | (Self::Launching, Self::Running | Self::Completion | Self::Failure)
-                | (Self::Running, Self::SaveSync | Self::Completion | Self::Failure)
+                | (
+                    Self::SaveSync,
+                    Self::Launching | Self::Completion | Self::Failure
+                )
+                | (
+                    Self::Launching,
+                    Self::Running | Self::Completion | Self::Failure
+                )
+                | (
+                    Self::Running,
+                    Self::SaveSync | Self::Completion | Self::Failure
+                )
         )
     }
 }
@@ -616,22 +656,18 @@ impl<R: Runtime> WindowRestoration<R> {
         };
 
         let was_fullscreen = self.was_fullscreen;
-        for_each_window_restoration_action(was_fullscreen, |action| {
-            match action {
-                WindowRestorationAction::Show => Self::attempt("show", window.show()),
-                WindowRestorationAction::Unminimize => {
-                    Self::attempt("unminimize", window.unminimize())
-                }
-                WindowRestorationAction::Focus => Self::attempt("focus", window.set_focus()),
-                WindowRestorationAction::SetFullscreen(value) => Self::attempt(
-                    if was_fullscreen == Some(true) && !value {
-                        "leave fullscreen"
-                    } else {
-                        "restore fullscreen"
-                    },
-                    window.set_fullscreen(value),
-                ),
-            }
+        for_each_window_restoration_action(was_fullscreen, |action| match action {
+            WindowRestorationAction::Show => Self::attempt("show", window.show()),
+            WindowRestorationAction::Unminimize => Self::attempt("unminimize", window.unminimize()),
+            WindowRestorationAction::Focus => Self::attempt("focus", window.set_focus()),
+            WindowRestorationAction::SetFullscreen(value) => Self::attempt(
+                if was_fullscreen == Some(true) && !value {
+                    "leave fullscreen"
+                } else {
+                    "restore fullscreen"
+                },
+                window.set_fullscreen(value),
+            ),
         });
     }
 
@@ -727,15 +763,7 @@ fn emit_launch_progress(
     stage: LaunchStage,
     error: Option<&str>,
 ) -> Option<LaunchStage> {
-    emit_launch_progress_with_metrics(
-        app,
-        game_id,
-        game_name,
-        previous_stage,
-        stage,
-        error,
-        None,
-    )
+    emit_launch_progress_with_metrics(app, game_id, game_name, previous_stage, stage, error, None)
 }
 
 fn emit_launch_progress_with_metrics(
@@ -763,13 +791,7 @@ fn emit_launch_progress_with_metrics(
     };
     if let Err(e) = app.emit(
         "game-launch-progress",
-        launch_progress_event_with_metrics(
-            game_id,
-            game_name,
-            stage,
-            error,
-            metrics,
-        ),
+        launch_progress_event_with_metrics(game_id, game_name, stage, error, metrics),
     ) {
         tracing::warn!("[Launch] Failed to emit progress: {e}");
     }
@@ -959,9 +981,8 @@ fn fill_expected_size(
         progress.total = expected_size;
         if progress.percent.is_none() {
             progress.percent = expected_size.and_then(|total| {
-                (total > 0).then(|| {
-                    (progress.downloaded as f64 / total as f64 * 100.0).min(100.0) as u8
-                })
+                (total > 0)
+                    .then(|| (progress.downloaded as f64 / total as f64 * 100.0).min(100.0) as u8)
             });
         }
     }
@@ -1037,7 +1058,8 @@ pub async fn prepare_and_launch_game(
 #[tauri::command]
 pub fn get_native_controllers() -> Result<Vec<crate::controller::NativeController>, String> {
     let config = AppConfig::load().map_err(|error| error.to_string())?;
-    crate::controller::list_native_controllers(&config.controllers).map_err(|error| error.to_string())
+    crate::controller::list_native_controllers(&config.controllers)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1132,13 +1154,8 @@ async fn run_launch_pipeline(
                 return Ok(failed_launch_result(error));
             }
             Err(error) => {
-                let error = emit_launch_failure(
-                    app.as_ref(),
-                    game.id,
-                    &game.name,
-                    previous_stage,
-                    error,
-                );
+                let error =
+                    emit_launch_failure(app.as_ref(), game.id, &game.name, previous_stage, error);
                 return Ok(failed_launch_result(error));
             }
         };
@@ -1206,13 +1223,8 @@ async fn run_launch_pipeline(
         let prepared = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
-                let error = emit_launch_failure(
-                    app.as_ref(),
-                    game.id,
-                    &game.name,
-                    previous_stage,
-                    error,
-                );
+                let error =
+                    emit_launch_failure(app.as_ref(), game.id, &game.name, previous_stage, error);
                 return Ok(failed_launch_result(error));
             }
         };
@@ -1317,9 +1329,7 @@ async fn run_launch_pipeline(
             game.id,
             &game.name,
             previous_stage,
-            format!(
-                "BIOS preparation failed: {error}. Check RomM and BIOS Settings, then retry."
-            ),
+            format!("BIOS preparation failed: {error}. Check RomM and BIOS Settings, then retry."),
         );
         return Ok(failed_launch_result(error));
     }
@@ -1470,8 +1480,16 @@ async fn run_launch_pipeline(
     }
 
     match result {
-        LaunchResult::Success { duration_minutes, exit_code, .. } => {
-            tracing::info!("[Launch] Game exited successfully (duration: {}min, exit_code: {:?})", duration_minutes, exit_code);
+        LaunchResult::Success {
+            duration_minutes,
+            exit_code,
+            ..
+        } => {
+            tracing::info!(
+                "[Launch] Game exited successfully (duration: {}min, exit_code: {:?})",
+                duration_minutes,
+                exit_code
+            );
             let result = LaunchGameResult {
                 success: true,
                 error: None,
@@ -1514,13 +1532,8 @@ async fn run_launch_pipeline(
         }
         LaunchResult::FileNotFound(path) => {
             let error = format!("ROM file not found: {path}");
-            let error = emit_launch_failure(
-                app.as_ref(),
-                game.id,
-                &game.name,
-                previous_stage,
-                error,
-            );
+            let error =
+                emit_launch_failure(app.as_ref(), game.id, &game.name, previous_stage, error);
             let mut result = failed_launch_result(error);
             result.save_sync_warnings = save_sync_warnings;
             result.save_sync_messages = save_sync_messages;
@@ -1557,37 +1570,43 @@ async fn run_launch_pipeline(
 pub async fn get_launch_command(game_id: i64) -> Result<LaunchCommand, String> {
     let config = AppConfig::load().map_err(|e| e.to_string())?;
     let db = Database::open().map_err(|e| e.to_string())?;
-    
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
+
     let launcher = EmulatorLauncher::new(config, db);
     launcher.build_command(&game).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn scan_directory(path: String, recursive: bool) -> Result<Vec<Game>, String> {
-    tracing::info!("[Scan] Starting directory scan: {} (recursive={})", path, recursive);
-    
+    tracing::info!(
+        "[Scan] Starting directory scan: {} (recursive={})",
+        path,
+        recursive
+    );
+
     let db = Database::open().map_err(|e| e.to_string())?;
     let platforms = db.get_all_platforms().map_err(|e| e.to_string())?;
-    
+
     let scanner = RomScanner::new(platforms);
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-    
+
     let scan_path = std::path::PathBuf::from(&path);
     let games = scanner.scan(&scan_path, recursive, tx).await.map_err(|e| {
         tracing::error!("[Scan] Scan failed: {}", e);
         e.to_string()
     })?;
-    
+
     while rx.recv().await.is_some() {}
-    
+
     tracing::info!("[Scan] Saving {} games to database", games.len());
     for game in &games {
         db.upsert_game(game).map_err(|e| e.to_string())?;
     }
-    
+
     tracing::info!("[Scan] Directory scan complete");
     Ok(games)
 }
@@ -1773,9 +1792,9 @@ fn default_windows_device_name() -> String {
         use winreg::enums::HKEY_LOCAL_MACHINE;
         use winreg::RegKey;
 
-        if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(
-            r"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName",
-        ) {
+        if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName")
+        {
             if let Ok(name) = key.get_value::<String, _>("ComputerName") {
                 if !name.trim().is_empty() {
                     return name;
@@ -2016,7 +2035,10 @@ pub async fn restore_romm_session() -> Result<Option<RomMAuthSession>, String> {
         Ok(Some(refresh_token)) => Some(refresh_token),
         Ok(None) => None,
         Err(error) => {
-            tracing::warn!("[RomM] Could not access Windows Credential Manager: {}", error);
+            tracing::warn!(
+                "[RomM] Could not access Windows Credential Manager: {}",
+                error
+            );
             None
         }
     };
@@ -2075,18 +2097,17 @@ pub async fn connect_romm_with_token(
     device_name: Option<String>,
 ) -> Result<String, String> {
     tracing::info!("[RomM] Connecting to server with token: {}", server_url);
-    
+
     // Verify the token works by making a test request, then mirror Argosy by
     // registering this install as an API-mode device. Device pairing performs
     // this registration server-side and therefore does not need this step.
     let client = RomMClient::new(&server_url).with_token(token.clone());
-    
+
     // Try to fetch platforms as a connection test
-    client.get_platforms().await
-        .map_err(|e| {
-            tracing::error!("[RomM] Token verification failed: {}", e);
-            format!("Token verification failed: {}", e)
-        })?;
+    client.get_platforms().await.map_err(|e| {
+        tracing::error!("[RomM] Token verification failed: {}", e);
+        format!("Token verification failed: {}", e)
+    })?;
 
     let hostname = default_windows_device_name();
     let raw_device_name = device_name
@@ -2118,7 +2139,9 @@ pub async fn connect_romm_with_token(
         if client
             .update_wingosy_device(&existing_id, &device_name, &hostname)
             .await
-            .map_err(|e| format!("Token verified, but the existing device could not be updated: {e}"))?
+            .map_err(|e| {
+                format!("Token verified, but the existing device could not be updated: {e}")
+            })?
         {
             existing_id
         } else {
@@ -2133,9 +2156,9 @@ pub async fn connect_romm_with_token(
             .await
             .map_err(|e| format!("Token verified, but device registration failed: {e}"))?
     };
-    
+
     tracing::info!("[RomM] Token verified, saving credentials");
-    
+
     let mut config = AppConfig::load().unwrap_or_default();
     persist_device_session(
         &mut config,
@@ -2154,7 +2177,7 @@ pub async fn connect_romm_with_token(
             crate::romm_credentials::delete_refresh_token,
         ),
     )?;
-    
+
     tracing::info!("[RomM] Connected to {} with token", server_url);
     Ok(token)
 }
@@ -2168,28 +2191,25 @@ pub struct SyncResult {
 }
 
 #[tauri::command]
-pub async fn sync_romm_library(
-    server_url: String,
-    token: String,
-) -> Result<Vec<Game>, String> {
+pub async fn sync_romm_library(server_url: String, token: String) -> Result<Vec<Game>, String> {
     use crate::models::map_romm_slug;
-    
+
     tracing::info!("[RomM] Starting library sync from {}", server_url);
-    
+
     let client = RomMClient::new(&server_url).with_token(token);
     let db = Database::open().map_err(|e| e.to_string())?;
-    
+
     let romm_platforms = client.get_platforms().await.map_err(|e| {
         tracing::error!("[RomM] Failed to fetch platforms: {}", e);
         e.to_string()
     })?;
-    
+
     tracing::info!("[RomM] Found {} platforms", romm_platforms.len());
-    
+
     // Update platform info (logos, names)
     for romm_platform in &romm_platforms {
         let platform_id = map_romm_slug(&romm_platform.slug);
-        
+
         let logo_url = romm_platform.url_logo.as_ref().map(|logo| {
             if logo.starts_with("http") {
                 logo.clone()
@@ -2197,27 +2217,30 @@ pub async fn sync_romm_library(
                 format!("{}{}", server_url.trim_end_matches('/'), logo)
             }
         });
-        
+
         let platform = Platform {
             id: platform_id.clone(),
-            name: romm_platform.display_name.clone().unwrap_or_else(|| romm_platform.name.clone()),
+            name: romm_platform
+                .display_name
+                .clone()
+                .unwrap_or_else(|| romm_platform.name.clone()),
             short_name: Some(romm_platform.name.clone()),
             extensions: vec![],
             logo_path: logo_url,
             sort_order: 0,
         };
-        
+
         if let Err(e) = db.insert_platform(&platform) {
             tracing::warn!("[RomM] Failed to update platform {}: {}", platform_id, e);
         }
     }
-    
+
     // === ARGOSY-STYLE SYNC PATTERN ===
     // Step 1: Mark ALL RomM games as dirty before sync
     // This allows us to detect games that no longer exist on the server
     let dirty_count = db.mark_romm_games_dirty().map_err(|e| e.to_string())?;
     tracing::info!("[RomM] Marked {} existing RomM games as dirty", dirty_count);
-    
+
     // Step 2: Fetch ALL ROMs and upsert them (clearing dirty flag as we go)
     tracing::info!("[RomM] Fetching all ROMs...");
     let mut all_games = Vec::new();
@@ -2225,7 +2248,7 @@ pub async fn sync_romm_library(
     let mut games_updated = 0;
     let mut offset = 0;
     let limit = 1000;
-    
+
     loop {
         // Retry logic for unreliable connections
         let mut retries = 3;
@@ -2245,45 +2268,49 @@ pub async fn sync_romm_library(
                 }
             }
         };
-        
+
         let fetched_count = response.items.len();
-        tracing::info!("[RomM] Fetched {} ROMs (offset={}, total={})", 
-            fetched_count, offset, response.total);
-        
+        tracing::info!(
+            "[RomM] Fetched {} ROMs (offset={}, total={})",
+            fetched_count,
+            offset,
+            response.total
+        );
+
         for rom in response.items {
             let romm_id = rom.id;
             let game = rom.into_game(&server_url);
-            
+
             // Check if game exists to track added vs updated
             let existing = db.get_game_by_romm_id(romm_id).ok().flatten();
             let is_new = existing.is_none();
-            
+
             // Upsert the game
             let game_id = db.upsert_game(&game).map_err(|e| e.to_string())?;
-            
+
             // Clear the dirty flag for this game (it exists on server)
             db.clear_sync_dirty(game_id).map_err(|e| e.to_string())?;
-            
+
             if is_new {
                 games_added += 1;
             } else {
                 games_updated += 1;
             }
-            
+
             // Get the updated game with proper ID
             if let Ok(Some(updated_game)) = db.get_game(game_id) {
                 all_games.push(updated_game);
             }
         }
-        
+
         // Check if we've fetched all ROMs
         if fetched_count < limit as usize || all_games.len() >= response.total as usize {
             break;
         }
-        
+
         offset += limit;
     }
-    
+
     // Step 3: Delete games that are still marked dirty (no longer on server)
     // These are games that existed locally but weren't seen during sync
     let dirty_games = db.get_dirty_games().map_err(|e| e.to_string())?;
@@ -2291,12 +2318,14 @@ pub async fn sync_romm_library(
         .iter()
         .filter(|g| g.romm_id.is_some()) // Only delete RomM-sourced games
         .collect();
-    
+
     let mut games_deleted = 0;
     for game in &games_to_delete {
         tracing::info!(
-            "[RomM] Removing orphaned game no longer on server: {} (romm_id={:?}, hidden={})", 
-            game.name, game.romm_id, game.is_hidden
+            "[RomM] Removing orphaned game no longer on server: {} (romm_id={:?}, hidden={})",
+            game.name,
+            game.romm_id,
+            game.is_hidden
         );
         if let Err(e) = db.delete_game(game.id) {
             tracing::warn!("[RomM] Failed to delete orphaned game {}: {}", game.id, e);
@@ -2304,15 +2333,18 @@ pub async fn sync_romm_library(
             games_deleted += 1;
         }
     }
-    
+
     // Step 4: Clear any remaining dirty flags (cleanup)
     db.clear_all_sync_dirty().map_err(|e| e.to_string())?;
-    
+
     tracing::info!(
-        "[RomM] Library sync complete: {} added, {} updated, {} deleted, {} total", 
-        games_added, games_updated, games_deleted, all_games.len()
+        "[RomM] Library sync complete: {} added, {} updated, {} deleted, {} total",
+        games_added,
+        games_updated,
+        games_deleted,
+        all_games.len()
     );
-    
+
     Ok(all_games)
 }
 
@@ -2325,11 +2357,13 @@ pub async fn download_rom(
 ) -> Result<String, String> {
     tracing::info!("[Download] Downloading ROM for game id={}", game_id);
     let _download_activity = crate::storage::begin_rom_download()?;
-    
+
     let db = Database::open().map_err(|e| e.to_string())?;
     let config = AppConfig::load().map_err(|e| e.to_string())?;
-    
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
     if game.romm_id.is_none() {
         return Err("Game has no RomM ID".to_string());
@@ -2347,25 +2381,18 @@ pub async fn download_rom(
 
     let app_progress = app_handle.clone();
     let progress_game_name = game.name.clone();
-    let download_result = prepare_remote_rom(
-        &db,
-        &config,
-        &game,
-        &server_url,
-        &token,
-        move |p| {
-            let _ = app_progress.emit(
-                "rom-download-progress",
-                serde_json::json!({
-                    "game_id": gid,
-                    "game_name": progress_game_name.clone(),
-                    "downloaded": p.downloaded,
-                    "total": p.total,
-                    "percent": p.percent,
-                }),
-            );
-        },
-    )
+    let download_result = prepare_remote_rom(&db, &config, &game, &server_url, &token, move |p| {
+        let _ = app_progress.emit(
+            "rom-download-progress",
+            serde_json::json!({
+                "game_id": gid,
+                "game_name": progress_game_name.clone(),
+                "downloaded": p.downloaded,
+                "total": p.total,
+                "percent": p.percent,
+            }),
+        );
+    })
     .await;
 
     let updated_game = match download_result {
@@ -2406,14 +2433,14 @@ pub async fn sync_switch_content(
     game_id: i64,
 ) -> Result<crate::sync::switch_content::SwitchContentSyncResult, String> {
     let Some(_active_game) = ActiveGameGuard::try_acquire(game_id) else {
-        return Err("This game already has an active action; wait for it to finish, then retry".to_string());
+        return Err(
+            "This game already has an active action; wait for it to finish, then retry".to_string(),
+        );
     };
     let config = AppConfig::load().map_err(|error| error.to_string())?;
-    let eden = config
-        .emulators
-        .eden
-        .as_deref()
-        .ok_or("Eden is not configured; choose the installed Eden executable in Settings, then retry")?;
+    let eden = config.emulators.eden.as_deref().ok_or(
+        "Eden is not configured; choose the installed Eden executable in Settings, then retry",
+    )?;
     if !eden.is_file() {
         return Err(format!(
             "Configured Eden executable was not found at {}; choose the installed Eden executable in Settings, then retry",
@@ -2440,24 +2467,25 @@ pub async fn sync_switch_content(
     let client = RomMClient::new(&session.server_url).with_token(session.access_token);
     let progress_app = app.clone();
     let progress_game_name = game.name.clone();
-    let result = crate::sync::switch_content::sync_switch_content(&game, &client, move |progress| {
-        let _ = progress_app.emit(
-            "switch-content-sync-progress",
-            serde_json::json!({
-                "game_id": game_id,
-                "game_name": progress_game_name.clone(),
-                "stage": progress.stage,
-                "file_name": progress.file_name,
-                "category": progress.category,
-                "file_index": progress.file_index,
-                "total_files": progress.total_files,
-                "downloaded": progress.downloaded,
-                "total": progress.total,
-                "percent": progress.percent,
-            }),
-        );
-    })
-    .await;
+    let result =
+        crate::sync::switch_content::sync_switch_content(&game, &client, move |progress| {
+            let _ = progress_app.emit(
+                "switch-content-sync-progress",
+                serde_json::json!({
+                    "game_id": game_id,
+                    "game_name": progress_game_name.clone(),
+                    "stage": progress.stage,
+                    "file_name": progress.file_name,
+                    "category": progress.category,
+                    "file_index": progress.file_index,
+                    "total_files": progress.total_files,
+                    "downloaded": progress.downloaded,
+                    "total": progress.total,
+                    "percent": progress.percent,
+                }),
+            );
+        })
+        .await;
 
     match result {
         Ok(result) => {
@@ -2495,7 +2523,10 @@ pub async fn get_game_saves(
     token: String,
 ) -> Result<Vec<crate::api::RomMSave>, String> {
     let client = RomMClient::new(&server_url).with_token(token);
-    client.get_saves(romm_id).await.map_err(|e| format!("{e:#}"))
+    client
+        .get_saves(romm_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -2506,16 +2537,18 @@ pub async fn download_game_save(
     token: String,
 ) -> Result<String, String> {
     let client = RomMClient::new(&server_url).with_token(token);
-    
-    let save_data = client.download_save(romm_id, save_id).await
+
+    let save_data = client
+        .download_save(romm_id, save_id)
+        .await
         .map_err(|e| format!("{e:#}"))?;
-    
+
     let saves_dir = AppConfig::saves_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&saves_dir).map_err(|e| e.to_string())?;
-    
+
     let save_path = saves_dir.join(format!("save_{}_{}.sav", romm_id, save_id));
     std::fs::write(&save_path, save_data).map_err(|e| e.to_string())?;
-    
+
     Ok(save_path.to_string_lossy().to_string())
 }
 
@@ -2527,14 +2560,16 @@ pub async fn upload_game_save(
     token: String,
 ) -> Result<(), String> {
     let client = RomMClient::new(&server_url).with_token(token);
-    
+
     let save_data = std::fs::read(&file_path).map_err(|e| e.to_string())?;
     let filename = std::path::Path::new(&file_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "save.sav".to_string());
-    
-    client.upload_save(romm_id, save_data, &filename).await
+
+    client
+        .upload_save(romm_id, save_data, &filename)
+        .await
         .map_err(|e| format!("{e:#}"))
 }
 
@@ -2608,13 +2643,15 @@ pub async fn download_switch_save(
 #[tauri::command]
 pub async fn delete_local_rom(game_id: i64) -> Result<String, String> {
     tracing::info!("[Game] Deleting local ROM for game id={}", game_id);
-    
+
     let db = Database::open().map_err(|e| e.to_string())?;
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
+
     let mut deleted_path = String::new();
-    
+
     if let Some(local_path) = &game.local_file_path {
         let path = std::path::Path::new(local_path);
         if path.exists() {
@@ -2626,7 +2663,7 @@ pub async fn delete_local_rom(game_id: i64) -> Result<String, String> {
             tracing::info!("[Game] Deleted ROM file: {}", local_path);
         }
     }
-    
+
     if game.romm_id.is_some() {
         db.clear_local_path(game_id).map_err(|e| e.to_string())?;
         tracing::info!("[Game] Cleared local path, game remains in library (RomM sync)");
@@ -2634,22 +2671,29 @@ pub async fn delete_local_rom(game_id: i64) -> Result<String, String> {
         db.delete_game(game_id).map_err(|e| e.to_string())?;
         tracing::info!("[Game] Deleted local-only game from database");
     }
-    
+
     Ok(deleted_path)
 }
 
 #[tauri::command]
 pub async fn toggle_game_hidden(game_id: i64) -> Result<bool, String> {
     tracing::info!("[Game] Toggling hidden status for game id={}", game_id);
-    
+
     let db = Database::open().map_err(|e| e.to_string())?;
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
+
     let new_state = !game.is_hidden;
-    db.set_hidden(game_id, new_state).map_err(|e| e.to_string())?;
-    
-    tracing::info!("[Game] Game {} is now {}", game.name, if new_state { "hidden" } else { "visible" });
+    db.set_hidden(game_id, new_state)
+        .map_err(|e| e.to_string())?;
+
+    tracing::info!(
+        "[Game] Game {} is now {}",
+        game.name,
+        if new_state { "hidden" } else { "visible" }
+    );
     Ok(new_state)
 }
 
@@ -2669,24 +2713,34 @@ pub async fn unhide_game(game_id: i64) -> Result<(), String> {
 #[tauri::command]
 pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
     tracing::info!("[Game] Opening ROM location for game id={}", game_id);
-    
+
     let db = Database::open().map_err(|e| e.to_string())?;
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
-    let path = game.local_file_path.clone()
-        .or_else(|| if game.file_path.is_empty() { None } else { Some(game.file_path.clone()) })
+
+    let path = game
+        .local_file_path
+        .clone()
+        .or_else(|| {
+            if game.file_path.is_empty() {
+                None
+            } else {
+                Some(game.file_path.clone())
+            }
+        })
         .ok_or("Game has no local file")?;
-    
+
     let file_path = std::path::Path::new(&path);
-    
+
     if !file_path.exists() {
         return Err("File no longer exists".to_string());
     }
-    
+
     #[cfg(target_os = "linux")]
     let parent = file_path.parent().ok_or("Invalid file path")?;
-    
+
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
@@ -2694,7 +2748,7 @@ pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -2702,7 +2756,7 @@ pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
@@ -2710,7 +2764,7 @@ pub async fn open_rom_location(game_id: i64) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    
+
     tracing::info!("[Game] Opened file location: {}", path);
     Ok(())
 }
@@ -2749,16 +2803,20 @@ pub async fn refresh_game_metadata(
     token: String,
 ) -> Result<Game, String> {
     tracing::info!("[Game] Refreshing metadata for game id={}", game_id);
-    
+
     let db = Database::open().map_err(|e| e.to_string())?;
-    let game = db.get_game(game_id).map_err(|e| e.to_string())?
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    
-    let romm_id = game.romm_id.ok_or("Game has no RomM ID (local-only game)")?;
-    
+
+    let romm_id = game
+        .romm_id
+        .ok_or("Game has no RomM ID (local-only game)")?;
+
     let client = RomMClient::new(&server_url).with_token(token);
     let rom = client.get_rom(romm_id).await.map_err(|e| e.to_string())?;
-    
+
     let mut updated_game = rom.into_game(&server_url);
     updated_game.id = game.id;
     updated_game.is_favorite = game.is_favorite;
@@ -2774,9 +2832,9 @@ pub async fn refresh_game_metadata(
     if game.local_file_path.is_some() {
         updated_game.sync_state = crate::models::SyncState::Synced;
     }
-    
+
     db.update_game(&updated_game).map_err(|e| e.to_string())?;
-    
+
     tracing::info!("[Game] Metadata refreshed for: {}", updated_game.name);
     Ok(updated_game)
 }
@@ -2811,14 +2869,14 @@ pub async fn get_retroarch_core_inventory() -> Result<Vec<RetroArchCoreInventory
 #[tauri::command]
 pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
     tracing::info!("[Emulators] Starting emulator detection");
-    
+
     let detected = detect_installed_emulators();
     let config = AppConfig::load().unwrap_or_default();
     let all_emulators = default_emulators();
-    
+
     let mut result: Vec<EmulatorInfo> = Vec::new();
     let mut installed_count = 0;
-    
+
     for emu in all_emulators {
         let detected_match = detected.iter().find(|d| d.id == emu.id);
         let configured_path = configured_emulator_path(&config, &emu.id);
@@ -2827,17 +2885,34 @@ pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
         let (is_installed, installed_path, install_type, version) = if configured_retroarch {
             let path = configured_path.expect("configured RetroArch path was checked");
             let managed = crate::emulators::retroarch::managed_profile_enabled(&config, &path)
-                && AppConfig::emulators_dir().ok().is_some_and(|root| path.starts_with(root));
-            (true, Some(path.to_string_lossy().to_string()), Some(if managed { "managed" } else { "external" }.to_string()), if managed { config.emulators.retroarch_manifest_version.clone() } else { None })
+                && AppConfig::emulators_dir()
+                    .ok()
+                    .is_some_and(|root| path.starts_with(root));
+            (
+                true,
+                Some(path.to_string_lossy().to_string()),
+                Some(if managed { "managed" } else { "external" }.to_string()),
+                if managed {
+                    config.emulators.retroarch_manifest_version.clone()
+                } else {
+                    None
+                },
+            )
         } else if let Some(d) = detected_match {
             let detected_install_type = if emu.id == "retroarch" {
                 "external"
-            } else { d.install_type.as_str() };
+            } else {
+                d.install_type.as_str()
+            };
             (
                 true,
                 Some(d.path.to_string_lossy().to_string()),
                 Some(detected_install_type.to_string()),
-                if emu.id == "retroarch" { None } else { d.version.clone() },
+                if emu.id == "retroarch" {
+                    None
+                } else {
+                    d.version.clone()
+                },
             )
         } else if let Some(p) = configured_path {
             let kind = AppConfig::emulators_dir()
@@ -2858,7 +2933,7 @@ pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
         if is_installed {
             installed_count += 1;
         }
-        
+
         result.push(EmulatorInfo {
             id: emu.id.clone(),
             name: emu.name.clone(),
@@ -2870,8 +2945,12 @@ pub async fn detect_emulators() -> Result<Vec<EmulatorInfo>, String> {
             supported_platforms: emu.supported_platforms,
         });
     }
-    
-    tracing::info!("[Emulators] Detection complete: {}/{} emulators installed", installed_count, result.len());
+
+    tracing::info!(
+        "[Emulators] Detection complete: {}/{} emulators installed",
+        installed_count,
+        result.len()
+    );
     Ok(result)
 }
 
@@ -2891,10 +2970,7 @@ fn build_standalone_retroarch_args_after_validation(
         || (config.emulators.retroarch_install_kind == RetroArchInstallKind::External
             && config.emulators.retroarch_use_beta_profile);
     if use_profile {
-        vec![format!(
-            "--appendconfig={}",
-            profile_path.to_string_lossy()
-        )]
+        vec![format!("--appendconfig={}", profile_path.to_string_lossy())]
     } else {
         Vec::new()
     }
@@ -2905,8 +2981,7 @@ fn standalone_retroarch_args(config: &AppConfig, path: &Path) -> Result<Vec<Stri
         return Ok(Vec::new());
     }
 
-    let managed_install =
-        config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed;
+    let managed_install = config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed;
     if managed_install {
         crate::emulators::retroarch::validate_managed_install(config, path)
             .map_err(|e| e.to_string())?;
@@ -2929,8 +3004,7 @@ fn standalone_retroarch_args(config: &AppConfig, path: &Path) -> Result<Vec<Stri
     }
 
     if managed_install {
-        crate::emulators::retroarch::ensure_managed_profile(path)
-            .map_err(|e| e.to_string())?;
+        crate::emulators::retroarch::ensure_managed_profile(path).map_err(|e| e.to_string())?;
     } else {
         crate::emulators::retroarch::ensure_profile().map_err(|e| e.to_string())?;
     }
@@ -2956,7 +3030,11 @@ pub async fn launch_emulator(emulator_path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn open_retroarch_input_setup() -> Result<(), String> {
     let config = AppConfig::load().map_err(|e| e.to_string())?;
-    let executable = config.emulators.retroarch.as_ref().ok_or_else(|| "RetroArch is not configured".to_string())?;
+    let executable = config
+        .emulators
+        .retroarch
+        .as_ref()
+        .ok_or_else(|| "RetroArch is not configured".to_string())?;
     if !executable.is_file() {
         return Err("Configured RetroArch executable was not found".to_string());
     }
@@ -2977,19 +3055,27 @@ pub async fn open_retroarch_input_setup() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
         command.arg(format!("--appendconfig={}", profile.to_string_lossy()));
     }
-    command.spawn().map_err(|e| format!("Failed to launch RetroArch input setup: {e}"))?;
+    command
+        .spawn()
+        .map_err(|e| format!("Failed to launch RetroArch input setup: {e}"))?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn set_retroarch_beta_profile(enabled: bool) -> Result<(), String> {
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
-    let executable = config.emulators.retroarch.as_ref().ok_or_else(|| "RetroArch is not configured".to_string())?;
+    let executable = config
+        .emulators
+        .retroarch
+        .as_ref()
+        .ok_or_else(|| "RetroArch is not configured".to_string())?;
     if !executable.is_file() {
         return Err("Configured RetroArch executable was not found".to_string());
     }
     let managed = crate::emulators::retroarch::managed_profile_enabled(&config, executable)
-        && AppConfig::emulators_dir().ok().is_some_and(|root| executable.starts_with(root));
+        && AppConfig::emulators_dir()
+            .ok()
+            .is_some_and(|root| executable.starts_with(root));
     if managed {
         return Err("Managed RetroArch always uses Wingosy controller settings".to_string());
     }
@@ -3056,7 +3142,8 @@ pub async fn open_emulator_location(emulator_path: String) -> Result<(), String>
 #[tauri::command]
 pub async fn get_game_details(game_id: i64) -> Result<Game, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
-    db.get_game(game_id).map_err(|e| e.to_string())?
+    db.get_game(game_id)
+        .map_err(|e| e.to_string())?
         .ok_or_else(|| "Game not found".to_string())
 }
 
@@ -3107,7 +3194,7 @@ pub async fn add_game_to_collection(collection_id: i64, game_id: i64) -> Result<
 #[tauri::command]
 pub async fn search_games(query: String) -> Result<Vec<Game>, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
-    
+
     let filter = GameFilter {
         platform_id: None,
         genre: None,
@@ -3116,7 +3203,7 @@ pub async fn search_games(query: String) -> Result<Vec<Game>, String> {
         sort_by: GameSort::Name,
         sort_descending: false,
     };
-    
+
     db.get_games_filtered(&filter).map_err(|e| e.to_string())
 }
 
@@ -3132,26 +3219,28 @@ async fn fetch_dolphin_download_url() -> anyhow::Result<String> {
         system: String,
         url: String,
     }
-    
+
     #[derive(serde::Deserialize)]
     struct DolphinUpdate {
         artifacts: Vec<DolphinArtifact>,
     }
-    
+
     let client = reqwest::Client::new();
     let response = client
         .get("https://dolphin-emu.org/update/latest/beta")
         .header("User-Agent", "Wingosy-Launcher")
         .send()
         .await?;
-    
+
     let update: DolphinUpdate = response.json().await?;
-    
+
     // Find Windows x64 artifact
-    let artifact = update.artifacts.iter()
+    let artifact = update
+        .artifacts
+        .iter()
         .find(|a| a.system == "Windows x64")
         .ok_or_else(|| anyhow::anyhow!("No Windows x64 artifact found"))?;
-    
+
     tracing::info!("[Emulators] Found Dolphin download: {}", artifact.url);
     Ok(artifact.url.clone())
 }
@@ -3223,10 +3312,7 @@ fn extract_certified_retroarch_cores(
                     }
                 }
                 source.ok_or_else(|| {
-                    format!(
-                        "RetroArch core archive did not contain {}",
-                        core.filename
-                    )
+                    format!("RetroArch core archive did not contain {}", core.filename)
                 })?
             };
             let destination = cores_dir.join(core.filename);
@@ -3247,13 +3333,7 @@ fn is_user_owned_retroarch_path(relative: &Path) -> bool {
     let first = first.as_os_str().to_string_lossy().to_ascii_lowercase();
     matches!(
         first.as_str(),
-        "retroarch.cfg"
-            | "config"
-            | "autoconfig"
-            | "remaps"
-            | "saves"
-            | "states"
-            | "system"
+        "retroarch.cfg" | "config" | "autoconfig" | "remaps" | "saves" | "states" | "system"
     )
 }
 
@@ -3363,11 +3443,8 @@ async fn download_managed_retroarch(_app: tauri::AppHandle) -> Result<String, St
         let cores_artifact = crate::emulators::retroarch::retroarch_cores_artifact();
         let cores_archive =
             download_verified_retroarch_artifact(Some(&_app), cores_artifact).await?;
-        let core_result = extract_certified_retroarch_cores(
-            &cores_archive,
-            staged_root,
-            cores_artifact.format,
-        );
+        let core_result =
+            extract_certified_retroarch_cores(&cores_archive, staged_root, cores_artifact.format);
         std::fs::remove_file(&cores_archive).ok();
         core_result?;
 
@@ -3413,14 +3490,24 @@ async fn download_managed_retroarch(_app: tauri::AppHandle) -> Result<String, St
 }
 
 #[tauri::command]
-pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Result<String, String> {
+pub async fn download_emulator(
+    app: tauri::AppHandle,
+    emulator_id: String,
+) -> Result<String, String> {
     tracing::info!("[Emulators] Downloading emulator: {}", emulator_id);
 
     if emulator_id == "retroarch" {
         return download_managed_retroarch(app).await;
     }
 
-    fn emit_progress(app: &tauri::AppHandle, emulator_id: &str, phase: &str, downloaded: u64, total: Option<u64>, percent: Option<u8>) {
+    fn emit_progress(
+        app: &tauri::AppHandle,
+        emulator_id: &str,
+        phase: &str,
+        downloaded: u64,
+        total: Option<u64>,
+        percent: Option<u8>,
+    ) {
         let _ = app.emit(
             "emulator-download-progress",
             serde_json::json!({
@@ -3480,51 +3567,67 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
         );
         msg
     })?;
-    
+
     let (download_url, archive_name, format) = if let Some(github_repo) = &emu.github_repo {
         // GitHub release download
         tracing::debug!("[Emulators] Fetching GitHub release from: {}", github_repo);
-        
-        let release = crate::emulators::github::fetch_latest_release(github_repo).await
+
+        let release = crate::emulators::github::fetch_latest_release(github_repo)
+            .await
             .map_err(|e| {
                 tracing::error!("[Emulators] Failed to fetch GitHub release: {}", e);
                 report_err(e.to_string())
             })?;
-        
+
         tracing::debug!("[Emulators] Found release: {}", release.tag_name);
-        
+
         // Use emulator's asset pattern if available, otherwise fallback to generic Windows patterns
         let asset = if let Some(pattern) = &emu.asset_pattern {
             crate::emulators::github::find_matching_asset(&release, pattern)
         } else {
             None
-        }.or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)windows.*x64"))
-         .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win64"))
-         .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)mame\\d+b_x64\\.exe$"))
-         .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win.*\\.zip$"))
-         .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win.*\\.7z$"))
-         .ok_or_else(|| {
-             tracing::error!("[Emulators] No matching Windows asset found in release. Assets: {:?}", 
-                 release.assets.iter().map(|a| &a.name).collect::<Vec<_>>());
-             report_err("No Windows asset found in GitHub release".to_string())
-         })?;
-        
-        let fmt = if asset.name.ends_with(".zip") { "zip" } 
-            else if asset.name.ends_with(".7z") { "7z" }
-            else { emu.archive_format.as_deref().unwrap_or("zip") };
-        
-        (asset.browser_download_url.clone(), asset.name.clone(), fmt.to_string())
+        }
+        .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)windows.*x64"))
+        .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win64"))
+        .or_else(|| {
+            crate::emulators::github::find_matching_asset(&release, "(?i)mame\\d+b_x64\\.exe$")
+        })
+        .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win.*\\.zip$"))
+        .or_else(|| crate::emulators::github::find_matching_asset(&release, "(?i)win.*\\.7z$"))
+        .ok_or_else(|| {
+            tracing::error!(
+                "[Emulators] No matching Windows asset found in release. Assets: {:?}",
+                release.assets.iter().map(|a| &a.name).collect::<Vec<_>>()
+            );
+            report_err("No Windows asset found in GitHub release".to_string())
+        })?;
+
+        let fmt = if asset.name.ends_with(".zip") {
+            "zip"
+        } else if asset.name.ends_with(".7z") {
+            "7z"
+        } else {
+            emu.archive_format.as_deref().unwrap_or("zip")
+        };
+
+        (
+            asset.browser_download_url.clone(),
+            asset.name.clone(),
+            fmt.to_string(),
+        )
     } else if let Some(direct_url) = &emu.download_url {
         // Forgejo/Gitea: `forgejo://{host}/{owner}/{repo}` — same JSON shape as GitHub releases/latest
         if let Some(rest) = direct_url.strip_prefix("forgejo://") {
             tracing::debug!("[Emulators] Resolving Forgejo release URL: {}", direct_url);
             let mut parts = rest.split('/');
-            let host = parts.next().filter(|s| !s.is_empty()).ok_or_else(|| {
-                report_err("Invalid forgejo:// URL (missing host)".to_string())
-            })?;
-            let owner = parts.next().filter(|s| !s.is_empty()).ok_or_else(|| {
-                report_err("Invalid forgejo:// URL (missing owner)".to_string())
-            })?;
+            let host = parts
+                .next()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| report_err("Invalid forgejo:// URL (missing host)".to_string()))?;
+            let owner = parts
+                .next()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| report_err("Invalid forgejo:// URL (missing owner)".to_string()))?;
             let repo_name = parts.next().filter(|s| !s.is_empty()).ok_or_else(|| {
                 report_err("Invalid forgejo:// URL (missing repository)".to_string())
             })?;
@@ -3574,13 +3677,12 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
             )
         } else if direct_url == "dolphin-api://latest" {
             tracing::debug!("[Emulators] Fetching Dolphin download URL from API");
-            
-            let dolphin_url = fetch_dolphin_download_url().await
-                .map_err(|e| {
-                    tracing::error!("[Emulators] Failed to fetch Dolphin URL: {}", e);
-                    report_err(e.to_string())
-                })?;
-            
+
+            let dolphin_url = fetch_dolphin_download_url().await.map_err(|e| {
+                tracing::error!("[Emulators] Failed to fetch Dolphin URL: {}", e);
+                report_err(e.to_string())
+            })?;
+
             let filename = dolphin_url
                 .split('/')
                 .next_back()
@@ -3590,20 +3692,28 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
         } else {
             // Direct download URL (e.g., RetroArch buildbot)
             tracing::debug!("[Emulators] Using direct download URL: {}", direct_url);
-            
+
             let filename = direct_url
                 .split('/')
                 .next_back()
                 .unwrap_or("emulator.zip")
                 .to_string();
-            let fmt = emu.archive_format.as_deref().unwrap_or(
-                if filename.ends_with(".7z") { "7z" } else { "zip" }
-            );
-            
+            let fmt = emu
+                .archive_format
+                .as_deref()
+                .unwrap_or(if filename.ends_with(".7z") {
+                    "7z"
+                } else {
+                    "zip"
+                });
+
             (direct_url.clone(), filename, fmt.to_string())
         }
     } else {
-        tracing::error!("[Emulators] No download source configured for {}", emulator_id);
+        tracing::error!(
+            "[Emulators] No download source configured for {}",
+            emulator_id
+        );
         return Err(report_err(
             "Emulator has no download URL or GitHub repo configured".to_string(),
         ));
@@ -3615,7 +3725,11 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
         .unwrap_or("download.bin");
     let archive_path = dest_dir.join(format!("{}__{}", emulator_id, safe_leaf));
 
-    tracing::info!("[Emulators] Downloading: {} -> {:?}", archive_name, archive_path);
+    tracing::info!(
+        "[Emulators] Downloading: {} -> {:?}",
+        archive_name,
+        archive_path
+    );
 
     let _ = app.emit(
         "emulator-download-started",
@@ -3627,8 +3741,10 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
 
     let eid_dl = emulator_id.clone();
     let app_dl = app.clone();
-    if let Err(e) =
-        crate::emulators::installer::download_file_with_progress(&download_url, &archive_path, move |p| {
+    if let Err(e) = crate::emulators::installer::download_file_with_progress(
+        &download_url,
+        &archive_path,
+        move |p| {
             emit_progress(
                 &app_dl,
                 &eid_dl,
@@ -3637,8 +3753,9 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
                 p.total,
                 p.percent,
             );
-        })
-        .await
+        },
+    )
+    .await
     {
         let msg = e.to_string();
         tracing::error!("[Emulators] Download failed: {}", msg);
@@ -3647,7 +3764,10 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
 
     emit_progress(&app, &emulator_id, "extract", 0, None, None);
 
-    tracing::info!("[Emulators] Download complete, extracting {} archive...", format);
+    tracing::info!(
+        "[Emulators] Download complete, extracting {} archive...",
+        format
+    );
 
     let extracted_dir = if format == "exe" && emulator_id.as_str() == "mame" {
         let dest_exe = emu_dir.join("mame.exe");
@@ -3669,10 +3789,10 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
             }
         }
     };
-    
+
     // Clean up the archive
     std::fs::remove_file(&archive_path).ok();
-    
+
     // Find the actual executable
     let exe_names: Vec<&str> = match emulator_id.as_str() {
         "retroarch" => vec!["retroarch.exe", "RetroArch.exe"],
@@ -3680,7 +3800,10 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
         "pcsx2" => vec!["pcsx2-qt.exe", "pcsx2.exe", "pcsx2-qtx64.exe"],
         "rpcs3" => vec!["rpcs3.exe"],
         "ppsspp" => vec!["PPSSPPWindows64.exe", "PPSSPPWindows.exe"],
-        "duckstation" => vec!["duckstation-qt-x64-ReleaseLTCG.exe", "duckstation-nogui-x64-ReleaseLTCG.exe"],
+        "duckstation" => vec![
+            "duckstation-qt-x64-ReleaseLTCG.exe",
+            "duckstation-nogui-x64-ReleaseLTCG.exe",
+        ],
         "cemu" => vec!["Cemu.exe"],
         "eden" => vec!["eden.exe", "Eden.exe"],
         "citra" => vec!["lime3ds.exe", "citra-qt.exe"],
@@ -3692,16 +3815,16 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
         "mame" => vec!["mame.exe", "mame64.exe"],
         _ => vec![],
     };
-    
+
     let exe_path = if !exe_names.is_empty() {
         crate::emulators::installer::find_executable(&extracted_dir, &exe_names)
             .unwrap_or(extracted_dir.clone())
     } else {
         extracted_dir.clone()
     };
-    
+
     tracing::info!("[Emulators] Emulator installed: {:?}", exe_path);
-    
+
     // Update config with the new emulator path
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     match emulator_id.as_str() {
@@ -3740,11 +3863,11 @@ pub async fn download_emulator(app: tauri::AppHandle, emulator_id: String) -> Re
 #[tauri::command]
 pub async fn uninstall_emulator(emulator_id: String) -> Result<(), String> {
     tracing::info!("[Emulators] Uninstalling emulator: {}", emulator_id);
-    
+
     // Get emulators directory
     let emulators_dir = AppConfig::emulators_dir().map_err(|e| e.to_string())?;
     let emu_dir = emulators_dir.join(&emulator_id);
-    
+
     // Delete the emulator folder if it exists
     if emu_dir.exists() {
         tracing::debug!("[Emulators] Removing directory: {:?}", emu_dir);
@@ -3753,7 +3876,7 @@ pub async fn uninstall_emulator(emulator_id: String) -> Result<(), String> {
             format!("Failed to remove emulator directory: {}", e)
         })?;
     }
-    
+
     // Clear the config path
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     match emulator_id.as_str() {
@@ -3782,7 +3905,7 @@ pub async fn uninstall_emulator(emulator_id: String) -> Result<(), String> {
         }
     }
     config.save().map_err(|e| e.to_string())?;
-    
+
     tracing::info!("[Emulators] Successfully uninstalled {}", emulator_id);
     Ok(())
 }
@@ -3790,10 +3913,12 @@ pub async fn uninstall_emulator(emulator_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn download_retroarch_core(core_name: String) -> Result<String, String> {
     tracing::info!("[RetroArch] Downloading core: {}", core_name);
-    
+
     let config = AppConfig::load().map_err(|e| e.to_string())?;
-    
-    let retroarch_path = config.emulators.retroarch
+
+    let retroarch_path = config
+        .emulators
+        .retroarch
         .ok_or("RetroArch not configured")?;
 
     if config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed {
@@ -3801,7 +3926,9 @@ pub async fn download_retroarch_core(core_name: String) -> Result<String, String
             .map_err(|e| e.to_string())?;
         let core = crate::emulators::retroarch::core_artifact_for_filename(&resolved_core_name)
             .ok_or_else(|| format!("Unsupported RetroArch core: {resolved_core_name}"))?;
-        let root = retroarch_path.parent().ok_or("RetroArch has no install directory")?;
+        let root = retroarch_path
+            .parent()
+            .ok_or("RetroArch has no install directory")?;
         let core_path = root.join("cores").join(&resolved_core_name);
         if core_path.is_file()
             && crate::emulators::retroarch::verify_sha256(&core_path, core.installed_sha256).is_ok()
@@ -3827,13 +3954,17 @@ pub async fn download_retroarch_core(core_name: String) -> Result<String, String
         return Ok(core_path.to_string_lossy().to_string());
     }
 
-    tracing::warn!("[RetroArch] External core download is unverified: {}", core_name);
-    let core_path = crate::emulators::cores::download_core(&core_name, &retroarch_path).await
+    tracing::warn!(
+        "[RetroArch] External core download is unverified: {}",
+        core_name
+    );
+    let core_path = crate::emulators::cores::download_core(&core_name, &retroarch_path)
+        .await
         .map_err(|e| {
             tracing::error!("[RetroArch] Core download failed: {}", e);
             e.to_string()
         })?;
-    
+
     tracing::info!("[RetroArch] Core installed: {:?}", core_path);
     Ok(core_path.to_string_lossy().to_string())
 }
@@ -3851,34 +3982,34 @@ pub async fn get_missing_cores() -> Result<Vec<MissingCore>, String> {
             .into_iter()
             .map(|(platform, _)| platform.id)
             .collect();
-        return Ok(build_retroarch_core_inventory(&config, &platforms, &required_platform_ids)
-            .into_iter()
-            .filter(|core| core.required && core.status != "installed")
-            .map(|core| MissingCore {
-                core_filename: core.core_filename,
-                platform_name: core.platform_name,
-            })
-            .collect());
+        return Ok(
+            build_retroarch_core_inventory(&config, &platforms, &required_platform_ids)
+                .into_iter()
+                .filter(|core| core.required && core.status != "installed")
+                .map(|core| MissingCore {
+                    core_filename: core.core_filename,
+                    platform_name: core.platform_name,
+                })
+                .collect(),
+        );
     }
 
     let Some(retroarch_path) = config.emulators.retroarch else {
         return Ok(vec![]);
     };
-    let required_platforms = db
-        .get_platforms_with_games()
-        .map_err(|e| e.to_string())?;
+    let required_platforms = db.get_platforms_with_games().map_err(|e| e.to_string())?;
     let cores = retroarch_cores();
 
     Ok(required_platforms
         .into_iter()
         .filter_map(|(platform, _)| {
             let core_filename = cores.get(&platform.id).copied()?;
-            (!crate::emulators::cores::is_core_installed(&retroarch_path, core_filename)).then(|| {
-                MissingCore {
+            (!crate::emulators::cores::is_core_installed(&retroarch_path, core_filename)).then(
+                || MissingCore {
                     core_filename: core_filename.to_string(),
                     platform_name: platform.name,
-                }
-            })
+                },
+            )
         })
         .collect())
 }
@@ -3906,11 +4037,11 @@ pub fn get_platform_ids_with_installed_retroarch_core() -> Result<Vec<String>, S
 #[tauri::command]
 pub async fn apply_detected_paths() -> Result<i32, String> {
     tracing::info!("[Config] Applying detected emulator paths");
-    
+
     let detected = detect_installed_emulators();
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     let mut count = 0;
-    
+
     for emu in &detected {
         let path = Some(emu.path.clone());
         let changed = match emu.id.as_str() {
@@ -3979,13 +4110,13 @@ pub async fn apply_detected_paths() -> Result<i32, String> {
             }
             _ => false,
         };
-        
+
         if changed {
             tracing::debug!("[Config] Applied path for emulator: {}", emu.id);
             count += 1;
         }
     }
-    
+
     config.save().map_err(|e| e.to_string())?;
     tracing::info!("[Config] Applied {} emulator paths", count);
     Ok(count)
@@ -3996,22 +4127,30 @@ pub async fn set_platform_default_emulator(
     platform_id: String,
     emulator_id: Option<String>,
 ) -> Result<(), String> {
-    tracing::info!("[Config] Setting default emulator for {}: {:?}", platform_id, emulator_id);
-    
+    tracing::info!(
+        "[Config] Setting default emulator for {}: {:?}",
+        platform_id,
+        emulator_id
+    );
+
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
-    
+
     if let Some(emu_id) = emulator_id {
-        config.emulators.platform_defaults.insert(platform_id.clone(), emu_id);
+        config
+            .emulators
+            .platform_defaults
+            .insert(platform_id.clone(), emu_id);
     } else {
         config.emulators.platform_defaults.remove(&platform_id);
     }
-    
+
     config.save().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_platform_default_emulators() -> Result<std::collections::HashMap<String, String>, String> {
+pub async fn get_platform_default_emulators(
+) -> Result<std::collections::HashMap<String, String>, String> {
     let config = AppConfig::load().map_err(|e| e.to_string())?;
     Ok(config.emulators.platform_defaults.clone())
 }
@@ -4134,7 +4273,11 @@ fn parse_semver_triple(s: &str) -> Option<(u32, u32, u32)> {
         .chars()
         .take_while(|c| c.is_ascii_digit())
         .collect();
-    let patch = if patch.is_empty() { 0 } else { patch.parse().ok()? };
+    let patch = if patch.is_empty() {
+        0
+    } else {
+        patch.parse().ok()?
+    };
     Some((major, minor, patch))
 }
 
@@ -4173,7 +4316,10 @@ fn channel_label(c: UpdateChannel) -> &'static str {
 }
 
 /// Picks the newest prerelease whose tag matches the channel (see `.github/workflows/` docs).
-fn pick_prerelease_track(releases: &[GithubRelease], channel: UpdateChannel) -> Option<&GithubRelease> {
+fn pick_prerelease_track(
+    releases: &[GithubRelease],
+    channel: UpdateChannel,
+) -> Option<&GithubRelease> {
     let tag_matches = |r: &GithubRelease, needle: &str| {
         let t = r.tag_name.to_lowercase();
         t.contains(needle)
@@ -4287,8 +4433,7 @@ pub async fn check_for_app_update(channel: String) -> UpdateCheckResult {
 
         let latest = release.tag_name.clone();
         let is_newer = remote_version_is_newer(&latest, &current_version);
-        let signed_url =
-            signed_manifest_url_if_ready(&client, &release.tag_name, is_newer).await;
+        let signed_url = signed_manifest_url_if_ready(&client, &release.tag_name, is_newer).await;
         return UpdateCheckResult {
             current_version,
             latest_version: Some(latest.clone()),
@@ -4351,8 +4496,12 @@ pub async fn check_for_app_update(channel: String) -> UpdateCheckResult {
     let picked = pick_prerelease_track(&releases, ch);
     let Some(release) = picked else {
         let hint = match ch {
-            UpdateChannel::Beta => "No Beta release is available right now. Try Stable or check again later.",
-            UpdateChannel::Nightly => "No Nightly release is available right now. Try Stable or check again later.",
+            UpdateChannel::Beta => {
+                "No Beta release is available right now. Try Stable or check again later."
+            }
+            UpdateChannel::Nightly => {
+                "No Nightly release is available right now. Try Stable or check again later."
+            }
             UpdateChannel::Stable => unreachable!(),
         };
         return UpdateCheckResult {
@@ -4390,7 +4539,10 @@ pub async fn check_for_app_update(channel: String) -> UpdateCheckResult {
 
 /// Download and install the signed update for the given channel, then restart the app (Windows).
 #[tauri::command]
-pub async fn install_signed_app_update(app: tauri::AppHandle, channel: String) -> Result<(), String> {
+pub async fn install_signed_app_update(
+    app: tauri::AppHandle,
+    channel: String,
+) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
     let info = check_for_app_update(channel).await;
@@ -4470,14 +4622,8 @@ mod tests {
 
         let source = select_remote_rom_download_source(&rom);
 
-        assert_eq!(
-            source.route,
-            RemoteRomDownloadRoute::File { file_id: 140 }
-        );
-        assert_eq!(
-            source.file_name,
-            "Cuphead [0100A5C00D162000][v0].nsp"
-        );
+        assert_eq!(source.route, RemoteRomDownloadRoute::File { file_id: 140 });
+        assert_eq!(source.file_name, "Cuphead [0100A5C00D162000][v0].nsp");
         assert_eq!(source.expected_size, Some(3_481_715_536));
     }
 
@@ -4709,7 +4855,10 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("Reconnect required"));
-        assert_eq!(config.romm.auth_token.as_deref(), Some("synthetic-legacy-token"));
+        assert_eq!(
+            config.romm.auth_token.as_deref(),
+            Some("synthetic-legacy-token")
+        );
         let mut config = AppConfig::default();
         config.romm.server_url = Some("https://old.example".to_string());
         config.romm.username = Some("synthetic-user".to_string());
@@ -4977,7 +5126,10 @@ mod tests {
     #[test]
     fn test_normalize_for_match_basic() {
         assert_eq!(normalize_for_match("Super Mario Bros"), "super mario bros");
-        assert_eq!(normalize_for_match("SONIC THE HEDGEHOG"), "sonic the hedgehog");
+        assert_eq!(
+            normalize_for_match("SONIC THE HEDGEHOG"),
+            "sonic the hedgehog"
+        );
     }
 
     #[test]
@@ -5017,13 +5169,18 @@ mod tests {
             "SUPER MARIO BROS",
             "Super  Mario  Bros",
             "  Super Mario Bros  ",
-            "Super_Mario_Bros",  // Underscores treated as spaces
+            "Super_Mario_Bros", // Underscores treated as spaces
         ];
-        
+
         let first = normalize_for_match(names[0]);
         for name in &names[1..] {
-            assert_eq!(normalize_for_match(name), first, 
-                "Expected '{}' to match '{}'", name, names[0]);
+            assert_eq!(
+                normalize_for_match(name),
+                first,
+                "Expected '{}' to match '{}'",
+                name,
+                names[0]
+            );
         }
     }
 
@@ -5032,7 +5189,7 @@ mod tests {
         // Underscores should be converted to spaces for better ROM matching
         let with_underscore = normalize_for_match("Super_Mario_Bros");
         let with_spaces = normalize_for_match("Super Mario Bros");
-        
+
         assert_eq!(with_underscore, with_spaces);
         assert_eq!(with_underscore, "super mario bros");
     }
@@ -5043,10 +5200,7 @@ mod tests {
             normalize_for_match("Super Mario Bros"),
             normalize_for_match("Super Mario Bros 2")
         );
-        assert_ne!(
-            normalize_for_match("Sonic"),
-            normalize_for_match("Sonic 2")
-        );
+        assert_ne!(normalize_for_match("Sonic"), normalize_for_match("Sonic 2"));
     }
 
     // Tests for LaunchGameResult
@@ -5066,8 +5220,14 @@ mod tests {
         assert!(!result.dry_run);
         assert_eq!(result.duration_minutes, Some(60));
         assert_eq!(result.exit_code, Some(0));
-        assert_eq!(result.save_sync_warnings, vec![EDEN_CONTROLLER_MISSING_WARNING]);
-        assert_eq!(result.save_sync_messages, vec!["Uploaded Switch save to RomM"]);
+        assert_eq!(
+            result.save_sync_warnings,
+            vec![EDEN_CONTROLLER_MISSING_WARNING]
+        );
+        assert_eq!(
+            result.save_sync_messages,
+            vec!["Uploaded Switch save to RomM"]
+        );
     }
 
     #[test]
@@ -5103,7 +5263,10 @@ mod tests {
         assert!(!result.success);
         assert_eq!(result.error, Some("Emulator not found".to_string()));
         assert_eq!(result.exit_code, Some(1));
-        assert_eq!(result.save_sync_warnings, vec![EDEN_CONTROLLER_FAILED_WARNING]);
+        assert_eq!(
+            result.save_sync_warnings,
+            vec![EDEN_CONTROLLER_FAILED_WARNING]
+        );
     }
 
     #[test]
@@ -5135,11 +5298,11 @@ mod tests {
     #[test]
     fn controller_preparation_warnings_are_concise_and_observable() {
         let missing: std::result::Result<Option<PathBuf>, anyhow::Error> = Ok(None);
-        let malformed: std::result::Result<Option<PathBuf>, anyhow::Error> =
-            Err(anyhow::anyhow!("failed at C:\\Games\\Pad.ini for USB Gamepad"));
-        let success: std::result::Result<Option<PathBuf>, anyhow::Error> = Ok(Some(
-            PathBuf::from("C:\\Games\\Wingosy.ini"),
+        let malformed: std::result::Result<Option<PathBuf>, anyhow::Error> = Err(anyhow::anyhow!(
+            "failed at C:\\Games\\Pad.ini for USB Gamepad"
         ));
+        let success: std::result::Result<Option<PathBuf>, anyhow::Error> =
+            Ok(Some(PathBuf::from("C:\\Games\\Wingosy.ini")));
 
         let mut warnings = Vec::new();
         record_eden_controller_warning(&mut warnings, &missing);
@@ -5150,7 +5313,9 @@ mod tests {
         assert_eq!(warnings[0], EDEN_CONTROLLER_MISSING_WARNING);
         assert_eq!(warnings[1], EDEN_CONTROLLER_FAILED_WARNING);
         assert!(warnings.iter().all(|warning| !warning.contains("C:\\")));
-        assert!(warnings.iter().all(|warning| !warning.contains("USB Gamepad")));
+        assert!(warnings
+            .iter()
+            .all(|warning| !warning.contains("USB Gamepad")));
     }
 
     #[test]
@@ -5213,11 +5378,13 @@ mod tests {
                 command: retroarch_command,
             }
         ));
-        assert!(!should_run_post_launch_sync(&LaunchResult::EmulatorStartFailed {
-            name: "Eden".to_string(),
-            id: "eden".to_string(),
-            reason: "spawn failed".to_string(),
-        }));
+        assert!(!should_run_post_launch_sync(
+            &LaunchResult::EmulatorStartFailed {
+                name: "Eden".to_string(),
+                id: "eden".to_string(),
+                reason: "spawn failed".to_string(),
+            }
+        ));
         assert!(!should_run_post_launch_sync(&LaunchResult::FileNotFound(
             "game.nsp".to_string(),
         )));
@@ -5302,7 +5469,9 @@ mod tests {
 
         let conn = db.conn.lock().unwrap();
         let pending: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(pending, 1);
         drop(conn);
@@ -5321,7 +5490,9 @@ mod tests {
 
         let conn = db.conn.lock().unwrap();
         let pending: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(pending, 0);
     }
@@ -5379,8 +5550,7 @@ mod tests {
             apply_launch_display_context(&mut command, context);
 
             assert_eq!(
-                command.args,
-                expected_args,
+                command.args, expected_args,
                 "unexpected Eden args for {name}"
             );
             assert_eq!(
@@ -5485,12 +5655,7 @@ mod tests {
         managed.emulators.retroarch = Some(executable.clone());
         managed.emulators.retroarch_install_kind = RetroArchInstallKind::Managed;
         assert_eq!(
-            build_standalone_retroarch_args_after_validation(
-                &managed,
-                &executable,
-                true,
-                &profile,
-            ),
+            build_standalone_retroarch_args_after_validation(&managed, &executable, true, &profile,),
             expected
         );
 
@@ -5538,11 +5703,7 @@ mod tests {
         )];
         let required_platform_ids = HashSet::from(["nes".to_string()]);
 
-        let inventory = build_retroarch_core_inventory(
-            &config,
-            &platforms,
-            &required_platform_ids,
-        );
+        let inventory = build_retroarch_core_inventory(&config, &platforms, &required_platform_ids);
         assert_eq!(inventory.len(), 6);
         let nes = inventory
             .iter()
@@ -5554,11 +5715,7 @@ mod tests {
         std::fs::create_dir_all(core.parent().unwrap()).unwrap();
         std::fs::write(&core, b"external core").unwrap();
 
-        let inventory = build_retroarch_core_inventory(
-            &config,
-            &platforms,
-            &required_platform_ids,
-        );
+        let inventory = build_retroarch_core_inventory(&config, &platforms, &required_platform_ids);
         let nes = inventory
             .iter()
             .find(|core| core.platform_id == "nes")
@@ -5573,12 +5730,9 @@ mod tests {
 
         let managed_root = PathBuf::from("/wingosy/emulators");
         let external_executable = PathBuf::from("/games/retroarch/retroarch.exe");
-        let error = validate_managed_retroarch_repair_target(
-            &config,
-            &external_executable,
-            &managed_root,
-        )
-        .unwrap_err();
+        let error =
+            validate_managed_retroarch_repair_target(&config, &external_executable, &managed_root)
+                .unwrap_err();
 
         assert!(error.contains("external RetroArch install"));
     }
@@ -5645,7 +5799,10 @@ mod tests {
         assert!(!destination.join("stale.txt").exists());
         assert!(!destination.join("cores").join("old_core.dll").exists());
         for relative in &protected {
-            assert_eq!(std::fs::read(destination.join(relative)).unwrap(), b"user value");
+            assert_eq!(
+                std::fs::read(destination.join(relative)).unwrap(),
+                b"user value"
+            );
         }
         assert_eq!(
             std::fs::read(destination.join(managed_autoconfig)).unwrap(),
@@ -5680,10 +5837,7 @@ mod tests {
             .map(|stage| launch_progress_event(42, "Cached Game", *stage, None))
             .collect();
 
-        let observed_stages = events
-            .iter()
-            .map(|event| event.stage)
-            .collect::<Vec<_>>();
+        let observed_stages = events.iter().map(|event| event.stage).collect::<Vec<_>>();
         assert_eq!(observed_stages, stages.to_vec());
         assert!(stages
             .windows(2)
@@ -5763,12 +5917,8 @@ mod tests {
             .iter()
             .all(|event| event.game_id == 42 && event.game_name == "Cached Game"));
 
-        let failure = launch_progress_event(
-            42,
-            "Cached Game",
-            LaunchStage::Failure,
-            Some("missing ROM"),
-        );
+        let failure =
+            launch_progress_event(42, "Cached Game", LaunchStage::Failure, Some("missing ROM"));
         assert_eq!(failure.error.as_deref(), Some("missing ROM"));
         assert_eq!(failure.game_id, 42);
     }
@@ -5865,7 +6015,11 @@ mod tests {
             core_name: Some("mgba_libretro.dll".to_string()),
             game_name: "Super Mario".to_string(),
             rom_path: "C:\\ROMs\\mario.gba".to_string(),
-            args: vec!["-L".to_string(), "core.dll".to_string(), "game.gba".to_string()],
+            args: vec![
+                "-L".to_string(),
+                "core.dll".to_string(),
+                "game.gba".to_string(),
+            ],
             full_command: "C:\\RetroArch\\retroarch.exe -L core.dll game.gba".to_string(),
         };
         assert_eq!(cmd.executable, "C:\\RetroArch\\retroarch.exe");

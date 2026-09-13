@@ -1,0 +1,67 @@
+/** @typedef {import("./game-details-ipc").GameDetailsIpc} GameDetailsIpc */
+/** @typedef {import("../../test/invoke-mocks").GameDetailsTestInvoke} GameDetailsInvoke */
+
+/** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {GameDetailsIpc} Game details IPC adapter. */
+export const createGameDetailsTestIpc = (invoke) => {
+  /** @type {GameDetailsIpc["addGameToCollection"]} */
+  const addGameToCollection = async (collectionId, gameId) =>
+    await invoke("add_game_to_collection", { collectionId, gameId });
+  /** @type {GameDetailsIpc["deleteLocalRom"]} */
+  const deleteLocalRom = async (gameId) =>
+    await invoke("delete_local_rom", { gameId });
+  /** @type {GameDetailsIpc["downloadGameSave"]} */
+  const downloadGameSave = async (rommId, saveId, serverUrl, token) =>
+    await invoke("download_game_save", { rommId, saveId, serverUrl, token });
+  /** @type {GameDetailsIpc["downloadRom"]} */
+  const downloadRom = async (gameId, serverUrl, token) =>
+    await invoke("download_rom", { gameId, serverUrl, token });
+  /** @type {GameDetailsIpc["downloadSwitchSave"]} */
+  const downloadSwitchSave = async (gameId, saveId, slot) =>
+    await invoke("download_switch_save", { gameId, saveId, slot });
+  /** @type {GameDetailsIpc["getCollections"]} */
+  const getCollections = async () => await invoke("get_collections");
+  /** @type {GameDetailsIpc["getGameDetailsConfig"]} */
+  const getGameDetailsConfig = async () => await invoke("get_config");
+  /** @type {GameDetailsIpc["getGameSaves"]} */
+  const getGameSaves = async (rommId, serverUrl, token) =>
+    await invoke("get_game_saves", { rommId, serverUrl, token });
+  /** @type {GameDetailsIpc["getSwitchSavePathInfo"]} */
+  const getSwitchSavePathInfo = async (gameId) =>
+    await invoke("get_switch_save_path_info", { gameId });
+  /** @type {GameDetailsIpc["openRomLocation"]} */
+  const openRomLocation = async (gameId) =>
+    await invoke("open_rom_location", { gameId });
+  /** @type {GameDetailsIpc["refreshGameMetadata"]} */
+  const refreshGameMetadata = async (gameId, serverUrl, token) =>
+    await invoke("refresh_game_metadata", { gameId, serverUrl, token });
+  /** @type {GameDetailsIpc["syncSwitchContent"]} */
+  const syncSwitchContent = async (gameId) =>
+    await invoke("sync_switch_content", { gameId });
+  /** @type {GameDetailsIpc["toggleGameHidden"]} */
+  const toggleGameHidden = async (gameId) =>
+    await invoke("toggle_game_hidden", { gameId });
+  /** @type {GameDetailsIpc["uploadGameSave"]} */
+  const uploadGameSave = async (filePath, rommId, serverUrl, token) =>
+    await invoke("upload_game_save", { filePath, rommId, serverUrl, token });
+  /** @type {GameDetailsIpc["uploadSwitchSave"]} */
+  const uploadSwitchSave = async (gameId, slot) =>
+    await invoke("upload_switch_save", { gameId, slot });
+
+  return {
+    addGameToCollection,
+    deleteLocalRom,
+    downloadGameSave,
+    downloadRom,
+    downloadSwitchSave,
+    getCollections,
+    getGameDetailsConfig,
+    getGameSaves,
+    getSwitchSavePathInfo,
+    openRomLocation,
+    refreshGameMetadata,
+    syncSwitchContent,
+    toggleGameHidden,
+    uploadGameSave,
+    uploadSwitchSave,
+  };
+};

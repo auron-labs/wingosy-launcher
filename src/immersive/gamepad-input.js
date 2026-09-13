@@ -33,10 +33,10 @@ const axisToDir = (value, deadzone) => {
   return 0;
 };
 
-/** @param {GamepadButton[]} buttons @param {number} index @returns {boolean} */
+/** @param {ReadonlyArray<GamepadButton>} buttons @param {number} index @returns {boolean} */
 const isPressed = (buttons, index) => buttons[index]?.pressed ?? false;
 
-/** @param {number[]} axes @param {number} index @param {number} direction @param {number} deadzone @returns {boolean} */
+/** @param {ReadonlyArray<number>} axes @param {number} index @param {number} direction @param {number} deadzone @returns {boolean} */
 const axisPressed = (axes, index, direction, deadzone) =>
   axisToDir(axes[index], deadzone) === direction;
 
@@ -53,7 +53,7 @@ export const emptyDigital = () => ({
   view: false,
 });
 
-/** @param {GamepadButton[]} buttons @param {number[]} axes @param {number} deadzone @returns {DigitalState} */
+/** @param {ReadonlyArray<GamepadButton>} buttons @param {ReadonlyArray<number>} axes @param {number} deadzone @returns {DigitalState} */
 const readDigital = (buttons, axes, deadzone) => ({
   back: isPressed(buttons, 1),
   confirmOpen: isPressed(buttons, 0),
@@ -67,7 +67,7 @@ const readDigital = (buttons, axes, deadzone) => ({
   view: isPressed(buttons, 8),
 });
 
-/** @param {GamepadButton[]} buttons @param {number[]} axes @param {number} deadzone @returns {{activeAxes: string[], hasUnmappedInput: boolean, pressedButtons: number[]}} */
+/** @param {ReadonlyArray<GamepadButton>} buttons @param {ReadonlyArray<number>} axes @param {number} deadzone @returns {{activeAxes: string[], hasUnmappedInput: boolean, pressedButtons: number[]}} */
 const readDiagnostics = (buttons, axes, deadzone) => {
   const pressedButtons = buttons
     .map((button, index) => (button.pressed ? index : null))
@@ -115,7 +115,8 @@ export const readStandardPad = (pad, deadzone, includeDiagnostics = false) => {
 export const gamepadSummary = ({ key, pad }) => ({
   axes: pad.axes.length,
   buttons: pad.buttons.length,
-  id: pad.id === "" ? "(unnamed)" : pad.id.slice(0, 120),
+  id:
+    pad.id === undefined || pad.id === "" ? "(unnamed)" : pad.id.slice(0, 120),
   index: key,
   mapping: pad.mapping === "" ? "unmapped" : pad.mapping,
 });

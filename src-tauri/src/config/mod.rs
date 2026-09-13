@@ -136,13 +136,17 @@ impl AppConfig {
         tracing::debug!("[Config] Loading config from {:?}", config_path);
 
         if config_path.exists() {
-            let contents = std::fs::read_to_string(&config_path)
-                .context("Failed to read config file")?;
-            let mut config: Self = toml::from_str(&contents).context("Failed to parse config file")?;
+            let contents =
+                std::fs::read_to_string(&config_path).context("Failed to read config file")?;
+            let mut config: Self =
+                toml::from_str(&contents).context("Failed to parse config file")?;
             config.normalize_retroarch_identity();
             tracing::info!("[Config] Loaded configuration successfully");
             tracing::debug!("[Config] RomM server: {:?}", config.romm.server_url);
-            tracing::debug!("[Config] ROMs directory: {:?}", config.library.roms_directory);
+            tracing::debug!(
+                "[Config] ROMs directory: {:?}",
+                config.library.roms_directory
+            );
             Ok(config)
         } else {
             tracing::info!("[Config] No config file found, using defaults");
@@ -171,7 +175,7 @@ impl AppConfig {
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
         std::fs::write(&config_path, contents).context("Failed to write config file")?;
-        
+
         tracing::info!("[Config] Configuration saved successfully");
         Ok(())
     }
@@ -237,14 +241,11 @@ impl AppConfig {
         let managed_root = Self::emulators_dir().ok();
         let was_managed = self.emulators.retroarch_install_kind == RetroArchInstallKind::Managed;
         let had_retroarch_path = self.emulators.retroarch.is_some();
-        let is_managed_identity = self.emulators.retroarch_install_kind == RetroArchInstallKind::Managed
+        let is_managed_identity = self.emulators.retroarch_install_kind
+            == RetroArchInstallKind::Managed
             && self.emulators.retroarch_manifest_version.as_deref()
                 == Some(crate::emulators::retroarch::MANIFEST_VERSION)
-            && self
-            .emulators
-            .retroarch
-            .as_ref()
-            .is_some_and(|path| {
+            && self.emulators.retroarch.as_ref().is_some_and(|path| {
                 path.is_file()
                     && managed_root
                         .as_ref()
@@ -418,7 +419,10 @@ mod tests {
         assert!(config.updater.check_on_startup);
         assert!(!config.updater.auto_update_enabled);
         assert_eq!(config.updater.channel, UpdateChannel::Stable);
-        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert_eq!(
+            config.emulators.retroarch_install_kind,
+            RetroArchInstallKind::External
+        );
         assert!(config.emulators.retroarch_manifest_version.is_none());
         assert!(!config.emulators.retroarch_use_beta_profile);
     }
@@ -500,7 +504,10 @@ mod tests {
 
         config.normalize_retroarch_identity();
 
-        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert_eq!(
+            config.emulators.retroarch_install_kind,
+            RetroArchInstallKind::External
+        );
         assert!(config.emulators.retroarch_manifest_version.is_none());
         assert!(!config.emulators.retroarch_use_beta_profile);
     }
@@ -521,7 +528,10 @@ mod tests {
 
         config.normalize_retroarch_identity();
 
-        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert_eq!(
+            config.emulators.retroarch_install_kind,
+            RetroArchInstallKind::External
+        );
         assert!(config.emulators.retroarch_manifest_version.is_none());
         assert!(!config.emulators.retroarch_use_beta_profile);
     }
@@ -534,7 +544,10 @@ mod tests {
 
         config.normalize_retroarch_identity();
 
-        assert_eq!(config.emulators.retroarch_install_kind, RetroArchInstallKind::External);
+        assert_eq!(
+            config.emulators.retroarch_install_kind,
+            RetroArchInstallKind::External
+        );
         assert!(config.emulators.retroarch_manifest_version.is_none());
         assert!(config.emulators.retroarch_use_beta_profile);
     }
@@ -543,7 +556,7 @@ mod tests {
     fn test_app_config_roms_dir_with_config() {
         let mut config = AppConfig::default();
         config.library.roms_directory = Some(PathBuf::from("C:/Games/ROMs"));
-        
+
         assert_eq!(config.roms_dir(), PathBuf::from("C:/Games/ROMs"));
     }
 
@@ -618,9 +631,12 @@ mod tests {
             
             [emulators]
         "#;
-        
+
         let config: AppConfig = toml::from_str(toml_str).expect("Should deserialize");
-        assert_eq!(config.romm.server_url, Some("http://localhost:8080".to_string()));
+        assert_eq!(
+            config.romm.server_url,
+            Some("http://localhost:8080".to_string())
+        );
         assert!(config.romm.auto_sync);
         assert!(!config.library.auto_extract_archives);
         assert!(config.library.show_hidden_games);
@@ -671,7 +687,8 @@ mod tests {
             },
         );
 
-        let serialized = toml::to_string(&config.controllers).expect("Should serialize controllers");
+        let serialized =
+            toml::to_string(&config.controllers).expect("Should serialize controllers");
         let value: toml::Value = toml::from_str(&serialized).expect("Should parse controllers");
         let mapping = value
             .get("mappings")

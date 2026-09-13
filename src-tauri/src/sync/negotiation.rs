@@ -51,7 +51,10 @@ mod tests {
             b"save",
             SystemTime::UNIX_EPOCH,
         );
-        assert_eq!(state.content_hash.as_deref(), Some("43781db5c40ecc39fd718685594f0956"));
+        assert_eq!(
+            state.content_hash.as_deref(),
+            Some("43781db5c40ecc39fd718685594f0956")
+        );
         assert_eq!(state.file_size_bytes, 4);
     }
 }

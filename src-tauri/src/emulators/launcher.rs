@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -10,7 +10,7 @@ use std::time::Instant;
 use crate::config::AppConfig;
 use crate::database::Database;
 use crate::emulators::cores::resolve_core_path;
-use crate::models::{Emulator, Game, GameSource, retroarch_cores};
+use crate::models::{retroarch_cores, Emulator, Game, GameSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaunchCommand {
@@ -77,7 +77,11 @@ impl EmulatorLauncher {
             }
             (GameSource::Local, None) => format!("file path '{}'", game.file_path),
         };
-        bail!("ROM file for '{}' was not found locally (checked {})", game.name, checked)
+        bail!(
+            "ROM file for '{}' was not found locally (checked {})",
+            game.name,
+            checked
+        )
     }
 
     pub fn build_command(&self, game: &Game) -> Result<LaunchCommand> {
@@ -148,13 +152,10 @@ impl EmulatorLauncher {
                 .as_ref()
                 .context("RetroArch executable is not configured")?;
             let use_beta_profile = managed_install_validated
-                || crate::emulators::retroarch::managed_profile_enabled(
-                    &self.config,
-                    executable,
-                )
+                || crate::emulators::retroarch::managed_profile_enabled(&self.config, executable)
                 || (self.config.emulators.retroarch_install_kind
                     == crate::config::RetroArchInstallKind::External
-                && self.config.emulators.retroarch_use_beta_profile);
+                    && self.config.emulators.retroarch_use_beta_profile);
             if use_beta_profile {
                 let profile = if managed_install_validated {
                     crate::emulators::retroarch::ensure_managed_profile(executable)
@@ -162,10 +163,9 @@ impl EmulatorLauncher {
                     crate::emulators::retroarch::ensure_profile()
                 }
                 .context("Failed to prepare Wingosy RetroArch profile")?;
-                emulator.launch_args.push(format!(
-                    "--appendconfig={}",
-                    profile.to_string_lossy()
-                ));
+                emulator
+                    .launch_args
+                    .push(format!("--appendconfig={}", profile.to_string_lossy()));
             }
             if !managed_install_validated {
                 let core_name = emulator
@@ -391,11 +391,7 @@ impl EmulatorLauncher {
                 command.full_command
             );
 
-            match OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_file)
-            {
+            match OpenOptions::new().create(true).append(true).open(&log_file) {
                 Ok(mut file) => {
                     if let Err(e) = file.write_all(log_entry.as_bytes()) {
                         tracing::warn!("Failed to write to launch log: {}", e);
@@ -426,12 +422,17 @@ impl EmulatorLauncher {
         }
 
         // 2. Check platform default emulator from config
-        if let Some(default_emu_id) = self.config.emulators.platform_defaults.get(&game.platform_id) {
+        if let Some(default_emu_id) = self
+            .config
+            .emulators
+            .platform_defaults
+            .get(&game.platform_id)
+        {
             let emulators = crate::models::default_emulators();
-            
+
             if let Some(mut emu) = emulators.into_iter().find(|e| &e.id == default_emu_id) {
                 emu.executable_path = self.get_emulator_path(&emu.id);
-                
+
                 if emu.is_retroarch {
                     if let Some(core) = retroarch_cores().get(&game.platform_id) {
                         emu.core_name = Some(core.to_string());
@@ -439,7 +440,11 @@ impl EmulatorLauncher {
                 }
 
                 if emu.executable_path.is_some() {
-                    tracing::info!("[Launch] Using platform default emulator: {} for {}", emu.name, game.platform_id);
+                    tracing::info!(
+                        "[Launch] Using platform default emulator: {} for {}",
+                        emu.name,
+                        game.platform_id
+                    );
                 }
                 return Ok(emu);
             }
@@ -447,19 +452,19 @@ impl EmulatorLauncher {
 
         // 3. Auto-detect: find first available emulator for this platform
         let mut emulators = crate::models::default_emulators();
-        
+
         for emu in &mut emulators {
             if emu.supported_platforms.contains(&game.platform_id)
                 || emu.supported_platforms.contains(&"*".to_string())
             {
                 emu.executable_path = self.get_emulator_path(&emu.id);
-                
+
                 if emu.is_retroarch {
                     if let Some(core) = retroarch_cores().get(&game.platform_id) {
                         emu.core_name = Some(core.to_string());
                     }
                 }
-                
+
                 if emu.executable_path.is_some() {
                     return Ok(emu.clone());
                 }
@@ -477,10 +482,7 @@ impl EmulatorLauncher {
             }
         }
 
-        bail!(
-            "No emulator configured for platform: {}",
-            game.platform_id
-        )
+        bail!("No emulator configured for platform: {}", game.platform_id)
     }
 
     fn get_emulator_path(&self, emulator_id: &str) -> Option<std::path::PathBuf> {
@@ -506,7 +508,7 @@ impl EmulatorLauncher {
 
     pub fn get_available_emulators_for_platform(&self, platform_id: &str) -> Vec<Emulator> {
         let emulators = crate::models::default_emulators();
-        
+
         emulators
             .into_iter()
             .filter(|e| {
@@ -515,7 +517,11 @@ impl EmulatorLauncher {
             })
             .map(|mut e| {
                 e.executable_path = self.get_emulator_path(&e.id);
-                e.is_installed = e.executable_path.as_ref().map(|p| p.is_file()).unwrap_or(false);
+                e.is_installed = e
+                    .executable_path
+                    .as_ref()
+                    .map(|p| p.is_file())
+                    .unwrap_or(false);
                 e
             })
             .collect()
@@ -559,7 +565,10 @@ pub enum LaunchResult {
 
 impl LaunchResult {
     pub fn is_success(&self) -> bool {
-        matches!(self, LaunchResult::Success { .. } | LaunchResult::DryRun { .. })
+        matches!(
+            self,
+            LaunchResult::Success { .. } | LaunchResult::DryRun { .. }
+        )
     }
 
     pub fn command(&self) -> Option<&LaunchCommand> {
@@ -712,7 +721,10 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        panic!("lifecycle test process did not create marker: {}", marker.display());
+        panic!(
+            "lifecycle test process did not create marker: {}",
+            marker.display()
+        );
     }
 
     fn persist_game_for_override(db: &Database, game: &mut Game) {
@@ -727,7 +739,8 @@ mod tests {
     }
 
     #[test]
-    fn build_retroarch_nes_command_uses_external_install_absolute_core_fullscreen_and_safe_rom_arg() {
+    fn build_retroarch_nes_command_uses_external_install_absolute_core_fullscreen_and_safe_rom_arg()
+    {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("retroarch.exe");
         let core = dir.path().join("cores").join("fceumm_libretro.dll");
@@ -752,7 +765,10 @@ mod tests {
 
         let command = launcher.build_command(&game).unwrap();
 
-        assert_eq!(command.executable, executable.to_string_lossy().into_owned());
+        assert_eq!(
+            command.executable,
+            executable.to_string_lossy().into_owned()
+        );
         assert_eq!(
             command.args,
             vec![
@@ -781,9 +797,16 @@ mod tests {
         let mut config = AppConfig::default();
         config.emulators.retroarch = Some(executable);
         config.emulators.retroarch_use_beta_profile = true;
-        config.emulators.platform_defaults.insert("nes".to_string(), "retroarch".to_string());
+        config
+            .emulators
+            .platform_defaults
+            .insert("nes".to_string(), "retroarch".to_string());
         let launcher = EmulatorLauncher::new(config, Database::open_in_memory().unwrap());
-        let game = Game::new("NES Game".to_string(), rom.to_string_lossy().into_owned(), "nes".to_string());
+        let game = Game::new(
+            "NES Game".to_string(),
+            rom.to_string_lossy().into_owned(),
+            "nes".to_string(),
+        );
 
         let command = launcher.build_command(&game).unwrap();
         let profile = crate::emulators::retroarch::delta_path().unwrap();
@@ -907,10 +930,7 @@ mod tests {
 
         let command = test_launcher().build_command(&game).unwrap();
 
-        assert_eq!(
-            command.rom_path,
-            valid_rom.to_string_lossy().into_owned()
-        );
+        assert_eq!(command.rom_path, valid_rom.to_string_lossy().into_owned());
         assert_eq!(command.args.last().map(String::as_str), valid_rom.to_str());
     }
 
@@ -962,10 +982,15 @@ mod tests {
                     .insert(platform.to_string(), "mgba".to_string());
             }
 
-            let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+            let command = EmulatorLauncher::new(config, db)
+                .build_command(&game)
+                .unwrap();
 
             assert_eq!(command.emulator_id, "mgba");
-            assert_eq!(command.executable, executable.to_string_lossy().into_owned());
+            assert_eq!(
+                command.executable,
+                executable.to_string_lossy().into_owned()
+            );
             assert_eq!(
                 command.args,
                 vec!["-f".to_string(), rom.to_string_lossy().into_owned()]
@@ -987,14 +1012,21 @@ mod tests {
             .platform_defaults
             .insert("gbc".to_string(), "mgba".to_string());
         let rom_path = r"C:\Games\Pokemon Blue 世界.gbc".to_string();
-        let game = Game::new("Pokemon Blue".to_string(), rom_path.clone(), "gbc".to_string());
+        let game = Game::new(
+            "Pokemon Blue".to_string(),
+            rom_path.clone(),
+            "gbc".to_string(),
+        );
 
         let command = EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
             .build_command(&game)
             .unwrap();
 
         assert_eq!(command.rom_path, rom_path);
-        assert_eq!(command.args, vec!["-f".to_string(), command.rom_path.clone()]);
+        assert_eq!(
+            command.args,
+            vec!["-f".to_string(), command.rom_path.clone()]
+        );
     }
 
     #[test]
@@ -1061,8 +1093,7 @@ mod tests {
 
         let mut config = AppConfig::default();
         config.emulators.retroarch = Some(executable.clone());
-        config.emulators.retroarch_install_kind =
-            crate::config::RetroArchInstallKind::Managed;
+        config.emulators.retroarch_install_kind = crate::config::RetroArchInstallKind::Managed;
         config
             .emulators
             .platform_defaults
@@ -1139,7 +1170,9 @@ mod tests {
             db.set_emulator_for_game(game.id, "retroarch", None)
                 .unwrap();
 
-            let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+            let command = EmulatorLauncher::new(config, db)
+                .build_command(&game)
+                .unwrap();
             let core = core.to_string_lossy().into_owned();
             let rom = rom.to_string_lossy().into_owned();
 
@@ -1150,7 +1183,12 @@ mod tests {
                 command.args,
                 vec![
                     "--fullscreen".to_string(),
-                    format!("--appendconfig={}", crate::emulators::retroarch::delta_path().unwrap().to_string_lossy()),
+                    format!(
+                        "--appendconfig={}",
+                        crate::emulators::retroarch::delta_path()
+                            .unwrap()
+                            .to_string_lossy()
+                    ),
                     "-L".to_string(),
                     core,
                     rom,
@@ -1227,7 +1265,9 @@ mod tests {
         db.set_emulator_for_game(game.id, "retroarch", Some("../../outside.dll"))
             .unwrap();
 
-        let command = EmulatorLauncher::new(config, db).build_command(&game).unwrap();
+        let command = EmulatorLauncher::new(config, db)
+            .build_command(&game)
+            .unwrap();
         let expected = dir.path().join("cores").join("outside.dll");
 
         assert_eq!(command.core_name.as_deref(), expected.to_str());
@@ -1533,7 +1573,9 @@ mod tests {
         game.source = GameSource::RomM;
         game.local_file_path = Some("missing.gba".to_string());
 
-        let error = EmulatorLauncher::resolve_rom_path(&game).unwrap_err().to_string();
+        let error = EmulatorLauncher::resolve_rom_path(&game)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("Missing Game"));
         assert!(error.contains("missing.gba"));
     }
@@ -1639,10 +1681,9 @@ mod tests {
                     move || {
                         assert!(!complete_marker.exists());
                         complete_events.lock().unwrap().push("complete");
-                        crate::commands::for_each_window_restoration_action(
-                            Some(true),
-                            |action| complete_actions.lock().unwrap().push(action),
-                        );
+                        crate::commands::for_each_window_restoration_action(Some(true), |action| {
+                            complete_actions.lock().unwrap().push(action)
+                        });
                     },
                 )
                 .await
@@ -1694,10 +1735,9 @@ mod tests {
                 move || running_events.lock().unwrap().push("running"),
                 move || {
                     complete_events.lock().unwrap().push("complete");
-                    crate::commands::for_each_window_restoration_action(
-                        Some(true),
-                        |action| complete_actions.lock().unwrap().push(action),
-                    );
+                    crate::commands::for_each_window_restoration_action(Some(true), |action| {
+                        complete_actions.lock().unwrap().push(action)
+                    });
                 },
             )
             .await

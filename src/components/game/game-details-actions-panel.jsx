@@ -8,13 +8,109 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
-import { formatDownloadLabel } from "../../RomDownloadsContext";
+import { formatDownloadLabel } from "../../rom-downloads-format";
 import { launchStageLabel } from "./game-details-utils";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
 
 /** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, canSyncSwitchContent: boolean, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
+
+/** @param {{downloading: boolean, launchActive: boolean, onLaunch: () => Promise<void>, switchContentSyncing: boolean}} props Play button properties. */
+const PlayButton = ({
+  downloading,
+  launchActive,
+  onLaunch,
+  switchContentSyncing,
+}) => (
+  <Button
+    disabled={launchActive || downloading || switchContentSyncing}
+    onClick={() => {
+      void onLaunch();
+    }}
+    size="large"
+    startIcon={<PlayArrowIcon />}
+    sx={{ borderRadius: 3, fontSize: "1.1rem", px: 5, py: 1.5 }}
+    variant="contained"
+  >
+    {launchActive ? "Preparing..." : "Play"}
+  </Button>
+);
+
+/** @param {{canDownload: boolean, downloading: boolean, launchActive: boolean, onDownload: () => Promise<void>, switchContentSyncing: boolean}} props Download button properties. */
+const RomDownloadButton = ({
+  canDownload,
+  downloading,
+  launchActive,
+  onDownload,
+  switchContentSyncing,
+}) => (
+  <Tooltip
+    arrow
+    title={canDownload ? "" : "Connect to RomM server in Settings to download"}
+  >
+    <span>
+      <Button
+        disabled={
+          downloading || launchActive || switchContentSyncing || !canDownload
+        }
+        onClick={() => {
+          void onDownload();
+        }}
+        size="large"
+        startIcon={downloading ? null : <CloudDownloadIcon />}
+        sx={{ borderRadius: 3, fontSize: "1.1rem", px: 5, py: 1.5 }}
+        variant="outlined"
+      >
+        {downloading ? "Downloading..." : "Download ROM"}
+      </Button>
+    </span>
+  </Tooltip>
+);
+
+/** @param {{downloading: boolean, launchActive: boolean, onDownload: () => Promise<void>, switchContentSyncing: boolean}} props Redownload button properties. */
+const RedownloadButton = ({
+  downloading,
+  launchActive,
+  onDownload,
+  switchContentSyncing,
+}) => (
+  <Button
+    color="secondary"
+    disabled={downloading || launchActive || switchContentSyncing}
+    onClick={() => {
+      void onDownload();
+    }}
+    size="small"
+    startIcon={downloading ? null : <CloudDownloadIcon />}
+    sx={{ borderRadius: 3 }}
+    variant="outlined"
+  >
+    {downloading ? "Downloading..." : "Re-download"}
+  </Button>
+);
+
+/** @param {{downloading: boolean, launchActive: boolean, onSyncSwitchContent: () => Promise<void>, switchContentSyncing: boolean}} props Switch content button properties. */
+const SwitchContentButton = ({
+  downloading,
+  launchActive,
+  onSyncSwitchContent,
+  switchContentSyncing,
+}) => (
+  <Button
+    color="secondary"
+    disabled={switchContentSyncing || launchActive || downloading}
+    onClick={() => {
+      void onSyncSwitchContent();
+    }}
+    size="small"
+    startIcon={switchContentSyncing ? null : <SyncIcon />}
+    sx={{ borderRadius: 3 }}
+    variant="outlined"
+  >
+    {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
+  </Button>
+);
 
 /** @param {GameDetailsPlayControlsProps} props Component properties. */
 export const GameDetailsPlayControls = ({
@@ -40,105 +136,119 @@ export const GameDetailsPlayControls = ({
     }}
   >
     {canPlay && (
-      <Button
-        disabled={launchActive || downloading || switchContentSyncing}
-        onClick={() => {
-          void onLaunch();
-        }}
-        size="large"
-        startIcon={<PlayArrowIcon />}
-        sx={{ borderRadius: 3, fontSize: "1.1rem", px: 5, py: 1.5 }}
-        variant="contained"
-      >
-        {launchActive ? "Preparing..." : "Play"}
-      </Button>
+      <PlayButton
+        downloading={downloading}
+        launchActive={launchActive}
+        onLaunch={onLaunch}
+        switchContentSyncing={switchContentSyncing}
+      />
     )}
-
-    {game.romm_id && !hasLocalFile && (
-      <Tooltip
-        arrow
-        title={
-          canDownload ? "" : "Connect to RomM server in Settings to download"
-        }
-      >
-        <span>
-          <Button
-            disabled={
-              downloading ||
-              launchActive ||
-              switchContentSyncing ||
-              !canDownload
-            }
-            onClick={() => {
-              void onDownload();
-            }}
-            size="large"
-            startIcon={downloading ? null : <CloudDownloadIcon />}
-            sx={{ borderRadius: 3, fontSize: "1.1rem", px: 5, py: 1.5 }}
-            variant="outlined"
-          >
-            {downloading ? "Downloading..." : "Download ROM"}
-          </Button>
-        </span>
-      </Tooltip>
+    {game.romm_id !== null && game.romm_id !== undefined && !hasLocalFile && (
+      <RomDownloadButton
+        canDownload={canDownload}
+        downloading={downloading}
+        launchActive={launchActive}
+        onDownload={onDownload}
+        switchContentSyncing={switchContentSyncing}
+      />
     )}
-
     {canDownload && hasLocalFile && (
-      <Button
-        color="secondary"
-        disabled={downloading || launchActive || switchContentSyncing}
-        onClick={() => {
-          void onDownload();
-        }}
-        size="small"
-        startIcon={downloading ? null : <CloudDownloadIcon />}
-        sx={{ borderRadius: 3 }}
-        variant="outlined"
-      >
-        {downloading ? "Downloading..." : "Re-download"}
-      </Button>
+      <RedownloadButton
+        downloading={downloading}
+        launchActive={launchActive}
+        onDownload={onDownload}
+        switchContentSyncing={switchContentSyncing}
+      />
     )}
-
     {canSyncSwitchContent && (
-      <Button
-        color="secondary"
-        disabled={switchContentSyncing || launchActive || downloading}
-        onClick={() => {
-          void onSyncSwitchContent();
-        }}
-        size="small"
-        startIcon={switchContentSyncing ? null : <SyncIcon />}
-        sx={{ borderRadius: 3 }}
-        variant="outlined"
-      >
-        {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
-      </Button>
+      <SwitchContentButton
+        downloading={downloading}
+        launchActive={launchActive}
+        onSyncSwitchContent={onSyncSwitchContent}
+        switchContentSyncing={switchContentSyncing}
+      />
     )}
   </Box>
 );
 
 /** @typedef {{progress: GameDetailsProgress|null, launchError: string|null, presentation: {message: string, guidance: string, retryable: boolean}, launchActive: boolean, downloadActive: boolean, onRetry: () => Promise<void>, onOpenSettings: (() => void)|null}} GameDetailsLaunchStatusProps */
 
+/** @param {{progress: GameDetailsProgress|null}} props Download progress properties. */
+const LaunchDownloadProgress = ({ progress }) => {
+  if (
+    progress?.stage !== "downloading" &&
+    progress?.stage !== "bios_preparation"
+  ) {
+    return null;
+  }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <LinearProgress
+        value={progress.percent ?? undefined}
+        variant={
+          progress.percent === null || progress.percent === undefined
+            ? "indeterminate"
+            : "determinate"
+        }
+        sx={{ borderRadius: 2 }}
+      />
+      {progress.downloaded === null ||
+      progress.downloaded === undefined ? null : (
+        <Typography
+          color="text.secondary"
+          sx={{ display: "block", mt: 0.5 }}
+          variant="caption"
+        >
+          {formatDownloadLabel(progress)}
+        </Typography>
+      )}
+    </Box>
+  );
+};
+
+/** @param {GameDetailsProgress|null} progress - Download progress. @param {string|null} launchError - Launch error. @returns {"error"|"info"|"success"} Alert severity. */
+const getLaunchStatusSeverity = (progress, launchError) => {
+  if (
+    progress?.stage === "failure" ||
+    (launchError !== null && launchError !== "")
+  ) {
+    return "error";
+  }
+  if (progress?.stage === "completion") {
+    return "success";
+  }
+  return "info";
+};
+
+/** @param {GameDetailsProgress|null} progress - Download progress. @param {boolean} failed - Whether launch failed. @param {{message: string}} presentation - Failure presentation. @returns {string} Message to display. */
+const getLaunchStatusMessage = (progress, failed, presentation) => {
+  if (failed) {
+    return presentation.message;
+  }
+  if (progress !== null) {
+    return launchStageLabel(progress.stage);
+  }
+  return "Launch failed";
+};
+
 /** @param {GameDetailsLaunchStatusProps} props Component properties. */
 export const GameDetailsLaunchStatus = ({
   downloadActive,
   launchActive,
   launchError,
-  launchError: _launchError,
   onOpenSettings,
   onRetry,
   presentation,
   progress,
 }) => {
-  if (!progress && !launchError) {
+  if (progress === null && launchError === null) {
     return null;
   }
-  const failed = progress?.stage === "failure" || Boolean(launchError);
-  const severity = failed
-    ? "error"
-    : (progress?.stage === "completion"
-      ? "success"
-      : "info");
+  const failed =
+    progress?.stage === "failure" ||
+    (launchError !== null && launchError !== "");
+  const severity = getLaunchStatusSeverity(progress, launchError);
+  const statusMessage = getLaunchStatusMessage(progress, failed, presentation);
   return (
     <Box sx={{ mb: 2 }}>
       <Alert
@@ -167,11 +277,7 @@ export const GameDetailsLaunchStatus = ({
         }
         severity={severity}
       >
-        {failed
-          ? presentation.message
-          : (progress
-            ? launchStageLabel(progress.stage)
-            : "Launch failed")}
+        {statusMessage}
         {failed ? (
           <Typography sx={{ display: "block", mt: 0.5 }} variant="body2">
             {presentation.guidance}
@@ -183,35 +289,52 @@ export const GameDetailsLaunchStatus = ({
   );
 };
 
-/** @param {{progress: GameDetailsProgress|null}} props */
-const LaunchDownloadProgress = ({ progress }) => {
-  if (
-    progress?.stage !== "downloading" &&
-    progress?.stage !== "bios_preparation"
-  ) {
-    return null;
+/** @typedef {{downloading: boolean, progress: GameDetailsProgress|null, status: {message: string, type: "error"|"info"|"success"}|null, switchContentSyncing: boolean, switchContentProgress: GameDetailsProgress|null}} GameDetailsDownloadStatusProps */
+
+/** @param {GameDetailsProgress|null} progress Switch content progress. @returns {string} Progress message. */
+const getSwitchContentProgressLabel = (progress) => {
+  if (progress?.stage === "registering") {
+    return "Registering content with Eden…";
   }
-  return (
-    <Box sx={{ mt: 1 }}>
-      <LinearProgress
-        value={progress.percent ?? undefined}
-        variant={progress.percent == null ? "indeterminate" : "determinate"}
-        sx={{ borderRadius: 2 }}
-      />
-      {progress.downloaded == null ? null : (
-        <Typography
-          color="text.secondary"
-          sx={{ display: "block", mt: 0.5 }}
-          variant="caption"
-        >
-          {formatDownloadLabel(progress)}
-        </Typography>
-      )}
-    </Box>
-  );
+  if (progress?.stage === "reusing") {
+    return "Reusing unchanged content…";
+  }
+  return "Downloading Switch content…";
 };
 
-/** @typedef {{downloading: boolean, progress: GameDetailsProgress|null, status: {message: string, type: "error"|"info"|"success"}|null, switchContentSyncing: boolean, switchContentProgress: GameDetailsProgress|null}} GameDetailsDownloadStatusProps */
+/** @param {{progress: GameDetailsProgress|null}} props Switch content progress. */
+const SwitchContentProgress = ({ progress }) => (
+  <Box data-testid="switch-content-sync-progress" sx={{ mb: 2 }}>
+    <Typography color="text.secondary" sx={{ mb: 0.5 }} variant="body2">
+      {getSwitchContentProgressLabel(progress)}
+      {progress?.file_index !== null &&
+      progress?.file_index !== undefined &&
+      progress.total_files !== null &&
+      progress.total_files !== undefined
+        ? ` (${progress.file_index}/${progress.total_files})`
+        : ""}
+    </Typography>
+    <LinearProgress
+      value={progress?.percent ?? undefined}
+      variant={
+        progress?.percent === null || progress?.percent === undefined
+          ? "indeterminate"
+          : "determinate"
+      }
+      sx={{ borderRadius: 2 }}
+    />
+    {progress?.downloaded === null ||
+    progress?.downloaded === undefined ? null : (
+      <Typography
+        color="text.secondary"
+        sx={{ display: "block", mt: 0.5 }}
+        variant="caption"
+      >
+        {formatDownloadLabel(progress)}
+      </Typography>
+    )}
+  </Box>
+);
 
 /** @param {GameDetailsDownloadStatusProps} props Component properties. */
 export const GameDetailsDownloadStatus = ({
@@ -223,43 +346,13 @@ export const GameDetailsDownloadStatus = ({
 }) => (
   <>
     {downloading && <LaunchDownloadProgress progress={progress} />}
-    {status && (
+    {status !== null && (
       <Alert severity={status.type} sx={{ mb: 2 }}>
         {status.message}
       </Alert>
     )}
     {switchContentSyncing && (
-      <Box data-testid="switch-content-sync-progress" sx={{ mb: 2 }}>
-        <Typography color="text.secondary" sx={{ mb: 0.5 }} variant="body2">
-          {switchContentProgress?.stage === "registering"
-            ? "Registering content with Eden…"
-            : (switchContentProgress?.stage === "reusing"
-              ? "Reusing unchanged content…"
-              : "Downloading Switch content…")}
-          {switchContentProgress?.file_index != null &&
-          switchContentProgress.total_files != null
-            ? ` (${switchContentProgress.file_index}/${switchContentProgress.total_files})`
-            : ""}
-        </Typography>
-        <LinearProgress
-          value={switchContentProgress?.percent ?? undefined}
-          variant={
-            switchContentProgress?.percent == null
-              ? "indeterminate"
-              : "determinate"
-          }
-          sx={{ borderRadius: 2 }}
-        />
-        {switchContentProgress?.downloaded == null ? null : (
-          <Typography
-            color="text.secondary"
-            sx={{ display: "block", mt: 0.5 }}
-            variant="caption"
-          >
-            {formatDownloadLabel(switchContentProgress)}
-          </Typography>
-        )}
-      </Box>
+      <SwitchContentProgress progress={switchContentProgress} />
     )}
   </>
 );

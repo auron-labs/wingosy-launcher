@@ -62,10 +62,7 @@ pub fn resolve_eden_save_base(config: &AppConfig) -> PathBuf {
     resolve_eden_save_base_with_appdata(config, appdata.as_deref())
 }
 
-fn resolve_eden_save_base_with_appdata(
-    config: &AppConfig,
-    appdata: Option<&Path>,
-) -> PathBuf {
+fn resolve_eden_save_base_with_appdata(config: &AppConfig, appdata: Option<&Path>) -> PathBuf {
     if let Some(custom) = &config.emulators.eden_save_root {
         return normalize_save_base(custom);
     }

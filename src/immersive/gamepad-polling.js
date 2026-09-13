@@ -1,4 +1,4 @@
-import { debugLog } from "../utils/debugLog";
+import { debugLog } from "../utils/debug-log";
 import {
   gamepadSummary,
   normalizeGamepadDeadzone,

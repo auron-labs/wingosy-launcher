@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isTauri, mousedownTargetElement } from "./isTauri";
+import { isTauri, mousedownTargetElement } from "./is-tauri";
 
 describe("Tauri runtime markers and drag targets", () => {
   afterEach(() => {

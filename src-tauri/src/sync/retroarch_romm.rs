@@ -414,7 +414,10 @@ async fn negotiated_launch_sync(
         };
     };
     let operation = crate::sync::negotiation::operation_for(&plan, romm_id, &slot).cloned();
-    let result = match operation.as_ref().map(|operation| operation.action.as_str()) {
+    let result = match operation
+        .as_ref()
+        .map(|operation| operation.action.as_str())
+    {
         Some("upload") => upload_retroarch_save(game, config, core_name, Some(slot.clone())).await,
         Some("download") if allow_download => {
             let save_id = operation.as_ref().and_then(|operation| operation.save_id);
@@ -425,7 +428,10 @@ async fn negotiated_launch_sync(
         )),
         Some("conflict") => Err(anyhow::anyhow!(
             "Save conflict: {}",
-            operation.as_ref().map(|op| op.reason.as_str()).unwrap_or("both saves changed")
+            operation
+                .as_ref()
+                .map(|op| op.reason.as_str())
+                .unwrap_or("both saves changed")
         )),
         Some("no_op") | None => Ok(RetroArchSaveSyncResult {
             success: true,
@@ -438,7 +444,9 @@ async fn negotiated_launch_sync(
     };
 
     let operation_was_planned = matches!(
-        operation.as_ref().map(|operation| operation.action.as_str()),
+        operation
+            .as_ref()
+            .map(|operation| operation.action.as_str()),
         Some("upload" | "download" | "conflict")
     );
     let (completed, failed) = match (operation_was_planned, result.is_ok()) {

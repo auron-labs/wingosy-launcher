@@ -1,46 +1,41 @@
+---
 # Beta channel: prerelease builds (tags contain `beta` but not `nightly`).
 # The app’s **Beta** update track picks the newest matching GitHub prerelease.
 #
-# Version: each run bumps MINOR and resets PATCH (0.1.0) per scripts/bump-version.mjs,
-# then commits to `main` when the workflow runs on `main`.
-
+# Version: each run bumps MINOR and resets PATCH (0.1.0) per
+# scripts/bump-version.mjs, then commits to `main` when the workflow runs on
+# `main`.
 name: Beta
-
-on:
+'on':
   workflow_dispatch:
-
 permissions:
   contents: write
-
 concurrency:
   group: beta-${{ github.workflow }}
   cancel-in-progress: false
-
 jobs:
   build:
     runs-on: windows-latest
     env:
       TARGET: x86_64-pc-windows-msvc
       BETA_TAG: beta-${{ github.run_id }}
-
     steps:
       - name: Require main dispatch
         if: github.ref != 'refs/heads/main'
         shell: bash
         run: |
-          echo "::error::Beta releases must be dispatched from refs/heads/main (got ${GITHUB_REF})"
+          echo "::error::Beta releases must be dispatched from" \
+            "refs/heads/main (got ${GITHUB_REF})"
           exit 1
-
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
           ref: main
-
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.3.14'
-
       - name: Bump app version (beta — MINOR +1, PATCH → 0)
         id: ver
         shell: bash
@@ -48,86 +43,100 @@ jobs:
           set -e
           VER=$(bun scripts/bump-version.mjs beta)
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           targets: ${{ env.TARGET }}
           components: clippy
-
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: './src-tauri -> target'
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Frontend build
         run: bun run build
-
       - name: Frontend lint
         run: bun run lint:frontend
-
       - name: Frontend typecheck
         run: bun run typecheck
-
       - name: Unit tests
         run: bun run test:unit
-
       - name: Rust tests
         run: bun run test:rust
-
       - name: Rust lint
         run: bun run lint:rust
-
       - name: Commit version bump to main
         id: candidate
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
+          git -c "http.extraheader=AUTHORIZATION: bearer $GITHUB_TOKEN" \
+            fetch --no-tags origin main
           if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-            echo "::error::main moved since checkout; refusing to publish this beta candidate"
+            echo "::error::main moved since checkout; refusing to publish" \
+              "this beta candidate"
             exit 1
           fi
 
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json bun.lock src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json bun.lock src-tauri/Cargo.toml \
+            src-tauri/Cargo.lock src-tauri/tauri.conf.json
           git commit -m "chore(release): v${VERSION} beta [skip ci]"
-          git push origin HEAD:main
+          git -c "http.extraheader=AUTHORIZATION: bearer $GITHUB_TOKEN" \
+            push origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Build Tauri (beta prerelease)
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY
+            }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: >-
+            ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CERTIFICATION_DIR: .scratch/transparent-romm-launching
+          CERTIFICATION_FILE: emulator-certification.md
+          BETA_GATE_DIR: .scratch/next-steps/issues
+          BETA_GATE_FILE: 06-certify-and-gate-the-windows-beta.md
         with:
           tagName: ${{ env.BETA_TAG }}
-          releaseCommitish: ${{ steps.candidate.outputs.sha }}
-          releaseName: 'Wingosy Launcher Beta v${{ steps.ver.outputs.version }}'
+          releaseCommitish: ${{ steps.candidate.outputs.sha
+            }}
+          releaseName: 'Wingosy Launcher Beta v${{ steps.ver.outputs.version
+            }}'
           releaseBody: |
-            App version **v${{ steps.ver.outputs.version }}** (MINOR bump; nightly PATCH counter reset).
+            App version **v${{ steps.ver.outputs.version }}** (MINOR bump;
+            nightly PATCH counter reset).
 
             **Beta** pre-release. Testing builds before stable.
 
-            Candidate commit: [`${{ steps.candidate.outputs.sha }}`](https://github.com/${{ github.repository }}/commit/${{ steps.candidate.outputs.sha }})
-            - [Certification ledger](https://github.com/${{ github.repository }}/blob/${{ steps.candidate.outputs.sha }}/.scratch/transparent-romm-launching/emulator-certification.md)
-            - [Beta gate ticket](https://github.com/${{ github.repository }}/blob/${{ steps.candidate.outputs.sha }}/.scratch/next-steps/issues/06-certify-and-gate-the-windows-beta.md)
-            - [Exact workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            Candidate commit: [`${{ steps.candidate.outputs.sha }}`](${{ format(
+              'https://github.com/{0}/commit/{1}',
+              github.repository,
+              steps.candidate.outputs.sha
+            ) }})
+            - [Certification ledger](https://github.com/${{
+              github.repository }}/blob/${{ steps.candidate.outputs.sha }}/${{
+              env.CERTIFICATION_DIR }}/${{ env.CERTIFICATION_FILE }})
+            - [Beta gate ticket](https://github.com/${{
+              github.repository }}/blob/${{ steps.candidate.outputs.sha }}/${{
+              env.BETA_GATE_DIR }}/${{ env.BETA_GATE_FILE }})
+            - [Exact workflow run](https://github.com/${{
+              github.repository }}/actions/runs/${{ github.run_id }})
 
-            **Do not publish until all must-pass gates are green and manual Windows certification is complete.**
+            **Do not publish until all must-pass gates are green and manual
+            Windows certification is complete.**
 
-            - **Stable**: [Latest](https://github.com/auron-labs/wingosy-launcher/releases/latest)
+            - **Stable**: [Latest](https://github.com/${{
+              github.repository }}/releases/latest)
             - **Nightly**: scheduled *Nightly* workflow
           prerelease: true
           releaseDraft: true
-
       - name: Upload latest.json (signed updater)
         if: success()
         env:

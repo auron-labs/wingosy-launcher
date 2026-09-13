@@ -58,7 +58,7 @@ const getAccentColors = (accentHue) => {
   };
 };
 
-/** @param {string} focusRing @param {string} focusGlow */
+/** @param {object} focusRing @param {string} focusGlow */
 const createButtonStyles = (focusRing, focusGlow) => ({
   MuiButton: {
     styleOverrides: {
@@ -123,7 +123,7 @@ const createSurfaceStyles = (isDark, primaryMain) => ({
 });
 
 /**
- * @param {string} focusRing Focus ring CSS declaration.
+ * @param {object} focusRing Focus ring CSS declaration.
  * @param {string} focusShadow Focus shadow CSS declaration.
  * @param {string} focusRingColor Focus ring color.
  * @param {string} primaryMain Primary accent color.
@@ -180,7 +180,7 @@ const createInputStyles = (
   },
 });
 
-/** @param {boolean} isDark @param {string} primaryMain @param {string} focusRing */
+/** @param {boolean} isDark @param {string} primaryMain @param {object} focusRing */
 const createBaselineStyles = (isDark, primaryMain, focusRing) => {
   const scrollbarBase = isDark ? "#ffffff" : "#000000";
   return {
@@ -216,7 +216,7 @@ const createBaselineStyles = (isDark, primaryMain, focusRing) => {
   };
 };
 
-/** @param {boolean} isDark @param {AccentColors} accent */
+/** @param {boolean} isDark @param {AccentColors} accent @returns {import("@mui/material/styles").PaletteOptions} */
 const createPalette = (isDark, accent) => ({
   background: {
     default: isDark ? baseColors.surfaceDark : baseColors.surfaceLight,

@@ -26,7 +26,11 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn get_emulator_for_game(&self, game_id: i64, platform_id: &str) -> Result<Option<EmulatorConfig>> {
+    pub fn get_emulator_for_game(
+        &self,
+        game_id: i64,
+        platform_id: &str,
+    ) -> Result<Option<EmulatorConfig>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
@@ -145,7 +149,10 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_platform_default_emulator(&self, platform_id: &str) -> Result<Option<EmulatorConfig>> {
+    pub fn get_platform_default_emulator(
+        &self,
+        platform_id: &str,
+    ) -> Result<Option<EmulatorConfig>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn

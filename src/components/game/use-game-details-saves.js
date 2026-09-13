@@ -1,258 +1,117 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 
 import {
-  downloadGameSave,
-  downloadSwitchSave,
-  getGameSaves,
-  getSwitchSavePathInfo,
-  uploadGameSave,
-  uploadSwitchSave,
-} from "./game-details-ipc";
-import { getSaveSyncErrorStatus } from "./game-details-utils";
+  downloadGameSaveAction,
+  downloadSwitchSaveAction,
+  listGameSaves,
+  refreshGameSaveList,
+  uploadGameSaveAction,
+  uploadSwitchSaveAction,
+} from "./game-details-save-actions";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 /** @typedef {import("./game-details-types").GameDetailsSwitchPathInfo} GameDetailsSwitchPathInfo */
 
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, rommToken: string|null, rommUrl: string|null}} GameDetailsSavesOptions */
+/** @typedef {{game: GameDetailsGame, ipc: typeof import("./game-details-ipc").gameDetailsIpc, openDialog: typeof import("@tauri-apps/plugin-dialog").open, isSwitch: boolean, rommToken: string|null, rommUrl: string|null}} GameDetailsSavesOptions */
 
-/** @param {GameDetailsSavesOptions} options Hook options. */
-export const useGameDetailsSaves = ({ game, isSwitch, rommToken, rommUrl }) => {
-  const [saves, setSaves] = useState(/** @type {GameDetailsSave[]} */ ([]));
-  const [savesLoaded, setSavesLoaded] = useState(false);
-  const [savesLoading, setSavesLoading] = useState(false);
-  const [saveStatus, setSaveStatus] = useState(
-    /** @type {GameDetailsStatus|null} */ (null)
-  );
-  const [switchSlot, setSwitchSlot] = useState("autosave");
+/** @type {GameDetailsSave[]} */
+const EMPTY_SAVES = [];
+/** @returns {GameDetailsStatus|null} Initial save status. */
+const getInitialSaveStatus = () => null;
+/** @returns {GameDetailsSwitchPathInfo|null} Initial Switch path information. */
+const getInitialSwitchPathInfo = () => null;
+
+/** @param {GameDetailsGame} game Game being viewed. @param {boolean} isSwitch Whether the game uses Switch saves. @param {GameDetailsSavesOptions["ipc"]} ipc Game details IPC. @returns {GameDetailsSwitchPathInfo|null} Switch save path information. */
+const useSwitchSavePathInfo = (game, isSwitch, ipc) => {
   const [switchPathInfo, setSwitchPathInfo] = useState(
-    /** @type {GameDetailsSwitchPathInfo|null} */ (null)
+    getInitialSwitchPathInfo
   );
-  const [switchSyncBusy, setSwitchSyncBusy] = useState(false);
-  const saveSyncInFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!isSwitch || !game.romm_id) {
-      return;
-    }
     let cancelled = false;
-    const loadPathInfo = async () => {
-      try {
-        const info = await getSwitchSavePathInfo(game.id);
-        if (!cancelled) {
-          setSwitchPathInfo(info);
+    if (isSwitch && game.romm_id !== null && game.romm_id !== undefined) {
+      const loadPathInfo = async () => {
+        try {
+          const info = await ipc.getSwitchSavePathInfo(game.id);
+          if (!cancelled) {
+            setSwitchPathInfo(info);
+          }
+        } catch {
+          if (!cancelled) {
+            setSwitchPathInfo(null);
+          }
         }
-      } catch {
-        if (!cancelled) {
-          setSwitchPathInfo(null);
-        }
-      }
-    };
-    void loadPathInfo();
+      };
+      void loadPathInfo();
+    }
     return () => {
       cancelled = true;
     };
-  }, [game.id, game.romm_id, isSwitch]);
+  }, [game.id, game.romm_id, ipc, isSwitch]);
 
+  return switchPathInfo;
+};
+
+/** @param {GameDetailsSavesOptions} options Hook options. */
+export const useGameDetailsSaves = ({
+  game,
+  ipc,
+  isSwitch,
+  openDialog,
+  rommToken,
+  rommUrl,
+}) => {
+  const [saves, setSaves] = useState(EMPTY_SAVES);
+  const [savesLoaded, setSavesLoaded] = useState(false);
+  const [savesLoading, setSavesLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(getInitialSaveStatus);
+  const [switchSlot, setSwitchSlot] = useState("autosave");
+  const switchPathInfo = useSwitchSavePathInfo(game, isSwitch, ipc);
+  const [switchSyncBusy, setSwitchSyncBusy] = useState(false);
+  const saveSyncInFlightRef = useRef(false);
+
+  const baseActionContext = {
+    game,
+    ipc,
+    isSwitch,
+    openDialog,
+    rommToken,
+    rommUrl,
+    saveSyncInFlightRef,
+    setSaveStatus,
+    setSaves,
+    setSavesLoaded,
+    setSavesLoading,
+    setSwitchSyncBusy,
+    switchSlot,
+  };
+  /** @param {boolean} [preserveStatus] Keep the current status message. */
   const refreshSaveList = async (preserveStatus = false) => {
-    if (!preserveStatus) {
-      setSaveStatus(null);
-    }
-    setSavesLoading(true);
-    try {
-      const result = await getGameSaves(game.romm_id, rommUrl, rommToken);
-      setSaves(result);
-      setSavesLoaded(true);
-    } finally {
-      setSavesLoading(false);
-    }
+    await refreshGameSaveList(baseActionContext, preserveStatus);
   };
+  const actionContext = { ...baseActionContext, refreshSaveList };
 
+  /** @param {boolean} [isRetry] Whether this is a retry operation. */
   const handleListSaves = async (isRetry = false) => {
-    if (
-      !game.romm_id ||
-      !rommToken ||
-      !rommUrl ||
-      saveSyncInFlightRef.current
-    ) {
-      return;
-    }
-    saveSyncInFlightRef.current = true;
-    const retry =  async () => handleListSaves(true);
-    try {
-      await refreshSaveList(isRetry);
-      if (isRetry) {
-        setSaveStatus(null);
-      }
-    } catch (error) {
-      setSaveStatus(getSaveSyncErrorStatus(error, retry));
-    } finally {
-      saveSyncInFlightRef.current = false;
-    }
+    await listGameSaves(actionContext, isRetry);
   };
-
+  /** @param {number} saveId Save identifier. @param {string|null|undefined} retrySlot Slot from a retry. */
   const handleDownloadSave = async (saveId, retrySlot) => {
-    if (
-      !game.romm_id ||
-      !rommToken ||
-      !rommUrl ||
-      saveSyncInFlightRef.current
-    ) {
-      return;
-    }
-    const slot =
-      retrySlot === undefined ? switchSlot.trim() || null : retrySlot;
-    const retrying = retrySlot !== undefined;
-    const retry =  async () => handleDownloadSave(saveId, slot);
-    saveSyncInFlightRef.current = true;
-    try {
-      if (!retrying) {
-        setSaveStatus(null);
-      }
-      if (isSwitch) {
-        setSwitchSyncBusy(true);
-        const result = await downloadSwitchSave(game.id, saveId, slot);
-        setSaveStatus({
-          message: result.message ?? "Switch save restored to Eden",
-          type: "success",
-        });
-        return;
-      }
-      const path = await downloadGameSave(
-        game.romm_id,
-        saveId,
-        rommUrl,
-        rommToken
-      );
-      setSaveStatus({ message: `Save downloaded to ${path}`, type: "success" });
-    } catch (error) {
-      setSaveStatus(getSaveSyncErrorStatus(error, retry));
-    } finally {
-      setSwitchSyncBusy(false);
-      saveSyncInFlightRef.current = false;
-    }
+    await downloadGameSaveAction(actionContext, saveId, retrySlot);
   };
-
+  /** @param {string|null|undefined} retrySlot Slot from a retry. */
   const handleUploadSwitchSave = async (retrySlot) => {
-    if (!game.romm_id || saveSyncInFlightRef.current) {
-      return;
-    }
-    const slot =
-      typeof retrySlot === "string" || retrySlot === null
-        ? retrySlot
-        : switchSlot.trim() || null;
-    const retrying = typeof retrySlot === "string" || retrySlot === null;
-    const retry =  async () => handleUploadSwitchSave(slot);
-    saveSyncInFlightRef.current = true;
-    try {
-      setSwitchSyncBusy(true);
-      if (!retrying) {
-        setSaveStatus({
-          message: "Uploading Eden save to RomM…",
-          type: "info",
-        });
-      }
-      const result = await uploadSwitchSave(game.id, slot);
-      setSaveStatus({
-        message: result.message ?? "Uploaded to RomM",
-        type: "success",
-      });
-      try {
-        await refreshSaveList(true);
-      } catch (error) {
-        setSaveStatus(
-          getSaveSyncErrorStatus(error,  async () => handleListSaves(true))
-        );
-      }
-    } catch (error) {
-      setSaveStatus(getSaveSyncErrorStatus(error, retry));
-    } finally {
-      setSwitchSyncBusy(false);
-      saveSyncInFlightRef.current = false;
-    }
+    await uploadSwitchSaveAction(actionContext, retrySlot);
   };
-
+  /** @param {string|null|undefined} retrySlot Slot from a retry. */
   const handleDownloadSwitchSave = async (retrySlot) => {
-    if (!game.romm_id || saveSyncInFlightRef.current) {
-      return;
-    }
-    const slot =
-      typeof retrySlot === "string" || retrySlot === null
-        ? retrySlot
-        : switchSlot.trim() || null;
-    const retrying = typeof retrySlot === "string" || retrySlot === null;
-    const retry =  async () => handleDownloadSwitchSave(slot);
-    saveSyncInFlightRef.current = true;
-    try {
-      setSwitchSyncBusy(true);
-      if (!retrying) {
-        setSaveStatus({
-          message: "Downloading save from RomM to Eden…",
-          type: "info",
-        });
-      }
-      const result = await downloadSwitchSave(game.id, null, slot);
-      setSaveStatus({
-        message: result.message ?? "Restored to Eden",
-        type: "success",
-      });
-    } catch (error) {
-      setSaveStatus(getSaveSyncErrorStatus(error, retry));
-    } finally {
-      setSwitchSyncBusy(false);
-      saveSyncInFlightRef.current = false;
-    }
+    await downloadSwitchSaveAction(actionContext, retrySlot);
   };
-
+  /** @param {string|null|undefined} retryFilePath Save path from a retry. */
   const handleUploadSave = async (retryFilePath) => {
-    if (
-      !game.romm_id ||
-      !rommToken ||
-      !rommUrl ||
-      saveSyncInFlightRef.current
-    ) {
-      return;
-    }
-    let filePath = typeof retryFilePath === "string" ? retryFilePath : null;
-    const retrying = typeof retryFilePath === "string";
-    const retry =  async () => handleUploadSave(filePath);
-    saveSyncInFlightRef.current = true;
-    try {
-      if (!filePath) {
-        filePath = await (
-          open({
-            filters: [
-              {
-                extensions: ["sav", "srm", "state", "ss0", "dat", "*"],
-                name: "Save Files",
-              },
-            ],
-            multiple: false,
-          })
-        );
-        if (!filePath) {
-          return;
-        }
-      }
-      if (!retrying) {
-        setSaveStatus({ message: "Uploading save...", type: "info" });
-      }
-      await uploadGameSave(filePath, game.romm_id, rommUrl, rommToken);
-      setSaveStatus({ message: "Save uploaded!", type: "success" });
-      try {
-        await refreshSaveList(true);
-      } catch (error) {
-        setSaveStatus(
-          getSaveSyncErrorStatus(error,  async () => handleListSaves(true))
-        );
-      }
-    } catch (error) {
-      setSaveStatus(getSaveSyncErrorStatus(error, retry));
-    } finally {
-      saveSyncInFlightRef.current = false;
-    }
+    await uploadGameSaveAction(actionContext, retryFilePath);
   };
 
   return {

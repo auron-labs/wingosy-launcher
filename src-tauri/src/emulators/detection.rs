@@ -98,9 +98,18 @@ fn detect_from_registry() -> Vec<DetectedEmulator> {
 
     // Check both HKEY_LOCAL_MACHINE and HKEY_CURRENT_USER
     let registry_paths = [
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
     ];
 
     let emulator_patterns = get_emulator_patterns();
@@ -299,7 +308,11 @@ fn detect_managed_emulators() -> Vec<DetectedEmulator> {
                     if entry_path.is_dir() {
                         let nested_exe = entry_path.join(exe);
                         if nested_exe.is_file() {
-                            tracing::debug!("[Emulators] Found managed {} at {:?}", name, nested_exe);
+                            tracing::debug!(
+                                "[Emulators] Found managed {} at {:?}",
+                                name,
+                                nested_exe
+                            );
                             detected.push(DetectedEmulator {
                                 id: id.to_string(),
                                 name: name.to_string(),
@@ -559,7 +572,7 @@ mod tests {
             version: Some("1.16.0".to_string()),
             install_type: InstallType::Portable,
         };
-        
+
         assert_eq!(emu.id, "retroarch");
         assert_eq!(emu.name, "RetroArch");
         assert!(emu.path.to_string_lossy().contains("retroarch.exe"));
@@ -573,7 +586,7 @@ mod tests {
             name: "snes9x_libretro".to_string(),
             path: PathBuf::from("C:/RetroArch/cores/snes9x_libretro.dll"),
         };
-        
+
         assert_eq!(core.name, "snes9x_libretro");
         assert!(core.path.to_string_lossy().contains("snes9x_libretro.dll"));
     }
@@ -594,7 +607,7 @@ mod tests {
             version: None,
             install_type: InstallType::Custom,
         };
-        
+
         let cloned = emu.clone();
         assert_eq!(emu.id, cloned.id);
         assert_eq!(emu.name, cloned.name);
@@ -606,7 +619,7 @@ mod tests {
     fn test_get_emulator_patterns_not_empty() {
         let patterns = get_emulator_patterns();
         assert!(!patterns.is_empty());
-        
+
         // Should include common emulators
         let ids: Vec<&str> = patterns.iter().map(|(id, _, _)| *id).collect();
         assert!(ids.contains(&"retroarch"));
@@ -631,14 +644,23 @@ mod tests {
     #[test]
     fn test_emulator_patterns_have_executables() {
         let patterns = get_emulator_patterns();
-        
+
         for (id, name, executables) in &patterns {
             assert!(!id.is_empty(), "ID should not be empty");
             assert!(!name.is_empty(), "Name should not be empty");
-            assert!(!executables.is_empty(), "{} should have at least one executable", name);
-            
+            assert!(
+                !executables.is_empty(),
+                "{} should have at least one executable",
+                name
+            );
+
             for exe in *executables {
-                assert!(exe.ends_with(".exe"), "{} executable {} should end with .exe", name, exe);
+                assert!(
+                    exe.ends_with(".exe"),
+                    "{} executable {} should end with .exe",
+                    name,
+                    exe
+                );
             }
         }
     }

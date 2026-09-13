@@ -16,7 +16,10 @@ impl Database {
             params![
                 collection.name,
                 collection.is_smart,
-                collection.smart_filter.as_ref().and_then(|f| serde_json::to_string(f).ok()),
+                collection
+                    .smart_filter
+                    .as_ref()
+                    .and_then(|f| serde_json::to_string(f).ok()),
                 collection.cover_path,
                 collection.sort_order,
             ],

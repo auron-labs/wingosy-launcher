@@ -14,16 +14,16 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
-import { GAME_FILTER_OPTIONS, GAME_SORT_OPTIONS } from "../utils/gameFilters";
+import { GAME_FILTER_OPTIONS, GAME_SORT_OPTIONS } from "../utils/game-filters";
 import {
   tauriDragRegionProps,
   tauriDragRegionSx,
   tauriNoDragProps,
   tauriNoDragSx,
-} from "../utils/isTauri";
-import KeyboardHint from "./KeyboardHint";
+} from "../utils/is-tauri";
+import KeyboardHint from "./keyboard-hint";
 
-/** @typedef {Pick<import("./Library").LibraryProps, "searchQuery"|"onSearchChange"> & {searchInputRef: import("react").RefObject<HTMLInputElement|null>}} LibrarySearchProps */
+/** @typedef {Pick<import("./library").LibraryProps, "searchQuery"|"onSearchChange"> & {searchInputRef: import("react").RefObject<HTMLInputElement|null>}} LibrarySearchProps */
 
 /** @param {LibrarySearchProps} props Controlled search input. */
 const LibrarySearch = ({ searchQuery, onSearchChange, searchInputRef }) => {
@@ -116,7 +116,7 @@ export const LibraryHeader = (props) => (
   </Stack>
 );
 
-/** @param {{resultCount: number, sortBy: import("./Library").LibrarySortBy, filterBy: import("./Library").LibraryFilterBy, handleSortChange: (value: import("./Library").LibrarySortBy) => void, handleFilterChange: (value: import("./Library").LibraryFilterBy) => void}} props Result count and view controls. */
+/** @param {{resultCount: number, sortBy: import("./library").LibrarySortBy, filterBy: import("./library").LibraryFilterBy, handleSortChange: (value: import("./library").LibrarySortBy) => void, handleFilterChange: (value: import("./library").LibraryFilterBy) => void}} props Result count and view controls. */
 export const LibraryFilters = ({
   resultCount,
   sortBy,
@@ -199,7 +199,7 @@ export const LibraryFilters = ({
   </Stack>
 );
 
-/** @param {Pick<import("./Library").LibraryProps, "error"|"launchError"|"onDismissError"|"onOpenSettings"|"onRetryLaunch">} props Current error and recovery actions. */
+/** @param {Pick<import("./library").LibraryProps, "error"|"launchError"|"onDismissError"|"onOpenSettings"|"onRetryLaunch">} props Current error and recovery actions. */
 export const LibraryLaunchAlert = ({
   error,
   launchError,
@@ -234,11 +234,11 @@ export const LibraryLaunchAlert = ({
       }
     >
       {error}
-      {guidance !== "" ? (
+      {guidance === "" ? null : (
         <Typography variant="body2" sx={{ display: "block", mt: 0.5 }}>
           {guidance}
         </Typography>
-      ) : null}
+      )}
     </Alert>
   );
 };

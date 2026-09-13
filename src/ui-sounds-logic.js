@@ -1,5 +1,5 @@
-import { ARGOSY_SOUND_URLS } from "./argosySounds";
-import { mousedownTargetElement } from "./utils/isTauri";
+import { ARGOSY_SOUND_URLS } from "./argosy-sounds";
+import { mousedownTargetElement } from "./utils/is-tauri";
 
 /** @typedef {'tap'|'click'|'success'|'error'|'back'|'open'|'close'} ArgosySoundId */
 /** @typedef {{display?: {ui_sounds_enabled?: boolean}, audio?: {ui_sounds_volume?: number}}} UiSoundsConfig */
@@ -16,7 +16,7 @@ export const readUiSoundsConfig = (config) => {
   return {
     enabled: Boolean(config.display?.ui_sounds_enabled),
     volume:
-      Number.isFinite(configuredVolume)
+      configuredVolume !== undefined && Number.isFinite(configuredVolume)
         ? clampUiSoundsVolume(configuredVolume)
         : 80,
   };

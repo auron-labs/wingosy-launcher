@@ -10,7 +10,8 @@ use crate::config::{AppConfig, RetroArchInstallKind};
 
 pub const RETROARCH_VERSION: &str = "1.19.1";
 pub const MANIFEST_VERSION: &str = "beta-2026-08-23";
-pub const RETROARCH_EXECUTABLE_SHA256: &str = "738ca659d2360cedbc62bab7b53c6e9bb20c7d92dfe3de743fa4f3b1fa218e7b";
+pub const RETROARCH_EXECUTABLE_SHA256: &str =
+    "738ca659d2360cedbc62bab7b53c6e9bb20c7d92dfe3de743fa4f3b1fa218e7b";
 const RETROARCH_CORES_URL: &str =
     "https://buildbot.libretro.com/stable/1.19.1/windows/x86_64/RetroArch_cores.7z";
 const RETROARCH_CORES_ARCHIVE_SHA256: &str =
@@ -433,10 +434,9 @@ pub(crate) fn managed_core_path(
             "RetroArch core {} is missing from the Wingosy installation",
             artifact.filename
         ),
-        CoreAvailability::Invalid => anyhow::bail!(
-            "RetroArch core {} could not be verified",
-            artifact.filename
-        ),
+        CoreAvailability::Invalid => {
+            anyhow::bail!("RetroArch core {} could not be verified", artifact.filename)
+        }
     }
 }
 
@@ -480,8 +480,8 @@ pub fn managed_autoconfig_is_present(retroarch_executable: &Path) -> bool {
     if !retroarch_executable.is_file() {
         return false;
     }
-    let Some(xinput_dir) = managed_autoconfig_dir(retroarch_executable)
-        .map(|path| path.join("xinput"))
+    let Some(xinput_dir) =
+        managed_autoconfig_dir(retroarch_executable).map(|path| path.join("xinput"))
     else {
         return false;
     };
@@ -489,7 +489,10 @@ pub fn managed_autoconfig_is_present(retroarch_executable: &Path) -> bool {
         .map(|entries| {
             entries.filter_map(|entry| entry.ok()).any(|entry| {
                 let path = entry.path();
-                entry.file_type().map(|kind| kind.is_file()).unwrap_or(false)
+                entry
+                    .file_type()
+                    .map(|kind| kind.is_file())
+                    .unwrap_or(false)
                     && path
                         .extension()
                         .is_some_and(|extension| extension.eq_ignore_ascii_case("cfg"))
@@ -661,11 +664,20 @@ mod tests {
         let config_path = ensure_profile_at(&dir.path().join("wingosy-profile")).unwrap();
         let sentinels = [
             dir.path().join("retroarch").join("retroarch.cfg"),
-            dir.path().join("retroarch").join("autoconfig").join("user.cfg"),
+            dir.path()
+                .join("retroarch")
+                .join("autoconfig")
+                .join("user.cfg"),
             dir.path().join("retroarch").join("remaps").join("user.rmp"),
             dir.path().join("retroarch").join("saves").join("game.srm"),
-            dir.path().join("retroarch").join("states").join("game.state"),
-            dir.path().join("retroarch").join("system").join("firmware.bin"),
+            dir.path()
+                .join("retroarch")
+                .join("states")
+                .join("game.state"),
+            dir.path()
+                .join("retroarch")
+                .join("system")
+                .join("firmware.bin"),
         ];
         for sentinel in &sentinels {
             std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
@@ -817,8 +829,11 @@ mod tests {
 
         let xinput = dir.path().join("autoconfig").join("xinput");
         std::fs::create_dir_all(&xinput).unwrap();
-        std::fs::write(xinput.join("native-controller.cfg"), b"input_driver = \"xinput\"\n")
-            .unwrap();
+        std::fs::write(
+            xinput.join("native-controller.cfg"),
+            b"input_driver = \"xinput\"\n",
+        )
+        .unwrap();
 
         assert!(managed_autoconfig_is_present(&executable));
     }
@@ -852,22 +867,14 @@ mod tests {
             filename: "fceumm_libretro.dll",
             archive_url: "https://example.invalid/cores.7z",
             archive_sha256: "archive",
-            installed_sha256:
-                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            installed_sha256: "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
         };
         let manifest = ManagedCoreManifest {
-            executable_sha256:
-                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            executable_sha256: "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
             cores: std::slice::from_ref(&artifact),
         };
 
-        let resolved = managed_core_path(
-            &config,
-            &executable,
-            "nes",
-            manifest,
-        )
-        .unwrap();
+        let resolved = managed_core_path(&config, &executable, "nes", manifest).unwrap();
 
         assert_eq!(resolved, core);
     }
@@ -887,12 +894,10 @@ mod tests {
             filename: "fceumm_libretro.dll",
             archive_url: "https://example.invalid/cores.7z",
             archive_sha256: "archive",
-            installed_sha256:
-                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            installed_sha256: "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
         };
         let manifest = ManagedCoreManifest {
-            executable_sha256:
-                "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
+            executable_sha256: "ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3",
             cores: std::slice::from_ref(&artifact),
         };
 

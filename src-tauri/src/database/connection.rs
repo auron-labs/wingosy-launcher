@@ -154,7 +154,8 @@ impl Database {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_games_sync_dirty ON games(sync_dirty)",
             [],
-        ).ok(); // Ignore error if index already exists
+        )
+        .ok(); // Ignore error if index already exists
 
         Ok(())
     }
@@ -167,24 +168,23 @@ impl Database {
             .unwrap_or(false);
 
         if !has_sync_dirty {
-            conn.execute("ALTER TABLE games ADD COLUMN sync_dirty INTEGER DEFAULT 0", [])
-                .context("Failed to add sync_dirty column")?;
+            conn.execute(
+                "ALTER TABLE games ADD COLUMN sync_dirty INTEGER DEFAULT 0",
+                [],
+            )
+            .context("Failed to add sync_dirty column")?;
         }
 
         let col = |name: &str| -> Result<bool, rusqlite::Error> {
-            let mut stmt = conn.prepare(
-                "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name = ?1",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT COUNT(*) FROM pragma_table_info('games') WHERE name = ?1")?;
             let n: i32 = stmt.query_row([name], |row| row.get(0))?;
             Ok(n > 0)
         };
 
         if !col("library_status")? {
-            conn.execute(
-                "ALTER TABLE games ADD COLUMN library_status TEXT",
-                [],
-            )
-            .context("Failed to add library_status column")?;
+            conn.execute("ALTER TABLE games ADD COLUMN library_status TEXT", [])
+                .context("Failed to add library_status column")?;
         }
         if !col("personal_rating")? {
             conn.execute(
@@ -296,7 +296,9 @@ mod tests {
         db.clear_save_sync_failure(42, "post_launch").unwrap();
         let conn = db.conn.lock().unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 1);
         drop(conn);
@@ -304,7 +306,9 @@ mod tests {
         db.clear_save_sync_failure(42, "pre_launch").unwrap();
         let conn = db.conn.lock().unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM pending_save_sync", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 0);
     }

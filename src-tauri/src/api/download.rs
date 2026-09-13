@@ -38,7 +38,11 @@ impl DownloadManager {
         // Check for HTTP errors
         let status = response.status();
         if !status.is_success() {
-            anyhow::bail!("HTTP error {}: {}", status.as_u16(), status.canonical_reason().unwrap_or("Unknown"));
+            anyhow::bail!(
+                "HTTP error {}: {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("Unknown")
+            );
         }
 
         let total_size = response.content_length();
@@ -111,13 +115,11 @@ impl DownloadManager {
         let actual_size = match tokio::fs::metadata(&partial_path).await {
             Ok(metadata) => metadata.len(),
             Err(error) => {
-                return Err(
-                    fail_with_partial_cleanup(
-                        anyhow::Error::from(error).context("Failed to inspect partial download"),
-                        &partial_path,
-                    )
-                    .await,
-                );
+                return Err(fail_with_partial_cleanup(
+                    anyhow::Error::from(error).context("Failed to inspect partial download"),
+                    &partial_path,
+                )
+                .await);
             }
         };
 
@@ -136,13 +138,11 @@ impl DownloadManager {
         }
 
         if let Err(error) = tokio::fs::rename(&partial_path, dest_path).await {
-            return Err(
-                fail_with_partial_cleanup(
-                    anyhow::Error::from(error).context("Failed to finalize atomic download"),
-                    &partial_path,
-                )
-                .await,
-            );
+            return Err(fail_with_partial_cleanup(
+                anyhow::Error::from(error).context("Failed to finalize atomic download"),
+                &partial_path,
+            )
+            .await);
         }
 
         Ok(())
@@ -313,7 +313,9 @@ mod tests {
 
         server.await.unwrap();
         assert_eq!(tokio::fs::read(&destination).await.unwrap(), body);
-        assert!(!destination.with_file_name("My Game - äö.nes.partial").exists());
+        assert!(!destination
+            .with_file_name("My Game - äö.nes.partial")
+            .exists());
         assert!(!progress.lock().unwrap().is_empty());
     }
 
@@ -386,7 +388,9 @@ mod tests {
         server.await.unwrap();
         assert_eq!(request_count.load(Ordering::SeqCst), 1);
         assert_eq!(tokio::fs::read(&destination).await.unwrap(), body);
-        assert!(!destination.with_file_name("stale-cache.rom.partial").exists());
+        assert!(!destination
+            .with_file_name("stale-cache.rom.partial")
+            .exists());
     }
 
     #[tokio::test]
@@ -465,7 +469,10 @@ mod tests {
     #[test]
     fn test_format_size_gigabytes() {
         assert_eq!(DownloadProgress::format_size(1024 * 1024 * 1024), "1.00 GB");
-        assert_eq!(DownloadProgress::format_size(2 * 1024 * 1024 * 1024), "2.00 GB");
+        assert_eq!(
+            DownloadProgress::format_size(2 * 1024 * 1024 * 1024),
+            "2.00 GB"
+        );
     }
 
     #[test]
@@ -475,7 +482,7 @@ mod tests {
             total: Some(1024 * 1024),
             percent: Some(50),
         };
-        
+
         let status = progress.status_text();
         assert!(status.contains("512.00 KB"));
         assert!(status.contains("1.00 MB"));
@@ -489,7 +496,7 @@ mod tests {
             total: None,
             percent: None,
         };
-        
+
         let status = progress.status_text();
         assert_eq!(status, "512.00 KB");
     }
@@ -521,11 +528,11 @@ mod tests {
         // 0%
         let percent = (0f64 / 1000f64 * 100.0) as u8;
         assert_eq!(percent, 0);
-        
+
         // 100%
         let percent = (1000f64 / 1000f64 * 100.0) as u8;
         assert_eq!(percent, 100);
-        
+
         // Rounding
         let percent = (333f64 / 1000f64 * 100.0) as u8;
         assert_eq!(percent, 33);

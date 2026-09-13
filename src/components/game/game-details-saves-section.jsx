@@ -18,7 +18,177 @@ import Typography from "@mui/material/Typography";
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 /** @typedef {import("./game-details-types").GameDetailsSwitchPathInfo} GameDetailsSwitchPathInfo */
 
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saves: GameDetailsSave[], savesLoaded: boolean, savesLoading: boolean, saveStatus: GameDetailsStatus|null, switchSlot: string, setSwitchSlot: (value: string) => void, switchPathInfo: GameDetailsSwitchPathInfo|null, switchSyncBusy: boolean, onListSaves: () => Promise<void>, onUploadSwitchSave: () => Promise<void>, onDownloadSwitchSave: () => Promise<void>, onUploadSave: () => Promise<void>, onDownloadSave: (saveId: number) => Promise<void>, onClearStatus: () => void}} GameDetailsSavesSectionProps */
+/** @param {{pathInfo: GameDetailsSwitchPathInfo|null}} props Save context properties. */
+const SwitchSaveContext = ({ pathInfo }) => (
+  <>
+    <Typography color="text.secondary" sx={{ mb: 2 }} variant="body2">
+      Eden / Argosy-compatible sync: zips the title save folder to RomM. Use
+      named slots for separate backups (e.g. before a boss, different
+      playthroughs). In-game Zelda slots share one folder — use different RomM
+      slot names for separate exports.
+    </Typography>
+    {pathInfo && (
+      <Typography
+        color="text.secondary"
+        sx={{ display: "block", mb: 2 }}
+        variant="caption"
+      >
+        Title ID: {pathInfo.title_id} · Eden path: {pathInfo.local_save_path}
+      </Typography>
+    )}
+  </>
+);
+
+/** @param {boolean} savesLoading Whether save loading is active. @param {boolean} savesLoaded Whether saves have been listed. */
+const getSaveListLabel = (savesLoading, savesLoaded) => {
+  if (savesLoading) {
+    return "Loading...";
+  }
+  return savesLoaded ? "Refresh Saves" : "List Saves";
+};
+
+/**
+ * @param {{isSwitch: boolean, savesLoaded: boolean, savesLoading: boolean, switchSyncBusy: boolean, onListSaves: () => Promise<void>, onUploadSwitchSave: () => Promise<void>, onDownloadSwitchSave: () => Promise<void>, onUploadSave: () => Promise<void>}} props Save actions and state.
+ */
+const SaveControls = ({
+  isSwitch,
+  onDownloadSwitchSave,
+  onListSaves,
+  onUploadSave,
+  onUploadSwitchSave,
+  savesLoaded,
+  savesLoading,
+  switchSyncBusy,
+}) => (
+  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2 }}>
+    <Button
+      disabled={savesLoading}
+      onClick={() => {
+        void onListSaves();
+      }}
+      size="small"
+      variant="outlined"
+    >
+      {getSaveListLabel(savesLoading, savesLoaded)}
+    </Button>
+    {isSwitch ? (
+      <>
+        <Button
+          disabled={switchSyncBusy}
+          onClick={() => {
+            void onUploadSwitchSave();
+          }}
+          size="small"
+          startIcon={<UploadFileIcon />}
+          variant="outlined"
+        >
+          Sync to RomM
+        </Button>
+        <Button
+          disabled={switchSyncBusy}
+          onClick={() => {
+            void onDownloadSwitchSave();
+          }}
+          size="small"
+          startIcon={<FileDownloadIcon />}
+          variant="outlined"
+        >
+          Restore from RomM
+        </Button>
+      </>
+    ) : (
+      <Button
+        onClick={() => {
+          void onUploadSave();
+        }}
+        size="small"
+        startIcon={<UploadFileIcon />}
+        variant="outlined"
+      >
+        Upload Save
+      </Button>
+    )}
+  </Box>
+);
+
+/** @param {{saves: GameDetailsSave[], onDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>}} props Save list properties. */
+const SaveList = ({ onDownloadSave, saves }) => (
+  <List dense sx={{ bgcolor: "rgba(0,0,0,0.15)", borderRadius: 2, mb: 2 }}>
+    {saves.map((save) => (
+      <ListItem
+        key={save.id}
+        secondaryAction={
+          <IconButton
+            edge="end"
+            onClick={() => {
+              void onDownloadSave(save.id);
+            }}
+            size="small"
+            title="Download save"
+          >
+            <FileDownloadIcon fontSize="small" />
+          </IconButton>
+        }
+      >
+        <ListItemText
+          primary={save.file_name}
+          secondary={
+            [save.slot, save.updated_at ?? save.created_at]
+              .filter(Boolean)
+              .join(" · ") || null
+          }
+        />
+      </ListItem>
+    ))}
+  </List>
+);
+
+/** @param {{saveStatus: GameDetailsStatus|null, savesLoading: boolean, switchSyncBusy: boolean, onClearStatus: () => void}} props Save status properties. */
+const SaveStatusAlert = ({
+  onClearStatus,
+  saveStatus,
+  savesLoading,
+  switchSyncBusy,
+}) => {
+  if (!saveStatus) {
+    return null;
+  }
+  return (
+    <Alert
+      action={
+        saveStatus.retry ? (
+          <Box sx={{ display: "flex", gap: 0.5 }}>
+            <Button
+              color="inherit"
+              disabled={switchSyncBusy || savesLoading}
+              onClick={() => {
+                void saveStatus.retry?.();
+              }}
+              size="small"
+            >
+              Retry
+            </Button>
+            <IconButton
+              aria-label="Close"
+              color="inherit"
+              onClick={onClearStatus}
+              size="small"
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        ) : undefined
+      }
+      onClose={onClearStatus}
+      severity={saveStatus.type}
+      sx={{ mt: 1 }}
+    >
+      {saveStatus.message}
+    </Alert>
+  );
+};
+
+/** @typedef {{game: GameDetailsGame, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saves: GameDetailsSave[], savesLoaded: boolean, savesLoading: boolean, saveStatus: GameDetailsStatus|null, switchSlot: string, setSwitchSlot: (value: string) => void, switchPathInfo: GameDetailsSwitchPathInfo|null, switchSyncBusy: boolean, onListSaves: () => Promise<void>, onUploadSwitchSave: (retrySlot?: string|null) => Promise<void>, onDownloadSwitchSave: (retrySlot?: string|null) => Promise<void>, onUploadSave: (retryFilePath?: string|null) => Promise<void>, onDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>, onClearStatus: () => void}} GameDetailsSavesSectionProps */
 
 /** @param {GameDetailsSavesSectionProps} props Component properties. */
 export const GameDetailsSavesSection = ({
@@ -39,7 +209,7 @@ export const GameDetailsSavesSection = ({
   switchSlot,
   switchSyncBusy,
 }) => {
-  if (!game.romm_id) {
+  if (game.romm_id === null || game.romm_id === undefined) {
     return null;
   }
   return (
@@ -88,171 +258,5 @@ export const GameDetailsSavesSection = ({
         switchSyncBusy={switchSyncBusy}
       />
     </>
-  );
-};
-
-/** @param {{pathInfo: GameDetailsSwitchPathInfo|null}} props */
-const SwitchSaveContext = ({ pathInfo }) => (
-  <>
-    <Typography color="text.secondary" sx={{ mb: 2 }} variant="body2">
-      Eden / Argosy-compatible sync: zips the title save folder to RomM. Use
-      named slots for separate backups (e.g. before a boss, different
-      playthroughs). In-game Zelda slots share one folder — use different RomM
-      slot names for separate exports.
-    </Typography>
-    {pathInfo && (
-      <Typography
-        color="text.secondary"
-        sx={{ display: "block", mb: 2 }}
-        variant="caption"
-      >
-        Title ID: {pathInfo.title_id} · Eden path: {pathInfo.local_save_path}
-      </Typography>
-    )}
-  </>
-);
-
-/**
- * @param {{isSwitch: boolean, savesLoaded: boolean, savesLoading: boolean, switchSyncBusy: boolean, onListSaves: () => Promise<void>, onUploadSwitchSave: () => Promise<void>, onDownloadSwitchSave: () => Promise<void>, onUploadSave: () => Promise<void>}} props
- */
-const SaveControls = ({
-  isSwitch,
-  onDownloadSwitchSave,
-  onListSaves,
-  onUploadSave,
-  onUploadSwitchSave,
-  savesLoaded,
-  savesLoading,
-  switchSyncBusy,
-}) => (
-  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2 }}>
-    <Button
-      disabled={savesLoading}
-      onClick={() => {
-        void onListSaves();
-      }}
-      size="small"
-      variant="outlined"
-    >
-      {savesLoading
-        ? "Loading..."
-        : (savesLoaded
-          ? "Refresh Saves"
-          : "List Saves")}
-    </Button>
-    {isSwitch ? (
-      <>
-        <Button
-          disabled={switchSyncBusy}
-          onClick={() => {
-            void onUploadSwitchSave();
-          }}
-          size="small"
-          startIcon={<UploadFileIcon />}
-          variant="outlined"
-        >
-          Sync to RomM
-        </Button>
-        <Button
-          disabled={switchSyncBusy}
-          onClick={() => {
-            void onDownloadSwitchSave();
-          }}
-          size="small"
-          startIcon={<FileDownloadIcon />}
-          variant="outlined"
-        >
-          Restore from RomM
-        </Button>
-      </>
-    ) : (
-      <Button
-        onClick={() => {
-          void onUploadSave();
-        }}
-        size="small"
-        startIcon={<UploadFileIcon />}
-        variant="outlined"
-      >
-        Upload Save
-      </Button>
-    )}
-  </Box>
-);
-
-/** @param {{saves: GameDetailsSave[], onDownloadSave: (saveId: number) => Promise<void>}} props */
-const SaveList = ({ onDownloadSave, saves }) => (
-  <List dense sx={{ bgcolor: "rgba(0,0,0,0.15)", borderRadius: 2, mb: 2 }}>
-    {saves.map((save) => (
-      <ListItem
-        key={save.id}
-        secondaryAction={
-          <IconButton
-            edge="end"
-            onClick={() => {
-              void onDownloadSave(save.id);
-            }}
-            size="small"
-            title="Download save"
-          >
-            <FileDownloadIcon fontSize="small" />
-          </IconButton>
-        }
-      >
-        <ListItemText
-          primary={save.file_name}
-          secondary={
-            [save.slot, save.updated_at ?? save.created_at]
-              .filter(Boolean)
-              .join(" · ") || null
-          }
-        />
-      </ListItem>
-    ))}
-  </List>
-);
-
-/** @param {{saveStatus: GameDetailsStatus|null, savesLoading: boolean, switchSyncBusy: boolean, onClearStatus: () => void}} props */
-const SaveStatusAlert = ({
-  onClearStatus,
-  saveStatus,
-  savesLoading,
-  switchSyncBusy,
-}) => {
-  if (!saveStatus) {
-    return null;
-  }
-  return (
-    <Alert
-      action={
-        saveStatus.retry ? (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
-            <Button
-              color="inherit"
-              disabled={switchSyncBusy || savesLoading}
-              onClick={() => {
-                void saveStatus.retry?.();
-              }}
-              size="small"
-            >
-              Retry
-            </Button>
-            <IconButton
-              aria-label="Close"
-              color="inherit"
-              onClick={onClearStatus}
-              size="small"
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        ) : undefined
-      }
-      onClose={onClearStatus}
-      severity={saveStatus.type}
-      sx={{ mt: 1 }}
-    >
-      {saveStatus.message}
-    </Alert>
   );
 };

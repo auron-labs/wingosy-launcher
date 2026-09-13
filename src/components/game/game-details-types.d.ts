@@ -3,8 +3,8 @@ export interface GameDetailsGame {
   platform_id: string;
   name: string;
   file_path?: string;
-  source?: string;
-  romm_id: number | null;
+  source?: string | null;
+  romm_id?: number | null;
   summary?: string | null;
   developer?: string | null;
   publisher?: string | null;
@@ -55,7 +55,7 @@ export interface GameDetailsProgress {
 
 export interface GameDetailsLaunchResult {
   success?: boolean;
-  error?: string | null;
+  error?: string | { message?: string } | null;
 }
 
 export interface GameDetailsLaunchErrorPresentation {

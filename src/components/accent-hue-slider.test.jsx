@@ -9,8 +9,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MuiTestProvider } from "../test/muiHarness";
-import AccentHueSlider from "./AccentHueSlider";
+import { MuiTestProvider } from "../test/mui-harness";
+import AccentHueSlider from "./accent-hue-slider";
 
 describe("Accent hue preview", () => {
   afterEach(() => {

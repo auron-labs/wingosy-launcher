@@ -1,8 +1,8 @@
-mod launcher;
+pub mod cores;
 pub mod detection;
 pub mod github;
 pub mod installer;
-pub mod cores;
+mod launcher;
 pub mod retroarch;
 
 pub use launcher::*;

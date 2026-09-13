@@ -25,10 +25,18 @@ impl Platform {
 
 pub fn default_platforms() -> Vec<Platform> {
     vec![
-        Platform::new("nes", "Nintendo Entertainment System", vec![".nes", ".unf", ".unif"]),
+        Platform::new(
+            "nes",
+            "Nintendo Entertainment System",
+            vec![".nes", ".unf", ".unif"],
+        ),
         Platform::new("snes", "Super Nintendo", vec![".sfc", ".smc"]),
         Platform::new("n64", "Nintendo 64", vec![".n64", ".z64", ".v64"]),
-        Platform::new("gc", "Nintendo GameCube", vec![".iso", ".gcm", ".gcz", ".rvz"]),
+        Platform::new(
+            "gc",
+            "Nintendo GameCube",
+            vec![".iso", ".gcm", ".gcz", ".rvz"],
+        ),
         Platform::new("wii", "Nintendo Wii", vec![".iso", ".wbfs", ".rvz"]),
         Platform::new("wiiu", "Nintendo Wii U", vec![".wud", ".wux", ".rpx"]),
         Platform::new("switch", "Nintendo Switch", vec![".nsp", ".xci", ".nsz"]),
@@ -37,13 +45,25 @@ pub fn default_platforms() -> Vec<Platform> {
         Platform::new("gba", "Game Boy Advance", vec![".gba"]),
         Platform::new("nds", "Nintendo DS", vec![".nds"]),
         Platform::new("3ds", "Nintendo 3DS", vec![".3ds", ".cia", ".cci", ".cxi"]),
-        Platform::new("psx", "PlayStation", vec![".bin", ".cue", ".iso", ".chd", ".pbp"]),
+        Platform::new(
+            "psx",
+            "PlayStation",
+            vec![".bin", ".cue", ".iso", ".chd", ".pbp"],
+        ),
         Platform::new("ps2", "PlayStation 2", vec![".iso", ".bin", ".chd"]),
         Platform::new("ps3", "PlayStation 3", vec![".iso", ".pkg"]),
         Platform::new("psp", "PlayStation Portable", vec![".iso", ".cso", ".pbp"]),
         Platform::new("psvita", "PlayStation Vita", vec![".vpk"]),
-        Platform::new("genesis", "Sega Genesis", vec![".md", ".gen", ".bin", ".smd"]),
-        Platform::new("saturn", "Sega Saturn", vec![".iso", ".bin", ".cue", ".chd"]),
+        Platform::new(
+            "genesis",
+            "Sega Genesis",
+            vec![".md", ".gen", ".bin", ".smd"],
+        ),
+        Platform::new(
+            "saturn",
+            "Sega Saturn",
+            vec![".iso", ".bin", ".cue", ".chd"],
+        ),
         Platform::new("dreamcast", "Sega Dreamcast", vec![".gdi", ".cdi", ".chd"]),
         Platform::new("xbox", "Xbox", vec![".iso", ".xiso"]),
         Platform::new("xbox360", "Xbox 360", vec![".iso", ".xex"]),
@@ -81,7 +101,12 @@ pub fn map_romm_slug(slug: &str) -> String {
         "ps3" | "playstation-3" | "sony-playstation-3" => "ps3".into(),
         "psp" | "playstation-portable" | "sony-psp" => "psp".into(),
         "psvita" | "playstation-vita" | "ps-vita" => "psvita".into(),
-        "genesis" | "sega-genesis" | "mega-drive" | "sega-mega-drive" | "megadrive" | "sega-mega-drive-genesis" => "genesis".into(),
+        "genesis"
+        | "sega-genesis"
+        | "mega-drive"
+        | "sega-mega-drive"
+        | "megadrive"
+        | "sega-mega-drive-genesis" => "genesis".into(),
         "saturn" | "sega-saturn" => "saturn".into(),
         "dreamcast" | "sega-dreamcast" => "dreamcast".into(),
         "xbox" | "microsoft-xbox" => "xbox".into(),

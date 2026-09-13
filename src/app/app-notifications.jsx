@@ -4,7 +4,7 @@ import Snackbar from "@mui/material/Snackbar";
 
 /** @typedef {{canInstall: boolean, channel: "stable"|"beta"|"nightly", installing: boolean, open: boolean, progressLabel: string, url: string, version: string}} UpdateSnack */
 
-/** @param {{messages: string[], onClose: () => void}} props */
+/** @param {{messages: string[], onClose: () => void}} props Save notification properties. */
 const SaveSyncSnackbar = ({ messages, onClose }) => (
   <Snackbar
     open={messages.length > 0}
@@ -15,7 +15,7 @@ const SaveSyncSnackbar = ({ messages, onClose }) => (
   />
 );
 
-/** @param {{snack: UpdateSnack, onClose: () => void, onInstall: () => void, onOpenRelease: () => void}} props */
+/** @param {{snack: UpdateSnack, onClose: () => void, onInstall: () => void, onOpenRelease: () => void}} props Update notification properties. */
 const UpdateSnackbar = ({ snack, onClose, onInstall, onOpenRelease }) => (
   <Snackbar
     open={snack.open}
@@ -64,7 +64,7 @@ const UpdateSnackbar = ({ snack, onClose, onInstall, onOpenRelease }) => (
   />
 );
 
-/** @param {{messages: string[], onCloseMessages: () => void, snack: UpdateSnack, onCloseUpdate: () => void, onInstallUpdate: () => void, onOpenRelease: () => void}} props */
+/** @param {{messages: string[], onCloseMessages: () => void, snack: UpdateSnack, onCloseUpdate: () => void, onInstallUpdate: () => void, onOpenRelease: () => void}} props Notification properties. */
 const AppNotifications = ({
   messages,
   onCloseMessages,

@@ -1,17 +1,27 @@
 import Box from "@mui/material/Box";
 import { useEffect } from "react";
 
-import WindowChrome from "../components/WindowChrome";
-import { isTauri, mousedownTargetElement } from "../utils/isTauri";
+import WindowChrome from "../components/window-chrome";
+import { isTauri, mousedownTargetElement } from "../utils/is-tauri";
 
-/** @typedef {{getCurrentWindow: () => {isFullscreen: () => Promise<boolean>, onResized: (handler: () => void) => Promise<() => void>, startDragging: () => Promise<void>}, invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>, listen: (event: string, handler: (event: {payload?: unknown}) => void) => Promise<() => void>, openUrl: (url: string) => Promise<unknown>}} AppRuntime */
+/** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
 
-/** @param {{children: import("react").ReactNode, runtime: AppRuntime}} props */
+/** @param {AppRuntime} runtime Runtime adapter. */
+const startDragging = async (runtime) => {
+  try {
+    await runtime.getCurrentWindow().startDragging();
+  } catch (error) {
+    console.warn(
+      "[Wingosy] startDragging failed — use `tauri dev` (not dev:web), restart after `tauri.conf` changes:",
+      error
+    );
+  }
+};
+
+/** @param {{children: import("react").ReactNode, runtime: AppRuntime}} props Application shell properties. */
 const AppShell = ({ children, runtime }) => {
   useEffect(() => {
-    if (!isTauri()) {
-      return undefined;
-    }
+    /** @param {MouseEvent} event Mouse input. */
     const onMouseDown = (event) => {
       if (event.button !== 0) {
         return;
@@ -24,19 +34,15 @@ const AppShell = ({ children, runtime }) => {
       ) {
         return;
       }
-      runtime
-        .getCurrentWindow()
-        .startDragging()
-        .catch((error) => {
-          console.warn(
-            "[Wingosy] startDragging failed — use `tauri dev` (not dev:web), restart after `tauri.conf` changes:",
-            error
-          );
-        });
+      void startDragging(runtime);
     };
-    document.addEventListener("mousedown", onMouseDown, true);
+    if (isTauri()) {
+      document.addEventListener("mousedown", onMouseDown, true);
+    }
     return () => {
-      document.removeEventListener("mousedown", onMouseDown, true);
+      if (isTauri()) {
+        document.removeEventListener("mousedown", onMouseDown, true);
+      }
     };
   }, [runtime]);
 

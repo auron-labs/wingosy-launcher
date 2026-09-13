@@ -157,8 +157,14 @@ mod tests {
 
     #[test]
     fn game_source_roundtrip() {
-        assert_eq!(GameSource::from_db_str(GameSource::Local.to_db_str()), GameSource::Local);
-        assert_eq!(GameSource::from_db_str(GameSource::RomM.to_db_str()), GameSource::RomM);
+        assert_eq!(
+            GameSource::from_db_str(GameSource::Local.to_db_str()),
+            GameSource::Local
+        );
+        assert_eq!(
+            GameSource::from_db_str(GameSource::RomM.to_db_str()),
+            GameSource::RomM
+        );
     }
 
     #[test]
@@ -196,7 +202,7 @@ mod tests {
     #[test]
     fn game_new_sets_defaults() {
         let game = Game::new("Super Mario".into(), "mario.sfc".into(), "snes".into());
-        
+
         assert_eq!(game.id, 0);
         assert_eq!(game.name, "Super Mario");
         assert_eq!(game.file_path, "mario.sfc");
@@ -225,7 +231,7 @@ mod tests {
     #[test]
     fn game_filter_default() {
         let filter = GameFilter::default();
-        
+
         assert!(filter.platform_id.is_none());
         assert!(filter.genre.is_none());
         assert!(!filter.favorites_only);
@@ -245,7 +251,7 @@ mod tests {
     fn game_clone() {
         let game = Game::new("Test".into(), "test.rom".into(), "gba".into());
         let cloned = game.clone();
-        
+
         assert_eq!(game.name, cloned.name);
         assert_eq!(game.file_path, cloned.file_path);
         assert_eq!(game.platform_id, cloned.platform_id);
@@ -260,7 +266,7 @@ mod tests {
         game.release_year = Some(1997);
         game.genres = vec!["RPG".into(), "Adventure".into()];
         game.player_count = Some("1".into());
-        
+
         assert_eq!(game.summary, Some("An RPG game".into()));
         assert_eq!(game.developer, Some("Square".into()));
         assert_eq!(game.release_year, Some(1997));

@@ -6,47 +6,47 @@ authors = ["Darkbrawl <yashv99@vt.edu>"]
 description = "A Windows-native game launcher with RomM integration"
 license = "GPL-3.0"
 
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
-tauri-plugin-shell = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-mcp-bridge = "0.13"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13", features = ["json", "stream", "multipart", "cookies", "form", "query"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
-directories = "6"
-toml = "1.1"
-walkdir = "2"
-zip = "8.6"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-thiserror = "2"
+aes = "0.9"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
-tokio-stream = "0.1"
-regex-lite = "0.1"
+directories = "6"
 dotenvy = "0.15"
-sevenz-rust = "0.6"
-urlencoding = "2"
-url = "2"
 md5 = "0.8"
+regex-lite = "0.1"
+reqwest = { version = "0.13", features = ["cookies", "form", "json", "multipart", "query", "stream"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sevenz-rust = "0.6"
 sha2 = "0.11"
-aes = "0.9"
-
-[target.'cfg(windows)'.dependencies]
-winreg = "0.56"
-keyring = { version = "4.1", default-features = false, features = ["v1", "windows-native-keyring-store"] }
-sdl3 = { version = "0.20", default-features = false, features = ["build-from-source-static"] }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-mcp-bridge = "0.13"
+tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+toml = "1.1"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+urlencoding = "2"
+walkdir = "2"
+zip = "8.6"
 
 [dev-dependencies]
 tempfile = "3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[target."cfg(windows)".dependencies]
+keyring = { version = "4.1", default-features = false, features = ["v1", "windows-native-keyring-store"] }
+sdl3 = { version = "0.20", default-features = false, features = ["build-from-source-static"] }
+winreg = "0.56"
 
 [features]
 default = ["custom-protocol"]

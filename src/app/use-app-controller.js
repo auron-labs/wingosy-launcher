@@ -3,13 +3,16 @@ import { useCallback, useState } from "react";
 import { useAppLibrary } from "./use-app-library";
 import { useAppStartup } from "./use-app-startup";
 
-/** @typedef {{getCurrentWindow: () => {isFullscreen: () => Promise<boolean>, onResized: (handler: () => void) => Promise<() => void>, startDragging: () => Promise<void>}, invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>, listen: (event: string, handler: (event: {payload?: unknown}) => void) => Promise<() => void>, openUrl: (url: string) => Promise<unknown>}} AppRuntime */
+/** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
 
 /** @typedef {ReturnType<typeof useAppStartup> & ReturnType<typeof useAppLibrary> & {error: string|null, handleCloseMessages: () => void, handleCloseUpdate: () => void, handleInstallUpdate: () => void, handleOpenRelease: () => void, handleRetryLaunch: () => Promise<unknown>|null, runtime: AppRuntime}} AppController */
 
+/** @returns {string|null} Initial application error. */
+const initialError = () => null;
+
 /** @param {{runtime: AppRuntime}} options - Runtime dependency for application controllers. */
 export const useAppController = ({ runtime }) => {
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(initialError);
   const startup = useAppStartup({ runtime, setError });
   const library = useAppLibrary({
     loadData: startup.loadData,
@@ -33,10 +36,9 @@ export const useAppController = ({ runtime }) => {
     return await handleLaunchGame(launchErrorGameId);
   }, [handleLaunchGame, launchErrorGameId]);
 
-  const handleImmersiveExit = useCallback(
-    async () => await exitImmersive(handleReloadLibrary),
-    [exitImmersive, handleReloadLibrary]
-  );
+  const handleImmersiveExit = useCallback(async () => {
+    await exitImmersive(handleReloadLibrary);
+  }, [exitImmersive, handleReloadLibrary]);
 
   return {
     ...library,

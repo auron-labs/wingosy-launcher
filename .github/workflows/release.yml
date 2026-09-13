@@ -1,31 +1,32 @@
-# Stable channel: Windows installers attached to a **non-prerelease** GitHub Release.
+---
+# Stable channel: Windows installers attached to a **non-prerelease** GitHub
+# Release.
 #
-# The git tag sets the app version (e.g. v2.0.0 → 2.0.0): CI runs `scripts/set-version.mjs`
-# so installers match the tag. This is a MAJOR-style release relative to prior betas/nightlies
-# (you normally tag after `bun run version:bump -- release` on main, or set the tag to the
-# desired X.0.0 manually — see CONTRIBUTING.md).
+# The git tag sets the app version (e.g. v2.0.0 → 2.0.0): CI runs
+# `scripts/set-version.mjs` so installers match the tag. This is a MAJOR-style
+# release relative to prior betas/nightlies
+# (you normally tag after `bun run version:bump -- release` on main, or set the
+# tag to the desired X.0.0 manually — see CONTRIBUTING.md).
 #
-# Do not use this workflow for nightly/beta tags — those are built by nightly.yml / beta.yml.
-
+# Do not use this workflow for nightly/beta tags — those are built by
+# nightly.yml / beta.yml.
 name: Release
-
-on:
+'on':
   push:
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing git tag to build (e.g. v0.2.0). Create and push the tag
-          first.'
+        description: >-
+          Existing git tag to build (e.g. v0.2.0). Create and
+          push the tag first.
         required: true
         type: string
-
 jobs:
   build:
     permissions:
       contents: write
-
     strategy:
       fail-fast: false
       matrix:
@@ -33,13 +34,13 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: wingosy-launcher_windows_x64
-
     runs-on: ${{ matrix.platform }}
-
     env:
-      # Tag push: ref is refs/tags/v* ; manual run: ref is a branch, use the typed-in tag.
-      RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-
+      # Tag push: ref is refs/tags/v*; manual run: ref is a branch, use the
+      # typed-in tag.
+      RELEASE_TAG: >-
+        ${{ github.event_name == 'push' && github.ref_name ||
+        inputs.tag }}
     steps:
       - name: Validate release tag
         shell: bash
@@ -48,57 +49,57 @@ jobs:
             echo "::error::RELEASE_TAG must match vMAJOR.MINOR.PATCH"
             exit 1
           fi
-
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_TAG }}
-
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.3.14'
-
+          no-cache: true
       - name: Sync app version from release tag
         shell: bash
         run: |
           set -e
-          TAG="${{ env.RELEASE_TAG }}"
+          TAG="$RELEASE_TAG"
           VER="${TAG#v}"
           bun scripts/set-version.mjs "$VER"
-
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           targets: ${{ matrix.target }}
-
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
+          lookup-only: true
           workspaces: './src-tauri -> target'
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY
+            }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: >-
+            ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: 'Wingosy Launcher ${{ env.RELEASE_TAG }}'
+          releaseName: 'Wingosy Launcher ${{ env.RELEASE_TAG
+            }}'
           releaseBody: |
             **Windows installers**
 
-            - **NSIS** — `*x64-setup.exe` (graphical installer; this is the `.exe` asset)
+            - **NSIS** — `*x64-setup.exe` (graphical installer; this is the
+              `.exe` asset)
             - **WiX** — `*.msi` (optional MSI installer)
 
-            Add a root `CHANGELOG.md` and link it here in this workflow if you want a changelog section.
+            Add a root `CHANGELOG.md` and link it here in this workflow if you
+            want a changelog section.
           releaseDraft: false
           prerelease: false
-
       - name: Upload latest.json (signed updater)
         if: success()
         env:

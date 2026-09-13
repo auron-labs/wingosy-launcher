@@ -1,9 +1,9 @@
 //! RomM save sync helpers (Argosy-compatible layouts where noted).
-pub mod retroarch_romm;
 pub mod negotiation;
+pub mod retroarch_romm;
+pub mod switch_content;
 pub mod switch_romm;
 pub mod switch_save;
-pub mod switch_content;
 
 #[cfg(test)]
 mod switch_save_roundtrip;

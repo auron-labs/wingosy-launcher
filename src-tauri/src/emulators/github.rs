@@ -35,7 +35,8 @@ async fn fetch_latest_release_inner(url: &str, api_label: &str) -> Result<GitHub
             &text[..text.len().min(200)]
         );
     }
-    resp.json().await
+    resp.json()
+        .await
         .with_context(|| format!("Failed to parse {} release JSON", api_label))
 }
 
@@ -59,7 +60,10 @@ pub async fn fetch_forgejo_latest_release(
     fetch_latest_release_inner(&url, "Forgejo").await
 }
 
-pub fn find_matching_asset<'a>(release: &'a GitHubRelease, pattern: &str) -> Option<&'a GitHubAsset> {
+pub fn find_matching_asset<'a>(
+    release: &'a GitHubRelease,
+    pattern: &str,
+) -> Option<&'a GitHubAsset> {
     let re = regex_lite::Regex::new(pattern).ok()?;
     release.assets.iter().find(|a| re.is_match(&a.name))
 }
@@ -73,10 +77,30 @@ mod tests {
             tag_name: "v1.0.0".into(),
             name: Some("Release 1.0".into()),
             assets: vec![
-                GitHubAsset { name: "ppsspp-v1.17-windows-x64.zip".into(), browser_download_url: "https://example.com/ppsspp.zip".into(), size: 50000000, content_type: None },
-                GitHubAsset { name: "ppsspp-v1.17-linux-x64.tar.gz".into(), browser_download_url: "https://example.com/ppsspp.tar.gz".into(), size: 45000000, content_type: None },
-                GitHubAsset { name: "ppsspp-v1.17-macos-arm64.dmg".into(), browser_download_url: "https://example.com/ppsspp.dmg".into(), size: 48000000, content_type: None },
-                GitHubAsset { name: "Source.zip".into(), browser_download_url: "https://example.com/source.zip".into(), size: 1000000, content_type: None },
+                GitHubAsset {
+                    name: "ppsspp-v1.17-windows-x64.zip".into(),
+                    browser_download_url: "https://example.com/ppsspp.zip".into(),
+                    size: 50000000,
+                    content_type: None,
+                },
+                GitHubAsset {
+                    name: "ppsspp-v1.17-linux-x64.tar.gz".into(),
+                    browser_download_url: "https://example.com/ppsspp.tar.gz".into(),
+                    size: 45000000,
+                    content_type: None,
+                },
+                GitHubAsset {
+                    name: "ppsspp-v1.17-macos-arm64.dmg".into(),
+                    browser_download_url: "https://example.com/ppsspp.dmg".into(),
+                    size: 48000000,
+                    content_type: None,
+                },
+                GitHubAsset {
+                    name: "Source.zip".into(),
+                    browser_download_url: "https://example.com/source.zip".into(),
+                    size: 1000000,
+                    content_type: None,
+                },
             ],
         }
     }
@@ -101,9 +125,12 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "v1.0".into(),
             name: None,
-            assets: vec![
-                GitHubAsset { name: "Dolphin-x64-Setup.7z".into(), browser_download_url: "https://example.com/d.7z".into(), size: 100, content_type: None },
-            ],
+            assets: vec![GitHubAsset {
+                name: "Dolphin-x64-Setup.7z".into(),
+                browser_download_url: "https://example.com/d.7z".into(),
+                size: 100,
+                content_type: None,
+            }],
         };
         let asset = find_matching_asset(&release, "(?i)dolphin.*x64.*\\.7z$");
         assert!(asset.is_some());
@@ -134,8 +161,18 @@ mod tests {
             tag_name: "v1.0".into(),
             name: None,
             assets: vec![
-                GitHubAsset { name: "app-win32.zip".into(), browser_download_url: "https://a.com/1".into(), size: 100, content_type: None },
-                GitHubAsset { name: "app-win64.zip".into(), browser_download_url: "https://a.com/2".into(), size: 200, content_type: None },
+                GitHubAsset {
+                    name: "app-win32.zip".into(),
+                    browser_download_url: "https://a.com/1".into(),
+                    size: 100,
+                    content_type: None,
+                },
+                GitHubAsset {
+                    name: "app-win64.zip".into(),
+                    browser_download_url: "https://a.com/2".into(),
+                    size: 200,
+                    content_type: None,
+                },
             ],
         };
         let asset = find_matching_asset(&release, ".*\\.zip$");
@@ -163,8 +200,18 @@ mod tests {
             tag_name: "0.10.3".into(),
             name: Some("mGBA 0.10.3".into()),
             assets: vec![
-                GitHubAsset { name: "mGBA-0.10.3-win64.7z".into(), browser_download_url: "https://a.com/mgba.7z".into(), size: 100, content_type: None },
-                GitHubAsset { name: "mGBA-0.10.3-ubuntu.tar.xz".into(), browser_download_url: "https://a.com/mgba.tar.xz".into(), size: 100, content_type: None },
+                GitHubAsset {
+                    name: "mGBA-0.10.3-win64.7z".into(),
+                    browser_download_url: "https://a.com/mgba.7z".into(),
+                    size: 100,
+                    content_type: None,
+                },
+                GitHubAsset {
+                    name: "mGBA-0.10.3-ubuntu.tar.xz".into(),
+                    browser_download_url: "https://a.com/mgba.tar.xz".into(),
+                    size: 100,
+                    content_type: None,
+                },
             ],
         };
         let asset = find_matching_asset(&release, "(?i)mGBA.*win64.*\\.7z$");
@@ -177,9 +224,12 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "v1.7.5".into(),
             name: None,
-            assets: vec![
-                GitHubAsset { name: "pcsx2-v1.7.5-windows-x64-Qt.7z".into(), browser_download_url: "https://a.com/pcsx2.7z".into(), size: 100, content_type: None },
-            ],
+            assets: vec![GitHubAsset {
+                name: "pcsx2-v1.7.5-windows-x64-Qt.7z".into(),
+                browser_download_url: "https://a.com/pcsx2.7z".into(),
+                size: 100,
+                content_type: None,
+            }],
         };
         let asset = find_matching_asset(&release, "(?i)pcsx2.*windows.*x64.*\\.7z$");
         assert!(asset.is_some());

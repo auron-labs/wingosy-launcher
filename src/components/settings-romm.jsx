@@ -6,252 +6,280 @@ import * as Mui from "@mui/material";
 import * as Components from "./settings-components";
 import * as Shared from "./settings-view-shared";
 
-/** @param {import("./settings-types").SettingsPanelProps} settings - Settings panel state and actions. */
-export default function RommSettings(settings) {
-  return (
-    <>
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX} data-testid="romm-settings-card">
-    <Mui.Box
-      sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}
-    >
-      <CloudIcon color="primary" />
-      <Mui.Typography variant="h6">RomM Server</Mui.Typography>
-    </Mui.Box>
-    <Mui.TextField
-      fullWidth
-      label="Server URL"
-      placeholder="romm.example.com or 192.168.1.2:3000"
-      value={settings.rommUrl}
-      onChange={(e) => {
-        settings.setRommUrl(e.target.value);
-      }}
-      disabled={settings.rommUrlLocked}
-      helperText={
-        settings.rommUrlLocked
-          ? "Connected. Disconnect before changing the server URL."
-          : "Choose the RomM server Wingosy should connect to."
-      }
-      sx={{ mb: 2 }}
-      size="small"
-    />
+/** @typedef {import("./settings-types").SettingsPanelProps} SettingsPanelProps */
 
-    {/* Auth mode toggle */}
+/** @param {SettingsPanelProps} settings RomM settings. @returns {string} Connection button label. */
+const getConnectLabel = (settings) => {
+  if (settings.rommPairing !== null) {
+    return "Waiting for approval...";
+  }
+  return settings.rommAuthMode === "pairing" ? "Pair with RomM" : "Connect";
+};
+
+/** @param {SettingsPanelProps} settings Server URL field properties. */
+const RommServerUrlField = (settings) => (
+  <Mui.TextField
+    disabled={settings.rommUrlLocked}
+    fullWidth
+    helperText={
+      settings.rommUrlLocked
+        ? "Connected. Disconnect before changing the server URL."
+        : "Choose the RomM server Wingosy should connect to."
+    }
+    label="Server URL"
+    onChange={(event) => {
+      settings.setRommUrl(event.target.value);
+    }}
+    placeholder="romm.example.com or 192.168.1.2:3000"
+    size="small"
+    sx={{ mb: 2 }}
+    value={settings.rommUrl}
+  />
+);
+
+/** @param {SettingsPanelProps} settings Authentication mode properties. */
+const RommAuthModeField = (settings) => (
+  <Mui.Box sx={{ mb: 2 }}>
+    <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+      Authentication method
+    </Mui.Typography>
+    <Mui.ToggleButtonGroup
+      disabled={settings.rommSessionActive}
+      exclusive
+      onChange={(_event, newMode) => {
+        if (newMode === null || newMode === "") {
+          return;
+        }
+        settings.cancelDevicePairing();
+        settings.setRommAuthMode(newMode);
+      }}
+      size="small"
+      sx={{ mb: 2 }}
+      value={settings.rommAuthMode}
+    >
+      <Mui.ToggleButton value="pairing" sx={{ px: 2 }}>
+        <OpenInNewIcon sx={{ fontSize: 18, mr: 1 }} />
+        Device pairing
+      </Mui.ToggleButton>
+      <Mui.ToggleButton value="token" sx={{ px: 2 }}>
+        <VpnKeyIcon sx={{ fontSize: 18, mr: 1 }} />
+        Access token
+      </Mui.ToggleButton>
+    </Mui.ToggleButtonGroup>
+    <Mui.Typography
+      variant="body2"
+      color="text.secondary"
+      sx={{ maxWidth: 640 }}
+    >
+      {settings.rommAuthMode === "pairing"
+        ? "Secure device pairing opens RomM in your browser. Wingosy never receives or stores your password."
+        : "Use a RomM access token for this device. The token is stored securely and never shown again after connecting."}
+    </Mui.Typography>
+  </Mui.Box>
+);
+
+/** @param {SettingsPanelProps} settings Token fields properties. */
+const RommTokenFields = (settings) => {
+  if (settings.rommAuthMode !== "token") {
+    return null;
+  }
+  const deviceName = settings.rommDeviceName.trim() || "windows-pc";
+  const deviceSlug = deviceName
+    .toLowerCase()
+    .replaceAll(/\s+/gu, "-")
+    .replace(/^wingosy-/u, "");
+  return (
     <Mui.Box sx={{ mb: 2 }}>
-      <Mui.Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ mb: 1 }}
-      >
-        Authentication method
-      </Mui.Typography>
-      <Mui.ToggleButtonGroup
-        value={settings.rommAuthMode}
-        disabled={settings.rommSessionActive}
-        exclusive
-        onChange={(e, newMode) => {
-          if (!newMode) {
-            return;
-          }
-          settings.cancelDevicePairing();
-          settings.setRommAuthMode(newMode);
+      <Mui.TextField
+        fullWidth
+        helperText={`Registered as wingosy-${deviceSlug}`}
+        label="Device Name"
+        onChange={(event) => {
+          settings.setRommDeviceName(event.target.value);
         }}
         size="small"
         sx={{ mb: 2 }}
-      >
-        <Mui.ToggleButton value="pairing" sx={{ px: 2 }}>
-          <OpenInNewIcon sx={{ fontSize: 18, mr: 1 }} />
-          Device pairing
-        </Mui.ToggleButton>
-        <Mui.ToggleButton value="token" sx={{ px: 2 }}>
-          <VpnKeyIcon sx={{ fontSize: 18, mr: 1 }} />
-          Access token
-        </Mui.ToggleButton>
-      </Mui.ToggleButtonGroup>
-      <Mui.Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ maxWidth: 640 }}
-      >
-        {settings.rommAuthMode === "pairing"
-          ? "Secure device pairing opens RomM in your browser. Wingosy never receives or stores your password."
-          : "Use a RomM access token for this device. The token is stored securely and never shown again after connecting."}
-      </Mui.Typography>
+        value={settings.rommDeviceName}
+      />
+      <Mui.TextField
+        fullWidth
+        label="Access token"
+        onChange={(event) => {
+          settings.setRommDirectToken(event.target.value);
+        }}
+        placeholder="Paste your RomM access token here"
+        size="small"
+        type="password"
+        value={settings.rommDirectToken}
+      />
     </Mui.Box>
+  );
+};
 
-    {settings.rommAuthMode === "token" && (
-      <Mui.Box sx={{ mb: 2 }}>
-        <Mui.TextField
-          fullWidth
-          label="Device Name"
-          value={settings.rommDeviceName}
-          onChange={(e) => {
-            settings.setRommDeviceName(e.target.value);
-          }}
-          size="small"
-          sx={{ mb: 2 }}
-          helperText={`Registered as wingosy-${(
-            settings.rommDeviceName.trim() || "windows-pc"
-          )
-            .toLowerCase()
-            .replaceAll(/\s+/g, "-")
-            .replace(/^wingosy-/, "")}`}
-        />
-        <Mui.TextField
-          fullWidth
-          label="Access token"
-          placeholder="Paste your RomM access token here"
-          value={settings.rommDirectToken}
-          onChange={(e) => {
-            settings.setRommDirectToken(e.target.value);
-          }}
-          size="small"
-          type="password"
-        />
-      </Mui.Box>
-    )}
+/** @param {SettingsPanelProps} settings RomM authentication properties. */
+const RommAuthenticationFields = (settings) => (
+  <>
+    <RommServerUrlField {...settings} />
+    <RommAuthModeField {...settings} />
+    <RommTokenFields {...settings} />
+  </>
+);
 
+/** @param {SettingsPanelProps} settings Connect button properties. */
+const RommConnectButton = (settings) => {
+  if (settings.rommSessionActive) {
+    return null;
+  }
+  const pairingActive = settings.rommPairing !== null;
+  const canConnect =
+    settings.rommUrl !== "" &&
+    (settings.rommAuthMode !== "token" ||
+      settings.rommDirectToken.trim() !== "") &&
+    (settings.rommAuthMode === "token" || !pairingActive);
+  return (
+    <Mui.Button
+      disabled={!canConnect}
+      onClick={settings.handleConnectRomM}
+      variant="contained"
+    >
+      {getConnectLabel(settings)}
+    </Mui.Button>
+  );
+};
+
+/** @param {SettingsPanelProps} settings RomM connection controls. */
+const RommConnectionControls = (settings) => {
+  const pairingActive = settings.rommPairing !== null;
+  return (
     <Mui.Box sx={{ display: "flex", gap: 2 }}>
-      {!settings.rommSessionActive && (
+      <RommConnectButton {...settings} />
+      {pairingActive ? (
         <Mui.Button
-          variant="contained"
-          onClick={settings.handleConnectRomM}
-          disabled={
-            !settings.rommUrl ||
-            (settings.rommAuthMode === "token"
-              ? !settings.rommDirectToken.trim()
-              : Boolean(settings.rommPairing))
-          }
+          onClick={() => {
+            settings.cancelDevicePairing();
+          }}
+          variant="text"
         >
-          {settings.rommPairing
-            ? "Waiting for approval..."
-            : settings.rommAuthMode === "pairing"
-              ? "Pair with RomM"
-              : "Connect"}
-        </Mui.Button>
-      )}
-      {settings.rommPairing && (
-        <Mui.Button variant="text" onClick={settings.cancelDevicePairing}>
           Cancel
         </Mui.Button>
-      )}
+      ) : null}
       <Mui.Button
-        variant="outlined"
+        disabled={settings.rommUrl === ""}
         onClick={settings.handleSyncRomM}
-        disabled={!settings.rommUrl}
+        variant="outlined"
       >
         Sync Library
       </Mui.Button>
-      {settings.rommSessionActive && (
+      {settings.rommSessionActive ? (
         <Mui.Button
           color="error"
-          variant="outlined"
           onClick={() => {
             settings.setRommDisconnectDialogOpen(true);
           }}
+          variant="outlined"
         >
           Disconnect
         </Mui.Button>
-      )}
+      ) : null}
     </Mui.Box>
-    <Mui.Box data-testid="romm-sync-metadata" sx={{ mt: 3 }}>
-      <Mui.Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Sync metadata
-      </Mui.Typography>
-      <Mui.Box
-        sx={{
-          display: "grid",
-          gap: 1.5,
-          gridTemplateColumns: {
-            sm: "repeat(3, minmax(0, 1fr))",
-            xs: "1fr",
-          },
-        }}
-      >
-        <Mui.Paper
-          variant="outlined"
-          sx={{ bgcolor: "action.hover", p: 1.5 }}
-        >
-          <Mui.Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block" }}
-          >
-            Last synced
-          </Mui.Typography>
-          <Mui.Typography
-            variant="body2"
-            data-testid="romm-last-synced-value"
-          >
-            {Shared.formatSyncTimestamp(settings.rommSyncMetadata.lastSyncedAt)}
-          </Mui.Typography>
-        </Mui.Paper>
-        <Mui.Paper
-          variant="outlined"
-          sx={{ bgcolor: "action.hover", p: 1.5 }}
-        >
-          <Mui.Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block" }}
-          >
-            RomM library
-          </Mui.Typography>
-          <Mui.Typography
-            variant="body2"
-            data-testid="romm-library-count-value"
-          >
-            {Shared.formatSyncLibraryCount(settings.rommSyncMetadata.libraryCount)}
-          </Mui.Typography>
-        </Mui.Paper>
-        <Mui.Paper
-          variant="outlined"
-          sx={{ bgcolor: "action.hover", p: 1.5 }}
-        >
-          <Mui.Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block" }}
-          >
-            Next scheduled sync
-          </Mui.Typography>
-          <Mui.Typography
-            variant="body2"
-            data-testid="romm-next-sync-value"
-          >
-            {settings.rommSyncMetadata.autoSync
-              ? "Automatic (next run not reported)"
-              : "Not scheduled"}
-          </Mui.Typography>
-        </Mui.Paper>
-      </Mui.Box>
-      <Mui.Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ display: "block", mt: 1 }}
-      >
-        Values are shown from existing RomM configuration or the most
-        recent manual sync in this session.
-      </Mui.Typography>
-    </Mui.Box>
-    {settings.rommStatus && (
-      <Mui.Alert severity={settings.rommStatus.type} sx={{ mt: 2 }}>
-        {settings.rommStatus.message}
-      </Mui.Alert>
-    )}
-  </Mui.Paper>
-<Components.ConfirmDestructiveDialog
-  open={settings.rommDisconnectDialogOpen}
-  title="Disconnect from RomM?"
-  message="Wingosy removes the saved RomM session from this device. Your library stays locally, and you can pair or connect again at any time."
-  confirmLabel="Disconnect"
-  onCancel={() => {
-    settings.setRommDisconnectDialogOpen(false);
-  }}
-  onConfirm={() => {
-    settings.setRommDisconnectDialogOpen(false);
-    settings.handleDisconnectRomM();
-  }}
-/>
-    </>
   );
-}
+};
+
+/** @param {{label: string, testId: string, value: string}} props Sync metadata value. */
+const SyncMetadataValue = ({ label, testId, value }) => (
+  <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 1.5 }}>
+    <Mui.Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{ display: "block" }}
+    >
+      {label}
+    </Mui.Typography>
+    <Mui.Typography variant="body2" data-testid={testId}>
+      {value}
+    </Mui.Typography>
+  </Mui.Paper>
+);
+
+/** @param {SettingsPanelProps} settings RomM sync metadata. */
+const RommSyncMetadata = (settings) => (
+  <Mui.Box data-testid="romm-sync-metadata" sx={{ mt: 3 }}>
+    <Mui.Typography variant="subtitle2" sx={{ mb: 1 }}>
+      Sync metadata
+    </Mui.Typography>
+    <Mui.Box
+      sx={{
+        display: "grid",
+        gap: 1.5,
+        gridTemplateColumns: { sm: "repeat(3, minmax(0, 1fr))", xs: "1fr" },
+      }}
+    >
+      <SyncMetadataValue
+        label="Last synced"
+        testId="romm-last-synced-value"
+        value={Shared.formatSyncTimestamp(
+          settings.rommSyncMetadata.lastSyncedAt
+        )}
+      />
+      <SyncMetadataValue
+        label="RomM library"
+        testId="romm-library-count-value"
+        value={Shared.formatSyncLibraryCount(
+          settings.rommSyncMetadata.libraryCount
+        )}
+      />
+      <SyncMetadataValue
+        label="Next scheduled sync"
+        testId="romm-next-sync-value"
+        value={
+          settings.rommSyncMetadata.autoSync
+            ? "Automatic (next run not reported)"
+            : "Not scheduled"
+        }
+      />
+    </Mui.Box>
+    <Mui.Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{ display: "block", mt: 1 }}
+    >
+      Values are shown from existing RomM configuration or the most recent
+      manual sync in this session.
+    </Mui.Typography>
+  </Mui.Box>
+);
+
+/** @param {SettingsPanelProps} settings RomM settings. */
+const RommSettings = (settings) => (
+  <>
+    <Mui.Paper sx={Shared.SETTINGS_CARD_SX} data-testid="romm-settings-card">
+      <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}>
+        <CloudIcon color="primary" />
+        <Mui.Typography variant="h6">RomM Server</Mui.Typography>
+      </Mui.Box>
+      <RommAuthenticationFields {...settings} />
+      <RommConnectionControls {...settings} />
+      <RommSyncMetadata {...settings} />
+      {settings.rommStatus === null ? null : (
+        <Mui.Alert severity={settings.rommStatus.type} sx={{ mt: 2 }}>
+          {settings.rommStatus.message}
+        </Mui.Alert>
+      )}
+    </Mui.Paper>
+    <Components.ConfirmDestructiveDialog
+      confirmLabel="Disconnect"
+      message="Wingosy removes the saved RomM session from this device. Your library stays locally, and you can pair or connect again at any time."
+      onCancel={() => {
+        settings.setRommDisconnectDialogOpen(false);
+      }}
+      onConfirm={() => {
+        settings.setRommDisconnectDialogOpen(false);
+        settings.handleDisconnectRomM();
+      }}
+      open={settings.rommDisconnectDialogOpen}
+      title="Disconnect from RomM?"
+    />
+  </>
+);
+
+export default RommSettings;

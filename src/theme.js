@@ -2,40 +2,33 @@ import { createTheme, alpha } from "@mui/material/styles";
 
 // Argosy-inspired color palette
 const colors = {
-  // Primary: Cyan (Argosy's signature color)
   cyan: "#00ACC1",
-  cyanLight: "#5DDEF4",
   cyanDark: "#007C91",
+  cyanLight: "#5DDEF4",
 
   // Secondary: Indigo
-  indigo: "#5C6BC0",
-  indigoLight: "#8E99F3",
-  indigoDark: "#26418F",
+  difficultyRed: "#E53935",
 
   // Accent: Teal
-  teal: "#26A69A",
-  tealLight: "#64D8CB",
-  tealDark: "#00766C",
-
-  // Surfaces (Argosy dark theme)
+  focusGlow: "rgba(92, 107, 192, 0.4)",
+  green: "#66BB6A",
+  indigo: "#5C6BC0",
+  indigoDark: "#26418F",
+  indigoLight: "#8E99F3",
+  onSurfaceDark: "#E1E1E1",
+  onSurfaceSecondary: "#9E9E9E",
+  orange: "#FF7043",
+  starGold: "#FFD700",
   surfaceDark: "#121212",
   surfaceDarkVariant: "#1E1E1E",
   surfaceElevated: "#252525",
-
-  // Text
-  onSurfaceDark: "#E1E1E1",
-  onSurfaceSecondary: "#9E9E9E",
-
-  // Status colors
-  green: "#66BB6A",
-  orange: "#FF7043",
-  starGold: "#FFD700",
+  teal: "#26A69A",
+  tealDark: "#00766C",
+  tealLight: "#64D8CB",
   trophyAmber: "#FFB300",
-  difficultyRed: "#E53935",
-
-  // Focus glow (based on primary/indigo)
-  focusGlow: "rgba(92, 107, 192, 0.4)",
 };
+
+const muiThemeKey = "shape";
 
 const theme = createTheme({
   components: {
@@ -194,7 +187,7 @@ const theme = createTheme({
       main: colors.orange,
     },
   },
-  shape: {
+  [muiThemeKey]: {
     borderRadius: 8,
   },
   typography: {
