@@ -6,8 +6,8 @@
 
 **Status:** resolved
 
-- [x] Immersive mode offers “All platforms” and every platform represented in the library, using the library's platform display names.
-- [x] Selecting a platform shows only games from that platform across initial loading and subsequent lazy-loaded pages; selecting “All platforms” restores the unfiltered library.
+- [x] Immersive mode offers "All platforms" and every platform represented in the library, using the library's platform display names.
+- [x] Selecting a platform shows only games from that platform across initial loading and subsequent lazy-loaded pages; selecting "All platforms" restores the unfiltered library.
 - [x] Changing or clearing the platform resets game focus to the first visible result and cannot allow an older request to overwrite the latest selection.
 - [x] Platform filtering composes with the All, Favorites, and Recent sections, including a clear empty state when the active combination has no games.
 - [x] The platform control is usable by pointer and keyboard/controller without breaking existing grid navigation or game selection.

@@ -1,34 +1,27 @@
-import DeleteIcon from "@mui/icons-material/Delete";
-import FolderOpenIcon from "@mui/icons-material/FolderOpen";
-import FolderSpecialIcon from "@mui/icons-material/FolderSpecial";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import SaveIcon from "@mui/icons-material/Save";
-import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Chip from "@mui/material/Chip";
-import Divider from "@mui/material/Divider";
-import IconButton from "@mui/material/IconButton";
+import ButtonBase from "@mui/material/ButtonBase";
 import LinearProgress from "@mui/material/LinearProgress";
-import ListItemIcon from "@mui/material/ListItemIcon";
-import ListItemText from "@mui/material/ListItemText";
-import Menu from "@mui/material/Menu";
-import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import { useState } from "react";
 
 import GameAchievementsSection from "../components/game/game-achievements-section";
+import ScreenshotLightbox from "../components/game/screenshot-lightbox";
 import { formatDownloadLabel } from "../rom-downloads-format";
+import { DetailsActions } from "./immersive-game-details-actions";
+import {
+  IMMERSIVE_TITLE_FONT,
+  InstalledMarker,
+  getImmersiveGenres,
+  getImmersiveYear,
+  isImmersiveInstalled,
+} from "./immersive-shell-utils";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {{downloaded?: number|null, total?: number|null, percent?: number|null, stage?: string, file_index?: number|null, total_files?: number|null}} DownloadProgress */
 /** @typedef {{message: string, type: "error"|"info"|"success"}} DetailsStatus */
-
-/** @param {() => void|Promise<void>} action Async action. @returns {() => void} Event callback. */
-const fireAndForget = (action) => () => {
-  void action();
-};
+/** @typedef {Omit<import("./immersive-game-details-menu").DetailsMenuProps, "menuAnchor"|"setMenuAnchor">} DetailsMenuProps */
 
 /** @param {unknown} value Candidate value. @returns {boolean} Whether the value contains text. */
 const hasText = (value) =>
@@ -62,211 +55,261 @@ const getFileProgressLabel = (progress) => {
   return ` (${progress.file_index}/${progress.total_files})`;
 };
 
-/** @typedef {{menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, hasRomm: boolean, rommConfigured: boolean, refreshing: boolean, hasLocalFile: boolean, onSaveScroll: () => void, onAddToCollection: () => Promise<void>, onRefreshMetadata: () => Promise<void>, onOpenLocation: () => Promise<void>, onHideGame: () => Promise<void>, onDelete: () => void}} DetailsMenuProps */
+/** @param {{game: ImmersiveGame, platformLabel?: string|null}} props Hero metadata properties. */
+const DetailsHeroMetadata = ({ game, platformLabel }) => (
+  <Stack
+    direction="row"
+    spacing={2}
+    sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.5 }}
+  >
+    {hasText(platformLabel) ? (
+      <Typography
+        sx={{
+          color: "common.white",
+          fontSize: "0.95rem",
+          fontWeight: 600,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+        }}
+      >
+        {getImmersiveYear(game) === null
+          ? platformLabel
+          : `${platformLabel} / ${getImmersiveYear(game)}`}
+      </Typography>
+    ) : null}
+    <InstalledMarker installed={isImmersiveInstalled(game)} />
+  </Stack>
+);
 
-/** @param {Pick<DetailsMenuProps, "hasRomm"|"rommConfigured"|"refreshing"|"onSaveScroll"|"onRefreshMetadata">} props RomM menu properties. */
-const RommMenuItems = ({ hasRomm, rommConfigured, onSaveScroll }) => {
-  if (!hasRomm || !rommConfigured) {
+/** @param {{genres: string[]}} props Genre line properties. */
+const DetailsGenreLine = ({ genres }) => {
+  if (genres.length === 0) {
     return null;
   }
   return (
-    <MenuItem onClick={onSaveScroll}>
-      <ListItemIcon>
-        <SaveIcon fontSize="small" />
-      </ListItemIcon>
-      <ListItemText
-        primary="Manage cached saves"
-        secondary="RomM cloud saves"
-        slotProps={{ secondary: { variant: "caption" } }}
-      />
-    </MenuItem>
+    <Typography
+      sx={{
+        color: "rgba(245,241,232,0.75)",
+        fontSize: "1rem",
+        fontWeight: 500,
+        letterSpacing: "0.22em",
+        mt: 1,
+        textTransform: "uppercase",
+      }}
+    >
+      {genres.join(" / ")}
+    </Typography>
   );
 };
 
-/** @param {Pick<DetailsMenuProps, "rommConfigured"|"refreshing"|"onRefreshMetadata">} props Refresh menu properties. */
-const RommRefreshMenuItem = ({
-  refreshing,
-  rommConfigured,
-  onRefreshMetadata,
-}) => {
-  if (!rommConfigured) {
-    return null;
-  }
-  return (
-    <MenuItem onClick={fireAndForget(onRefreshMetadata)} disabled={refreshing}>
-      <ListItemIcon>
-        <RefreshIcon fontSize="small" />
-      </ListItemIcon>
-      <ListItemText
-        primary={refreshing ? "Refreshing..." : "Refresh game data"}
-        secondary="From RomM"
-        slotProps={{ secondary: { variant: "caption" } }}
-      />
-    </MenuItem>
-  );
-};
-
-/** @param {Pick<DetailsMenuProps, "hasLocalFile"|"onOpenLocation"|"onHideGame"|"onDelete">} props Local menu properties. */
-const LocalMenuItems = ({
-  hasLocalFile,
-  onOpenLocation,
-  onHideGame,
-  onDelete,
-}) => (
+/** @param {{game: ImmersiveGame}} props Hero title properties. */
+const DetailsHeroTitle = ({ game }) => (
   <>
-    {hasLocalFile ? (
-      <MenuItem onClick={fireAndForget(onOpenLocation)}>
-        <ListItemIcon>
-          <FolderOpenIcon fontSize="small" />
-        </ListItemIcon>
-        <ListItemText primary="Open ROM Location" />
-      </MenuItem>
-    ) : null}
-    <MenuItem onClick={fireAndForget(onHideGame)}>
-      <ListItemIcon>
-        <VisibilityOffIcon fontSize="small" />
-      </ListItemIcon>
-      <ListItemText primary="Hide Game" />
-    </MenuItem>
-    {hasLocalFile ? (
-      <MenuItem onClick={onDelete} sx={{ color: "error.main" }}>
-        <ListItemIcon>
-          <DeleteIcon fontSize="small" color="error" />
-        </ListItemIcon>
-        <ListItemText primary="Delete Download" />
-      </MenuItem>
-    ) : null}
+    <Typography
+      component="h1"
+      sx={{
+        color: "#f5f1e8",
+        fontFamily: IMMERSIVE_TITLE_FONT,
+        fontSize: "clamp(2.5rem, 5.5vw, 5rem)",
+        fontWeight: 700,
+        letterSpacing: "0.01em",
+        lineHeight: 1.02,
+        mt: 1,
+        textShadow: "0 2px 24px rgba(0,0,0,0.6)",
+        textTransform: "uppercase",
+      }}
+    >
+      {game.name}
+    </Typography>
+    <DetailsGenreLine genres={getImmersiveGenres(game)} />
   </>
 );
 
-/** @param {DetailsMenuProps} props Menu properties. */
-export const DetailsMenu = ({
-  menuAnchor,
-  setMenuAnchor,
-  onAddToCollection,
-  ...props
-}) => {
-  const closeMenu = () => {
-    setMenuAnchor(null);
-  };
+/** @param {{onViewAll: () => void}} props Media heading properties. */
+const MediaHeading = ({ onViewAll }) => (
+  <Stack direction="row" spacing={2} sx={{ alignItems: "baseline", mb: 1.5 }}>
+    <Typography
+      sx={{
+        color: "rgba(245,241,232,0.6)",
+        fontSize: "0.8rem",
+        fontWeight: 700,
+        letterSpacing: "0.28em",
+        textTransform: "uppercase",
+      }}
+    >
+      Media
+    </Typography>
+    <ButtonBase
+      onClick={onViewAll}
+      sx={{
+        "&:focus-visible": {
+          outline: "2px solid",
+          outlineColor: "primary.light",
+          outlineOffset: 2,
+        },
+        borderRadius: 1,
+        color: "primary.light",
+        fontSize: "0.9rem",
+        fontWeight: 700,
+      }}
+    >
+      View all ›
+    </ButtonBase>
+  </Stack>
+);
+
+/** @param {{url: string, index: number, getMediaSrc: (url: string) => string|null, onOpen: (index: number) => void}} props Media thumbnail properties. */
+const MediaThumbnail = ({ url, index, getMediaSrc, onOpen }) => {
+  const src = getMediaSrc(url);
+  if (src === null || src === "") {
+    return null;
+  }
   return (
-    <Menu anchorEl={menuAnchor} open={menuAnchor !== null} onClose={closeMenu}>
-      <RommMenuItems {...props} />
-      <MenuItem onClick={fireAndForget(onAddToCollection)}>
-        <ListItemIcon>
-          <FolderSpecialIcon fontSize="small" />
-        </ListItemIcon>
-        <ListItemText
-          primary="Add to collection"
-          secondary="Manual collections"
-          slotProps={{ secondary: { variant: "caption" } }}
-        />
-      </MenuItem>
-      <RommRefreshMenuItem {...props} />
-      <Divider />
-      <LocalMenuItems {...props} />
-    </Menu>
+    <ButtonBase
+      aria-label={`View screenshot ${index + 1} larger`}
+      onClick={() => {
+        onOpen(index);
+      }}
+      sx={{
+        "&:focus-visible": {
+          outline: "2px solid",
+          outlineColor: "primary.light",
+          outlineOffset: 2,
+        },
+        aspectRatio: "4 / 3",
+        border: "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 1.5,
+        overflow: "hidden",
+      }}
+    >
+      <Box
+        component="img"
+        loading="lazy"
+        src={src}
+        alt={`Screenshot ${index + 1}`}
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+        }}
+        sx={{ height: "100%", objectFit: "cover", width: "100%" }}
+      />
+    </ButtonBase>
   );
 };
 
-/** @param {{game: ImmersiveGame, platformLabel?: string|null}} props Badge properties. */
-const DetailsBadges = ({ game, platformLabel }) => (
-  <Stack
-    direction="row"
-    spacing={2}
-    sx={{ alignItems: "center", flexWrap: "wrap" }}
-  >
-    {hasText(platformLabel) ? (
-      <Chip
-        label={platformLabel}
-        sx={{
-          bgcolor: "rgba(255,255,255,0.08)",
-          color: "#fff",
-          fontWeight: 900,
-        }}
-      />
-    ) : null}
-    {game.is_favorite === true ? (
-      <Chip
-        label="Favorite"
-        sx={{
-          bgcolor: "rgba(239,68,68,0.18)",
-          color: "#fff",
-          fontWeight: 900,
-        }}
-      />
-    ) : null}
-  </Stack>
-);
-
-/** @param {{game: ImmersiveGame, platformLabel?: string|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuAnchor: HTMLElement|null, menuProps: Omit<DetailsMenuProps, "menuAnchor"|"setMenuAnchor">}} props Summary header properties. */
-const DetailsSummaryHeader = ({
-  game,
-  platformLabel,
-  setMenuAnchor,
-  menuAnchor,
-  menuProps,
-}) => (
-  <Stack
-    direction="row"
-    spacing={2}
+/** @param {{urls: string[], getMediaSrc: (url: string) => string|null, onOpen: (index: number) => void}} props Media grid properties. */
+const MediaGrid = ({ urls, getMediaSrc, onOpen }) => (
+  <Box
     sx={{
-      alignItems: "center",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
-      mb: 2,
+      display: "grid",
+      gap: 2,
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+      maxWidth: 900,
     }}
   >
-    <DetailsBadges game={game} platformLabel={platformLabel} />
-    <IconButton
-      color="inherit"
-      aria-label="More options"
-      onClick={(event) => {
-        setMenuAnchor(event.currentTarget);
-      }}
-    >
-      <MoreVertIcon />
-    </IconButton>
-    <DetailsMenu
-      menuAnchor={menuAnchor}
-      setMenuAnchor={setMenuAnchor}
-      {...menuProps}
-    />
-  </Stack>
+    {urls.slice(0, 3).map((url, index) => (
+      <MediaThumbnail
+        key={`${url}-${index}`}
+        url={url}
+        index={index}
+        getMediaSrc={getMediaSrc}
+        onOpen={onOpen}
+      />
+    ))}
+  </Box>
 );
 
-/** @param {{game: ImmersiveGame, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuAnchor: HTMLElement|null, menuProps: Omit<DetailsMenuProps, "menuAnchor"|"setMenuAnchor">}} props Summary properties. */
-export const DetailsSummary = (props) => {
-  const { game, retroachievementsEnabled, onOpenIntegrations } = props;
+/** @param {{screenshots: string[], getMediaSrc: (url: string) => string|null}} props Media gallery properties. */
+const DetailsMediaGallery = ({ screenshots, getMediaSrc }) => {
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const urls = (screenshots ?? []).filter(
+    /** @param {unknown} url Screenshot URL. @returns {url is string} Non-empty string guard. */
+    (url) => typeof url === "string" && url !== ""
+  );
+  if (urls.length === 0) {
+    return null;
+  }
+  const openAt = (index) => {
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  };
   return (
-    <>
-      <DetailsSummaryHeader {...props} />
-      <Typography
-        variant="h3"
-        sx={{
-          color: "text.primary",
-          fontWeight: 800,
-          letterSpacing: "-0.5px",
-          mb: 1,
+    <Box sx={{ mt: 4 }}>
+      <MediaHeading
+        onViewAll={() => {
+          openAt(0);
         }}
-      >
-        {game.name}
-      </Typography>
-      <Typography
-        variant="body1"
-        color="text.secondary"
-        sx={{ lineHeight: 1.8, maxWidth: 1100 }}
-      >
-        {game.summary ?? "No description available."}
-      </Typography>
-      <Divider sx={{ my: 3, opacity: 0.12 }} />
+      />
+      <MediaGrid urls={urls} getMediaSrc={getMediaSrc} onOpen={openAt} />
+      <ScreenshotLightbox
+        getSrc={getMediaSrc}
+        index={lightboxIndex}
+        onClose={() => {
+          setLightboxOpen(false);
+        }}
+        onIndexChange={setLightboxIndex}
+        open={lightboxOpen}
+        urls={urls}
+      />
+    </Box>
+  );
+};
+
+/** @param {{game: ImmersiveGame, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} props About properties. */
+const DetailsAbout = ({ game, retroachievementsEnabled, onOpenIntegrations }) => (
+  <Box sx={{ maxWidth: 720, mt: 4 }}>
+    <Typography
+      sx={{
+        color: "rgba(245,241,232,0.6)",
+        fontSize: "0.8rem",
+        fontWeight: 700,
+        letterSpacing: "0.28em",
+        mb: 1.5,
+        textTransform: "uppercase",
+      }}
+    >
+      About the game
+    </Typography>
+    <Typography
+      variant="body1"
+      sx={{
+        color: "rgba(245,241,232,0.9)",
+        lineHeight: 1.75,
+        textShadow: "0 1px 12px rgba(0,0,0,0.6)",
+      }}
+    >
+      {hasText(game.summary) ? game.summary : "No description available."}
+    </Typography>
+    <Box sx={{ mt: 2 }}>
       <GameAchievementsSection
         gameName={game.name}
         retroAchievementsEnabled={retroachievementsEnabled}
         onOpenIntegrations={onOpenIntegrations}
       />
-      <Divider sx={{ my: 3, opacity: 0.12 }} />
-    </>
+    </Box>
+  </Box>
+);
+
+/** @param {{game: ImmersiveGame, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps, screenshots: string[], getMediaSrc: (url: string) => string|null, primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, onToggleFavorite: (gameId: number|string) => void|Promise<void>}} props Summary properties. */
+export const DetailsSummary = (props) => {
+  const { game, retroachievementsEnabled, onOpenIntegrations } = props;
+  return (
+    <Box sx={{ maxWidth: 1200 }}>
+      <DetailsHeroMetadata game={game} platformLabel={props.platformLabel} />
+      <DetailsHeroTitle game={game} />
+      <Box sx={{ mt: 3 }}>
+        <DetailsActions {...props} />
+      </Box>
+      <DetailsAbout
+        game={game}
+        retroachievementsEnabled={retroachievementsEnabled}
+        onOpenIntegrations={onOpenIntegrations}
+      />
+      <DetailsMediaGallery
+        screenshots={props.screenshots}
+        getMediaSrc={props.getMediaSrc}
+      />
+    </Box>
   );
 };
 
