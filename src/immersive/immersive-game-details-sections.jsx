@@ -10,9 +10,9 @@ import GameAchievementsSection from "../components/game/game-achievements-sectio
 import ScreenshotLightbox from "../components/game/screenshot-lightbox";
 import { formatDownloadLabel } from "../rom-downloads-format";
 import { DetailsActions } from "./immersive-game-details-actions";
+import { InstalledMarker } from "./immersive-shell";
 import {
   IMMERSIVE_TITLE_FONT,
-  InstalledMarker,
   getImmersiveGenres,
   getImmersiveYear,
   isImmersiveInstalled,
@@ -222,13 +222,11 @@ const MediaGrid = ({ urls, getMediaSrc, onOpen }) => (
 const DetailsMediaGallery = ({ screenshots, getMediaSrc }) => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const urls = (screenshots ?? []).filter(
-    /** @param {unknown} url Screenshot URL. @returns {url is string} Non-empty string guard. */
-    (url) => typeof url === "string" && url !== ""
-  );
+  const urls = screenshots;
   if (urls.length === 0) {
     return null;
   }
+  /** @param {number} index Screenshot index. */
   const openAt = (index) => {
     setLightboxIndex(index);
     setLightboxOpen(true);
@@ -256,7 +254,11 @@ const DetailsMediaGallery = ({ screenshots, getMediaSrc }) => {
 };
 
 /** @param {{game: ImmersiveGame, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} props About properties. */
-const DetailsAbout = ({ game, retroachievementsEnabled, onOpenIntegrations }) => (
+const DetailsAbout = ({
+  game,
+  retroachievementsEnabled,
+  onOpenIntegrations,
+}) => (
   <Box sx={{ maxWidth: 720, mt: 4 }}>
     <Typography
       sx={{

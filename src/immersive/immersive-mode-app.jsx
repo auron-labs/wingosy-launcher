@@ -6,6 +6,7 @@ import {
   isTextInputTarget,
   logControllerOutcome,
 } from "./controller-debug";
+import { getVisibleControllerOverlay } from "./immersive-controller-overlay";
 import ImmersiveModeView from "./immersive-mode-view";
 import {
   buildControllerKeydown,
@@ -39,35 +40,6 @@ const runIgnoringFailure = async (operation) => {
 /** @param {string} key Controller key. @returns {boolean} Whether shell owns the key. */
 const isShellControllerKey = (key) =>
   key === "Escape" || key === "h" || key === "H";
-
-const CONTROLLER_OVERLAY_SELECTOR =
-  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-
-/** @param {Element} element Overlay candidate. @returns {boolean} Whether the candidate is visible. */
-const isVisibleControllerOverlay = (element) => {
-  /** @type {Element|null} */
-  let current = element;
-  while (current !== null) {
-    if (
-      (current instanceof HTMLElement && current.hidden === true) ||
-      current.getAttribute("aria-hidden") === "true"
-    ) {
-      return false;
-    }
-    const style = window.getComputedStyle(current);
-    if (style.display === "none" || style.visibility === "hidden") {
-      return false;
-    }
-    current = current.parentElement;
-  }
-  return true;
-};
-
-/** @returns {Element|null} The visible controller overlay, if one is open. */
-const getControllerOverlay = () =>
-  [...document.querySelectorAll(CONTROLLER_OVERLAY_SELECTOR)].find(
-    isVisibleControllerOverlay
-  ) ?? null;
 
 /** @param {Element} overlay @returns {Element} Overlay event target. */
 const getControllerOverlayTarget = (overlay) => {
@@ -120,7 +92,7 @@ const useImmersiveModeControllerRoute = ({ view }) => {
           });
           return;
         }
-        const overlay = getControllerOverlay();
+        const overlay = getVisibleControllerOverlay();
         if (overlay !== null) {
           dispatchControllerToOverlay(overlay, key, action);
           return;
@@ -303,6 +275,7 @@ const useImmersiveModeAppController = ({
     library,
     navigation,
   });
+
   return {
     ...commands,
     audioConfig: display.audioConfig,

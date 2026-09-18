@@ -17,8 +17,10 @@ import {
   ImmersiveTopBar,
   PlatformSpine,
 } from "./immersive-shell";
-import { getImmersiveCoverSrc } from "./immersive-shell-utils";
-import { toSpinePlatformOptions } from "./use-immersive-library-controller";
+import {
+  getImmersiveCoverSrc,
+  toSpinePlatformOptions,
+} from "./immersive-shell-utils";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
@@ -172,6 +174,7 @@ const DetailsFrame = (props) => {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const { options, platformButtonRefs } = useDetailsSpine({ platforms });
   const searchInputRef = useRef(getInitialSearchInputRef());
+  /** @param {string|null} platform Platform identifier. */
   const handlePlatformSelect = (platform) => {
     onSelectedPlatformChange?.(platform);
     onBack();
@@ -204,7 +207,7 @@ const DetailsFrame = (props) => {
             onSectionChange={onGoToLibrarySection ?? null}
             searchInputRef={searchInputRef}
             searchQuery={searchQuery ?? ""}
-            onSearchChange={onSearchChange}
+            onSearchChange={onSearchChange ?? undefined}
           />
         </Box>
       </Box>

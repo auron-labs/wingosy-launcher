@@ -23,6 +23,7 @@ import { platformBadgeLabel } from "../utils/platform-icons";
  * @property {() => void} onFocus - Focus callback.
  * @property {() => void} onSelect - Selection callback.
  * @property {TileDownloadProgress} [downloadProgress] - Optional active download progress.
+ * @property {boolean} [titleOverlay] - Whether to render the title over cover art.
  */
 
 /** @type {Record<string, string>} */
@@ -73,8 +74,8 @@ const getCoverSrc = (coverPath) => {
   return isLocalPath(coverPath) ? convertFileSrc(coverPath) : coverPath;
 };
 
-/** @param {{game: ImmersiveGame, platformColor: string}} props Placeholder properties. */
-const TilePlaceholder = ({ game, platformColor }) => (
+/** @param {{game: ImmersiveGame, platformColor: string, showTitle: boolean}} props Placeholder properties. */
+const TilePlaceholder = ({ game, platformColor, showTitle }) => (
   <Box
     sx={{
       alignItems: "center",
@@ -90,20 +91,22 @@ const TilePlaceholder = ({ game, platformColor }) => (
     <SportsEsportsIcon
       sx={{ color: alpha(platformColor, 0.5), fontSize: 40, mb: 1 }}
     />
-    <Typography
-      variant="caption"
-      sx={{
-        color: "text.secondary",
-        fontSize: { md: "1rem", sm: "0.95rem", xs: "0.9rem" },
-        lineHeight: 1.25,
-        maxHeight: "2.5em",
-        overflow: "hidden",
-        px: 0.5,
-        textAlign: "center",
-      }}
-    >
-      {game.name}
-    </Typography>
+    {showTitle ? (
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          fontSize: { md: "1rem", sm: "0.95rem", xs: "0.9rem" },
+          lineHeight: 1.25,
+          maxHeight: "2.5em",
+          overflow: "hidden",
+          px: 0.5,
+          textAlign: "center",
+        }}
+      >
+        {game.name}
+      </Typography>
+    ) : null}
   </Box>
 );
 
@@ -239,7 +242,7 @@ const TileTitle = ({ focused, game, reducedMotion }) => (
   </Box>
 );
 
-/** @param {{colors: Record<string, string>, coverSrc: string|null, downloadProgress: TileDownloadProgress, focused: boolean, game: ImmersiveGame, imgError: boolean, onImageError: () => void, platformColor: string, platformSlug: string|null, reducedMotion: boolean, remote: boolean, synced: boolean}} props Tile artwork properties. */
+/** @param {{colors: Record<string, string>, coverSrc: string|null, downloadProgress: TileDownloadProgress, focused: boolean, game: ImmersiveGame, imgError: boolean, onImageError: () => void, platformColor: string, platformSlug: string|null, reducedMotion: boolean, remote: boolean, synced: boolean, titleOverlay: boolean}} props Tile artwork properties. */
 const TileSurface = ({
   colors,
   coverSrc,
@@ -253,6 +256,7 @@ const TileSurface = ({
   reducedMotion,
   remote,
   synced,
+  titleOverlay,
 }) => {
   const showCover = coverSrc !== null && !imgError;
   return (
@@ -282,7 +286,11 @@ const TileSurface = ({
           }}
         />
       ) : (
-        <TilePlaceholder game={game} platformColor={platformColor} />
+        <TilePlaceholder
+          game={game}
+          platformColor={platformColor}
+          showTitle={titleOverlay}
+        />
       )}
       <Box
         sx={{
@@ -303,7 +311,7 @@ const TileSurface = ({
         synced={synced}
       />
       <TileProgress downloadProgress={downloadProgress} />
-      {showCover ? (
+      {showCover && titleOverlay ? (
         <TileTitle
           focused={focused}
           game={game}
@@ -343,6 +351,7 @@ const ImmersiveGameTile = ({
   game,
   onFocus,
   onSelect,
+  titleOverlay = true,
 }) => {
   const [imgError, setImgError] = useState(false);
   const { colors } = useAppTheme();
@@ -391,6 +400,7 @@ const ImmersiveGameTile = ({
         reducedMotion={reducedMotion}
         remote={remote}
         synced={synced}
+        titleOverlay={titleOverlay}
       />
     </Box>
   );

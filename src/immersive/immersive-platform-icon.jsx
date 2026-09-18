@@ -8,8 +8,8 @@ import {
   rommPlatformIconCandidates,
 } from "../utils/platform-icons";
 
-/** @param {{src: string, size: number, onError: () => void}} props Remote art properties. */
-const RemoteArt = ({ src, size, onError }) => (
+/** @param {{src: string, onError: () => void}} props Remote art properties. */
+const RemoteArt = ({ src, onError }) => (
   <Box
     component="img"
     src={src}
@@ -48,11 +48,7 @@ const InitialsArt = ({ label, selected }) => (
 );
 
 /** @param {{platformId: string, rommUrl?: string|null, selected: boolean}} props Spine platform badge properties. */
-export const ImmersivePlatformBadge = ({
-  platformId,
-  rommUrl,
-  selected,
-}) => {
+export const ImmersivePlatformBadge = ({ platformId, rommUrl, selected }) => {
   const candidates = rommPlatformIconCandidates(platformId, rommUrl ?? null);
   const source = platformIconSource({ id: platformId });
   const [remoteStep, setRemoteStep] = useState(0);
@@ -80,7 +76,7 @@ export const ImmersivePlatformBadge = ({
       }}
     >
       {remoteSrc === null ? null : (
-        <RemoteArt src={remoteSrc} size={size} onError={advanceRemote} />
+        <RemoteArt src={remoteSrc} onError={advanceRemote} />
       )}
       {remoteSrc !== null || source.kind !== "bundled" ? null : (
         <BundledArt icon={source.value} size={size} />

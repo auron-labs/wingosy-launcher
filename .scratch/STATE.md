@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-18T01:02:13Z
+Generated: 2026-09-18T02:28:29Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 8 active, 29 resolved
+Tickets: 7 active, 30 resolved
 
 ## Active Tickets
 
@@ -14,7 +14,6 @@ Tickets: 8 active, 29 resolved
 | [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | ready-for-human | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
-| [smoke-test-followups](smoke-test-followups) | [06-restore-frontend-static-analysis](smoke-test-followups/issues/06-restore-frontend-static-analysis.md) | — | — | claimed | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | claimed | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [11-distribute-bios-and-firmware](smoke-test-followups/issues/11-distribute-bios-and-firmware.md) | — | — | ready-for-agent | 10 — Keep BIOS downloads alive across navigation. |
 | [smoke-test-followups](smoke-test-followups) | [12-certify-eden-content-loading](smoke-test-followups/issues/12-certify-eden-content-loading.md) | — | — | ready-for-human | None — can start immediately. |
@@ -32,6 +31,7 @@ Tickets: 8 active, 29 resolved
 | [smoke-test-followups](smoke-test-followups) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [02-offer-save-sync-retry](smoke-test-followups/issues/02-offer-save-sync-retry.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [03-filter-library-by-favorites](smoke-test-followups/issues/03-filter-library-by-favorites.md) | — | — | resolved | None — can start immediately. |
+| [smoke-test-followups](smoke-test-followups) | [06-restore-frontend-static-analysis](smoke-test-followups/issues/06-restore-frontend-static-analysis.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [07-restore-rust-clippy](smoke-test-followups/issues/07-restore-rust-clippy.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [08-restore-rust-test-baseline](smoke-test-followups/issues/08-restore-rust-test-baseline.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [09-fix-emulators-settings-markup](smoke-test-followups/issues/09-fix-emulators-settings-markup.md) | — | — | resolved | None — can start immediately. |

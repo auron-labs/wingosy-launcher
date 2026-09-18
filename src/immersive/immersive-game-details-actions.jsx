@@ -10,10 +10,11 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 
+import { DetailsMenu } from "./immersive-game-details-menu";
 import { FocusBrackets } from "./immersive-shell";
-import { DetailsMenu } from "./immersive-game-details-sections";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
+/** @typedef {Omit<import("./immersive-game-details-menu").DetailsMenuProps, "menuAnchor"|"setMenuAnchor">} DetailsMenuProps */
 
 /** @param {() => void|Promise<void>} action Async action. @returns {() => void} Event callback. */
 const fireAndForget = (action) => () => {
@@ -173,7 +174,7 @@ const FavoriteAction = ({ game, onToggleFavorite }) => {
   );
 };
 
-/** @param {{menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: object}} props More action properties. */
+/** @param {{menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps}} props More action properties. */
 const MoreAction = ({ menuAnchor, setMenuAnchor, menuProps }) => (
   <>
     <Tooltip title="More options" arrow>
@@ -206,7 +207,7 @@ const MoreAction = ({ menuAnchor, setMenuAnchor, menuProps }) => (
   </>
 );
 
-/** @param {{primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, game: ImmersiveGame, onToggleFavorite: (gameId: number|string) => void|Promise<void>, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: object}} props Action properties. */
+/** @param {{primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, game: ImmersiveGame, onToggleFavorite: (gameId: number|string) => void|Promise<void>, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps}} props Action properties. */
 export const DetailsActions = (props) => {
   const {
     canDownload,
@@ -229,6 +230,8 @@ export const DetailsActions = (props) => {
     switchContentSyncing,
   } = props;
   const showPrimary = canPlay || (hasRomm && !hasLocalFile);
+  const showSecondary =
+    showPrimary && ((canDownload && hasLocalFile) || canSyncSwitchContent);
   return (
     <Stack spacing={2}>
       <Stack
@@ -261,9 +264,7 @@ export const DetailsActions = (props) => {
           menuProps={menuProps}
         />
       </Stack>
-      {showPrimary &&
-      (canDownload || canSyncSwitchContent) &&
-      hasLocalFile ? (
+      {showSecondary ? (
         <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
           {canDownload && hasLocalFile ? (
             <RedownloadAction

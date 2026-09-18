@@ -116,6 +116,38 @@ describe("ImmersiveGameDetails controller launch", () => {
 describe("ImmersiveGameDetails controller focus", () => {
   afterEach(resetImmersiveGameDetailsTest);
 
+  it.each(["dialog", "menu", "listbox"])(
+    "ignores a hidden retained %s overlay",
+    (role) => {
+      const controller = installControllerTestEnvironment();
+      try {
+        const pad = makeStandardPad(15);
+        controller.setPads([pad]);
+        render(<ControllerProbe />);
+        renderDetails();
+        const details = screen.getByTestId("immersive-game-details");
+        const hiddenOverlay = document.createElement("div");
+        hiddenOverlay.hidden = true;
+        hiddenOverlay.setAttribute("aria-hidden", "true");
+        hiddenOverlay.setAttribute("role", role);
+        const hiddenOverlayKeydown = vi.fn();
+        hiddenOverlay.addEventListener("keydown", () => {
+          hiddenOverlayKeydown();
+        });
+        details.append(hiddenOverlay);
+
+        controller.runFrame();
+
+        expectControllerFocused(
+          screen.getByRole("button", { name: "Download" })
+        );
+        expect(hiddenOverlayKeydown).not.toHaveBeenCalled();
+      } finally {
+        controller.restore();
+      }
+    }
+  );
+
   it("moves focus across details actions from a standard controller direction", () => {
     const controller = installControllerTestEnvironment();
     try {

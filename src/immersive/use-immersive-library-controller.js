@@ -8,6 +8,7 @@ import {
   focusFirstGame,
   handleLibraryKeyDown,
 } from "./immersive-library-keyboard";
+import { toSpinePlatformOptions } from "./immersive-shell-utils";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
@@ -194,13 +195,7 @@ const useLibraryData = ({
   const platformButtonRefs = useRef(initialPlatformButtonRefs);
   const columns = useColumnCount();
   const platformOptions = useMemo(
-    () => [
-      { id: null, label: "All platforms" },
-      ...platforms.map(([platform]) => ({
-        id: platform.id,
-        label: platform.name === "" ? platform.id : platform.name,
-      })),
-    ],
+    () => toSpinePlatformOptions(platforms),
     [platforms]
   );
   const visibleGames = useVisibleGames({
@@ -237,6 +232,49 @@ const useLibraryData = ({
     setSection,
     visibleGames,
   };
+};
+
+/** @param {{data: ReturnType<typeof useLibraryData>, loading: boolean, cycleSection: (delta: number) => void, onOpenSettings: () => void, onSelectGame: (game: ImmersiveGame) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, selectedIndex: number}} options Window keyboard dependencies. */
+const useWindowLibraryKeyDown = ({
+  cycleSection,
+  data,
+  loading,
+  onOpenSettings,
+  onSelectGame,
+  onSelectedIndexChange,
+  selectedIndex,
+}) => {
+  useEffect(() => {
+    /** @param {KeyboardEvent} event Controller keyboard event. */
+    const handleWindowKeyDown = (event) => {
+      const targetIsWindow =
+        event.target === window || event.target === event.currentTarget;
+      if (!targetIsWindow) {
+        return;
+      }
+      handleLibraryKeyDown(event, {
+        cycleSection,
+        data,
+        loading,
+        onOpenSettings,
+        onSelectGame,
+        onSelectedIndexChange,
+        selectedIndex,
+      });
+    };
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleWindowKeyDown);
+    };
+  }, [
+    cycleSection,
+    data,
+    loading,
+    onOpenSettings,
+    onSelectGame,
+    onSelectedIndexChange,
+    selectedIndex,
+  ]);
 };
 
 /** @param {{data: ReturnType<typeof useLibraryData>, loading: boolean, onOpenSettings: () => void, onSelectGame: (game: ImmersiveGame) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, selectedIndex: number}} options Library interaction dependencies. */
@@ -292,6 +330,15 @@ const useLibraryInteractions = ({
       selectedIndex,
     ]
   );
+  useWindowLibraryKeyDown({
+    cycleSection,
+    data,
+    loading,
+    onOpenSettings,
+    onSelectGame,
+    onSelectedIndexChange,
+    selectedIndex,
+  });
   const onPointerDown = useCallback(
     /** @param {React.PointerEvent<HTMLDivElement>} event Pointer event. */
     (event) => {

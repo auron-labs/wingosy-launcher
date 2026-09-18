@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -256,7 +256,9 @@ describe("ImmersiveLibrary sections switching", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
     expect(onSelectedIndexChange).toHaveBeenCalledWith(0);
-    expect(screen.getByText("Favorite 1")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("immersive-grid")).getByText("Favorite 1")
+    ).toBeInTheDocument();
   });
 
   it("cycles sections forward and backward with PageDown and PageUp", () => {
@@ -290,11 +292,15 @@ describe("ImmersiveLibrary platform filtering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Game Boy Advance" }));
     expect(onSelectedPlatformChange).toHaveBeenCalledWith("gba");
     expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
-    expect(screen.getByText("GBA Favorite")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("immersive-grid")).getByText("GBA Favorite")
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "All platforms" }));
     expect(onSelectedPlatformChange).toHaveBeenLastCalledWith(null);
-    expect(screen.getByText("SNES Game")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("immersive-grid")).getByText("SNES Game")
+    ).toBeInTheDocument();
   });
 
   it("keeps platform filtering composed with favorites and recent sections", () => {
@@ -304,11 +310,15 @@ describe("ImmersiveLibrary platform filtering", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
-    expect(screen.getByText("GBA Favorite")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("immersive-grid")).getByText("GBA Favorite")
+    ).toBeInTheDocument();
     expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Recent" }));
-    expect(screen.getByText("GBA Recent")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("immersive-grid")).getByText("GBA Recent")
+    ).toBeInTheDocument();
     expect(screen.queryByText("SNES Game")).not.toBeInTheDocument();
   });
 });
@@ -369,6 +379,44 @@ describe("ImmersiveLibrary game selection", () => {
 
     keyDown(root, "Enter");
     expect(onSelectGame).toHaveBeenCalledWith(games[2]);
+  });
+});
+
+describe("ImmersiveLibrary selected-game hero", () => {
+  afterEach(cleanupLibraryTest);
+
+  it("shows the selected game's metadata, genres, and summary", () => {
+    const games = [
+      {
+        ...makeGames(1)[0],
+        genres: ["Action", "Adventure"],
+        name: "First Game",
+        release_year: 1995,
+        summary: "A summary for the selected game.",
+      },
+      {
+        ...makeGames(1)[0],
+        id: 2,
+        name: "Second Game",
+        platform_id: "gba",
+      },
+    ];
+    renderLibrary(games, { initialIndex: 0, platforms: platformEntries });
+
+    expect(
+      screen.getByRole("heading", { name: "First Game" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Super Nintendo / 1995")).toBeInTheDocument();
+    expect(screen.getByText("Action / Adventure")).toBeInTheDocument();
+    expect(
+      screen.getByText("A summary for the selected game.")
+    ).toBeInTheDocument();
+
+    keyDown(screen.getByTestId("immersive-library"), "ArrowRight");
+
+    expect(
+      screen.getByRole("heading", { name: "Second Game" })
+    ).toBeInTheDocument();
   });
 });
 
@@ -492,11 +540,11 @@ describe("ImmersiveLibrary composed search", () => {
     const grid = screen.getByTestId("immersive-grid");
 
     fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
-    expect(screen.getByText("Mario Favorite")).toBeInTheDocument();
+    expect(within(grid).getByText("Mario Favorite")).toBeInTheDocument();
     expect(grid).not.toHaveTextContent(/Mario Recent|Mario Other/u);
 
     fireEvent.click(screen.getByRole("button", { name: "Recent" }));
-    expect(screen.getByText("Mario Recent")).toBeInTheDocument();
+    expect(within(grid).getByText("Mario Recent")).toBeInTheDocument();
     expect(grid).not.toHaveTextContent(
       /Mario Favorite|Mario Other|Mario SNES/u
     );

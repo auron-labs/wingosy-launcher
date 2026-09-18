@@ -6,6 +6,7 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 
@@ -42,21 +43,21 @@ export const FocusBrackets = ({ active = true, color = "#a5b4fc" }) => {
     width: "3px",
   };
   const corners = [
-    { horizontal: {}, vertical: {}, placement: { left: 0, top: 0 } },
+    { horizontal: {}, placement: { left: 0, top: 0 }, vertical: {} },
     {
       horizontal: {},
-      vertical: { left: "auto", right: "0" },
       placement: { right: 0, top: 0 },
-    },
-    {
-      horizontal: { bottom: "0", top: "auto" },
-      vertical: {},
-      placement: { bottom: 0, left: 0 },
-    },
-    {
-      horizontal: { bottom: "0", top: "auto" },
       vertical: { left: "auto", right: "0" },
+    },
+    {
+      horizontal: { bottom: "0", top: "auto" },
+      placement: { bottom: 0, left: 0 },
+      vertical: {},
+    },
+    {
+      horizontal: { bottom: "0", top: "auto" },
       placement: { bottom: 0, right: 0 },
+      vertical: { left: "auto", right: "0" },
     },
   ];
   return (
@@ -66,9 +67,13 @@ export const FocusBrackets = ({ active = true, color = "#a5b4fc" }) => {
     >
       {corners.map((corner, index) => (
         <Box
-          // eslint-disable-next-line react/no-array-index-key
           key={index}
-          sx={{ height: 18, position: "absolute", width: 18, ...corner.placement }}
+          sx={{
+            height: 18,
+            position: "absolute",
+            width: 18,
+            ...corner.placement,
+          }}
         >
           <Box sx={{ ...horizontalArm, ...corner.horizontal }} />
           <Box sx={{ ...verticalArm, ...corner.vertical }} />
@@ -351,6 +356,7 @@ const SectionTabs = ({ section, onSectionChange }) => {
     { id: "favorites", label: "Favorites" },
     { id: "recent", label: "Recent" },
   ];
+  /** @param {string} id Section identifier. */
   const handleSelect = (id) => {
     onSectionChange?.(id);
   };

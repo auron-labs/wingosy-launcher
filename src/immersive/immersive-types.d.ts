@@ -7,6 +7,7 @@ export interface ImmersiveGame {
   romm_id?: number | null;
   summary?: string | null;
   cover_path?: string | null;
+  genres?: string[] | null;
   screenshot_paths?: string[];
   is_favorite?: boolean;
   is_hidden?: boolean;

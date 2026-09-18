@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
+/** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
 /** @typedef {{id: string|null, label: string, subtitle?: string|null}} SpinePlatformOption */
 
 export const IMMERSIVE_SPINE_WIDTH = "clamp(208px, 19%, 296px)";
@@ -46,31 +47,17 @@ export const getImmersiveYear = (game) => {
   return Number.isInteger(year) ? year : null;
 };
 
-/** @param {unknown} value Raw genre value. @returns {string|null} Genre label or null. */
-const parseGenreLabel = (value) => {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const label = String(value);
-  return label === "" ? null : label;
-};
+/** @param {PlatformEntry[]} platforms Available platform entries. @returns {SpinePlatformOption[]} Spine platform options. */
+export const toSpinePlatformOptions = (platforms) => [
+  { id: null, label: "All platforms" },
+  ...platforms.map(([platform]) => ({
+    id: platform.id,
+    label: platform.name === "" ? platform.id : platform.name,
+  })),
+];
 
 /** @param {ImmersiveGame} game Game metadata. @returns {string[]} Genre labels when available. */
-export const getImmersiveGenres = (game) => {
-  const raw = "genres" in game ? game.genres : undefined;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  /** @type {string[]} */
-  const labels = [];
-  for (const entry of raw) {
-    const label = parseGenreLabel(entry);
-    if (label !== null) {
-      labels.push(label);
-    }
-  }
-  return labels;
-};
+export const getImmersiveGenres = (game) => game.genres ?? [];
 
 /** @param {number} value Position value. @returns {string} Zero-padded position. */
 export const formatImmersivePosition = (value) =>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { dedupeGames } from "./game-list";
+import { parseImmersiveGamesPage } from "./immersive-data-parser";
 import {
   getGamesPage,
   getImmersiveConfig,
@@ -53,12 +54,16 @@ const getSearchQuery = (query) => {
 
 /** @param {{ipc: ImmersiveLibraryIpc, platformId: string|null, query: string}} options Library query. @returns {Promise<{gamesPage: GamesPage, platforms: PlatformEntry[], config: ImmersiveConfig}>} Library snapshot. */
 const fetchLibrarySnapshot = async ({ ipc, platformId, query }) => {
-  const [gamesPage, platforms, config] = await Promise.all([
+  const [rawGamesPage, platforms, config] = await Promise.all([
     ipc.getGamesPage(1, platformId, getSearchQuery(query)),
     ipc.getPlatformsWithGames(),
     ipc.getImmersiveConfig(),
   ]);
-  return { config, gamesPage, platforms };
+  return {
+    config,
+    gamesPage: parseImmersiveGamesPage(rawGamesPage),
+    platforms,
+  };
 };
 
 /** @param {{gamesPage: GamesPage, currentGames: ImmersiveGame[], loadedCount: number}} options Page-one merge inputs. @returns {{games: ImmersiveGame[], loadedCount: number, total: number}} Merged page-one data. */
@@ -201,10 +206,12 @@ const loadNextLibraryPage = async ({
   const request = { page, requestId };
   refs.nextPageInFlightRef.current = request;
   try {
-    const result = await ipc.getGamesPage(
-      page,
-      selectedPlatform,
-      getSearchQuery(searchQuery)
+    const result = parseImmersiveGamesPage(
+      await ipc.getGamesPage(
+        page,
+        selectedPlatform,
+        getSearchQuery(searchQuery)
+      )
     );
     if (requestId !== refs.libraryRequestId.current) {
       releasePageRequest(refs, request);

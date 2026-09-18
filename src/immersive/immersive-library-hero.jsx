@@ -2,13 +2,13 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
+import { InstalledMarker } from "./immersive-shell";
 import {
   IMMERSIVE_TITLE_FONT,
   getImmersiveGenres,
   getImmersiveYear,
   isImmersiveInstalled,
 } from "./immersive-shell-utils";
-import { InstalledMarker } from "./immersive-shell";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {import("./immersive-shell-utils").SpinePlatformOption} SpinePlatformOption */

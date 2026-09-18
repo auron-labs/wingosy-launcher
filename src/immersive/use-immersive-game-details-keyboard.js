@@ -5,10 +5,29 @@ import {
   getControllerAction,
   logControllerOutcome,
 } from "./controller-debug";
+import { getVisibleControllerOverlay } from "./immersive-controller-overlay";
 
 const DETAILS_ACTION_SELECTOR = "button:not(:disabled)";
-const INPUT_OVERLAY_SELECTOR =
-  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+const DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]';
+const ROUTABLE_OVERLAY_SELECTOR = '[role="menu"], [role="listbox"]';
+
+/** @param {Element} overlay @param {KeyboardEvent} sourceEvent Dispatch a controller key to an open overlay. */
+const dispatchControllerKeyToOverlay = (overlay, sourceEvent) => {
+  const target =
+    document.activeElement instanceof Element &&
+    overlay.contains(document.activeElement)
+      ? document.activeElement
+      : overlay;
+  target.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: sourceEvent.code,
+      key: sourceEvent.key,
+      repeat: sourceEvent.repeat,
+    })
+  );
+};
 
 /** @param {HTMLElement|null} root Details container. @returns {HTMLButtonElement[]} Visible action buttons. */
 const getVisibleDetailsActions = (root) => {
@@ -75,9 +94,18 @@ const handleArrowKey = ({
   canPlay,
   primaryActionRef,
 }) => {
-  const overlay = document.querySelector(INPUT_OVERLAY_SELECTOR);
-  if (overlay !== null) {
+  const dialog = getVisibleControllerOverlay(DIALOG_SELECTOR);
+  if (dialog !== null) {
     logControllerOutcome(action, "details", "suppressed", {
+      reason: "dialog open",
+    });
+    return;
+  }
+  const overlay = getVisibleControllerOverlay(ROUTABLE_OVERLAY_SELECTOR);
+  if (overlay !== null) {
+    event.preventDefault();
+    dispatchControllerKeyToOverlay(overlay, event);
+    logControllerOutcome(action, "details", "handled", {
       reason: `${overlay.getAttribute("role") ?? "overlay"} open`,
     });
     return;
@@ -154,6 +182,51 @@ const handleLaunchFailure = ({
   });
 };
 
+/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, launchFailure: boolean, launching: boolean, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void}} options Controller Enter overlay dependencies. @returns {boolean} Whether an overlay handled the event. */
+const handleEnterOverlay = ({
+  action,
+  event,
+  handleLaunchGame,
+  launchFailure,
+  launching,
+  onOpenSettings,
+  retryableLaunchFailure,
+}) => {
+  const dialog = getVisibleControllerOverlay(DIALOG_SELECTOR);
+  const overlay =
+    dialog === null
+      ? getVisibleControllerOverlay(ROUTABLE_OVERLAY_SELECTOR)
+      : null;
+  if (dialog === null && overlay === null) {
+    return false;
+  }
+  if (launchFailure && !launching) {
+    handleLaunchFailure({
+      action,
+      event,
+      handleLaunchGame,
+      onOpenSettings,
+      retryableLaunchFailure,
+    });
+    return true;
+  }
+  if (dialog !== null) {
+    logControllerOutcome(action, "details", "suppressed", {
+      reason: "dialog open",
+    });
+    return true;
+  }
+  if (overlay === null) {
+    return false;
+  }
+  event.preventDefault();
+  dispatchControllerKeyToOverlay(overlay, event);
+  logControllerOutcome(action, "details", "handled", {
+    reason: `${overlay?.getAttribute("role") ?? "overlay"} open`,
+  });
+  return true;
+};
+
 /** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, canPlay: boolean, handleDownloadRom: () => Promise<void>, launchFailure: boolean, launching: boolean, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void, detailsRef: {current: HTMLElement|null}, switchContentSyncing: boolean}} options Enter keyboard dependencies. */
 const handleEnterKey = ({
   event,
@@ -168,21 +241,17 @@ const handleEnterKey = ({
   detailsRef,
   switchContentSyncing,
 }) => {
-  const overlay = document.querySelector(INPUT_OVERLAY_SELECTOR);
-  if (overlay !== null) {
-    if (launchFailure && !launching) {
-      handleLaunchFailure({
-        action,
-        event,
-        handleLaunchGame,
-        onOpenSettings,
-        retryableLaunchFailure,
-      });
-    } else {
-      logControllerOutcome(action, "details", "suppressed", {
-        reason: `${overlay.getAttribute("role") ?? "overlay"} open`,
-      });
-    }
+  if (
+    handleEnterOverlay({
+      action,
+      event,
+      handleLaunchGame,
+      launchFailure,
+      launching,
+      onOpenSettings,
+      retryableLaunchFailure,
+    })
+  ) {
     return;
   }
   const focusedAction = getVisibleDetailsActions(detailsRef.current).find(
@@ -229,6 +298,22 @@ const handleEnterKey = ({
 
 /** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, launchFailure: boolean, onBack: () => void}} options Escape keyboard dependencies. */
 const handleEscapeKey = ({ event, action, launchFailure, onBack }) => {
+  const dialog = getVisibleControllerOverlay(DIALOG_SELECTOR);
+  if (dialog !== null && !launchFailure) {
+    logControllerOutcome(action, "details", "suppressed", {
+      reason: "dialog open",
+    });
+    return;
+  }
+  const overlay = getVisibleControllerOverlay(ROUTABLE_OVERLAY_SELECTOR);
+  if (overlay !== null) {
+    event.preventDefault();
+    dispatchControllerKeyToOverlay(overlay, event);
+    logControllerOutcome(action, "details", "handled", {
+      reason: `${overlay.getAttribute("role") ?? "overlay"} open`,
+    });
+    return;
+  }
   if (!launchFailure) {
     logControllerOutcome(action, "details", "ignored", {
       reason: "no-launch-failure",
