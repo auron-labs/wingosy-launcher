@@ -5,6 +5,12 @@ import { createGamepadTestScope } from "./use-gamepad-keyboard-mapper-test-helpe
 
 const testScope = createGamepadTestScope();
 
+/** @param {Array<unknown>} call Console call. @returns {[string, unknown]} Normalized console call. */
+const normalizeInfoCall = ([message, details]) => [String(message), details];
+
+/** @param {Array<Array<unknown>>} calls Console calls. @returns {Array<[string, unknown]>} Normalized console calls. */
+const getInfoCalls = (calls) => calls.map(normalizeInfoCall);
+
 describe("useGamepadKeyboardMapper controller lifecycle diagnostics", () => {
   beforeEach(testScope.beforeEach);
   afterEach(testScope.afterEach);
@@ -71,5 +77,48 @@ describe("useGamepadKeyboardMapper controller lifecycle diagnostics", () => {
         expect.objectContaining({ deferred: true, key: "ArrowRight" }),
       ],
     ]);
+  });
+});
+
+describe("useGamepadKeyboardMapper repeat diagnostics", () => {
+  beforeEach(testScope.beforeEach);
+  afterEach(testScope.afterEach);
+
+  it("reports initial and held-repeat timing without polling logs", () => {
+    vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    testScope.pads = [testScope.makeGamepad("standard", 12, 3)];
+    testScope.render(<HookProbe />);
+
+    testScope.runFrame();
+    testScope.now += 239;
+    testScope.runFrame();
+    testScope.now += 1;
+    testScope.runFrame();
+
+    const infoCalls = getInfoCalls(info.mock.calls);
+    const actionLogs = infoCalls
+      .filter(
+        ([message]) =>
+          message === "[Wingosy][debug][controller] recognized input/action"
+      )
+      .map(([, details]) => details);
+    expect(actionLogs).toStrictEqual([
+      expect.objectContaining({
+        actionId: 1,
+        controllerIndex: 3,
+        elapsedSincePreviousMs: null,
+        key: "ArrowUp",
+        phase: "edge",
+      }),
+      expect.objectContaining({
+        actionId: 2,
+        controllerIndex: 3,
+        elapsedSincePreviousMs: 240,
+        key: "ArrowUp",
+        phase: "repeat",
+      }),
+    ]);
+    expect(infoCalls.some(([message]) => message.includes("poll"))).toBeFalsy();
   });
 });

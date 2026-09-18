@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { isTextInputTarget, logControllerOutcome } from "./controller-debug";
+import { debugLog } from "../utils/debug-log";
+import {
+  describeControllerElement,
+  isTextInputTarget,
+  logControllerOutcome,
+} from "./controller-debug";
 import ImmersiveModeView from "./immersive-mode-view";
 import {
   buildControllerKeydown,
@@ -35,6 +40,67 @@ const runIgnoringFailure = async (operation) => {
 const isShellControllerKey = (key) =>
   key === "Escape" || key === "h" || key === "H";
 
+const CONTROLLER_OVERLAY_SELECTOR =
+  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
+/** @param {Element} element Overlay candidate. @returns {boolean} Whether the candidate is visible. */
+const isVisibleControllerOverlay = (element) => {
+  /** @type {Element|null} */
+  let current = element;
+  while (current !== null) {
+    if (
+      (current instanceof HTMLElement && current.hidden === true) ||
+      current.getAttribute("aria-hidden") === "true"
+    ) {
+      return false;
+    }
+    const style = window.getComputedStyle(current);
+    if (style.display === "none" || style.visibility === "hidden") {
+      return false;
+    }
+    current = current.parentElement;
+  }
+  return true;
+};
+
+/** @returns {Element|null} The visible controller overlay, if one is open. */
+const getControllerOverlay = () =>
+  [...document.querySelectorAll(CONTROLLER_OVERLAY_SELECTOR)].find(
+    isVisibleControllerOverlay
+  ) ?? null;
+
+/** @param {Element} overlay @returns {Element} Overlay event target. */
+const getControllerOverlayTarget = (overlay) => {
+  const { activeElement } = document;
+  if (activeElement instanceof Element && overlay.contains(activeElement)) {
+    return activeElement;
+  }
+  return overlay;
+};
+
+/** @param {Element} overlay @param {string} key @param {ReturnType<typeof import("./controller-debug").getControllerAction>} action Dispatch to the open overlay. */
+const dispatchControllerToOverlay = (overlay, key, action) => {
+  const target = getControllerOverlayTarget(overlay);
+  const dispatchResult = target.dispatchEvent(
+    buildControllerKeydown(key, action)
+  );
+  if (action !== null) {
+    const role = overlay.getAttribute("role") ?? "overlay";
+    debugLog("controller", "action routed", {
+      ...action,
+      destinations: [
+        {
+          defaultPrevented: !dispatchResult,
+          element: describeControllerElement(target),
+          type: target === overlay ? role : `${role}-item`,
+        },
+      ],
+      expectedTarget: role,
+      expectedTargetMissing: false,
+    });
+  }
+};
+
 /** @param {{view: string}} options Routing options. @returns {{libraryTargetRef: {current: HTMLDivElement|null}, onControllerAction: (key: string, action: {actionId: number, controllerIndex: number, deferred: boolean, elapsedSincePreviousMs: number|null, key: string, phase: string}|null) => void}} Controller route. */
 const useImmersiveModeControllerRoute = ({ view }) => {
   /** @type {HTMLDivElement|null} */
@@ -52,6 +118,11 @@ const useImmersiveModeControllerRoute = ({ view }) => {
           logControllerOutcome(action, receiver, "suppressed", {
             reason: "text-input-focused",
           });
+          return;
+        }
+        const overlay = getControllerOverlay();
+        if (overlay !== null) {
+          dispatchControllerToOverlay(overlay, key, action);
           return;
         }
         const target =

@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 /** @type {Array<[{id: string, name: string}, number]>} */
 const emptyPlatforms = [];
 
-/** @param {{actionTestId: string}} props Test menu properties. */
-const TestMenu = ({ actionTestId }) => {
+/** @param {{actionTestId: string, onClose?: () => void}} props Test menu properties. */
+const TestMenu = ({ actionTestId, onClose }) => {
   const [lastAction, setLastAction] = useState("");
   return (
     <div
@@ -12,6 +12,11 @@ const TestMenu = ({ actionTestId }) => {
       tabIndex={-1}
       onKeyDown={(event) => {
         setLastAction(event.key);
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose?.();
+        }
       }}
     >
       <span data-testid={actionTestId}>{lastAction}</span>
@@ -35,7 +40,14 @@ const TestLibraryMenu = () => {
           setMenuOpen((open) => !open);
         }}
       />
-      {menuOpen ? <TestMenu actionTestId="library-menu-action" /> : null}
+      {menuOpen ? (
+        <TestMenu
+          actionTestId="library-menu-action"
+          onClose={() => {
+            setMenuOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 };
@@ -192,19 +204,92 @@ export const TestLibrary = ({
 };
 
 /** @typedef {{game: import("./immersive-types").ImmersiveGame, platformLabel?: string, onBack: () => void, onLaunch: (gameId: number|string) => Promise<import("./immersive-types").LaunchResult|null|undefined>, onToggleFavorite: (gameId: number|string) => void|Promise<void>, onGameUpdate?: (gameId: number|string) => void|Promise<void>, onOpenSettings?: () => void, onOpenIntegrations?: (() => void)|null, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled?: boolean}} TestDetailsProps */
+
+/** @param {{current: HTMLDivElement|null}} rootRef Details root reference. */
+const useTestDetailsKeyboard = (rootRef) => {
+  useEffect(() => {
+    /** @param {KeyboardEvent} event Controller keyboard event. */
+    const handleKeyDown = (event) => {
+      if (event.target instanceof Element) {
+        return;
+      }
+      /** @type {HTMLButtonElement[]} */
+      const actions = [
+        ...(rootRef.current?.querySelectorAll("button:not(:disabled)") ?? []),
+      ].filter((element) => element instanceof HTMLButtonElement);
+      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+        const focusedIndex =
+          document.activeElement instanceof HTMLButtonElement
+            ? actions.indexOf(document.activeElement)
+            : -1;
+        const direction = event.key === "ArrowRight" ? 1 : -1;
+        const nextIndex = Math.max(
+          0,
+          Math.min(actions.length - 1, focusedIndex + direction)
+        );
+        actions[nextIndex]?.focus();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Enter") {
+        actions.find((button) => button === document.activeElement)?.click();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [rootRef]);
+};
+
+/** @param {{onClose: () => void}} props Test dialog properties. */
+const TestDetailsDialog = ({ onClose }) => (
+  <dialog
+    open
+    role="alertdialog"
+    onKeyDown={(event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }}
+  >
+    Details dialog
+  </dialog>
+);
+
 /** @param {TestDetailsProps} props Test details properties. */
 export const TestDetails = ({ game, onBack, onLaunch }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [favorited, setFavorited] = useState(false);
+  /** @type {import("react").RefObject<HTMLDivElement|null>} */
+  const detailsRootRef = useRef(null);
+  useTestDetailsKeyboard(detailsRootRef);
   return (
-    <div data-testid="immersive-details">
+    <div ref={detailsRootRef} data-testid="immersive-details">
       <span data-testid="details-game">{game.name}</span>
       <button
         type="button"
+        autoFocus
         onClick={() => {
           void onLaunch(game.id);
         }}
       >
         Play
+      </button>
+      <button
+        type="button"
+        aria-label={favorited ? "Unfavorite" : "Favorite"}
+        onClick={() => {
+          setFavorited(true);
+        }}
+      >
+        {favorited ? "Unfavorite" : "Favorite"}
+      </button>
+      <button type="button" disabled>
+        Unavailable
       </button>
       <button type="button" onClick={onBack}>
         Back
@@ -217,7 +302,29 @@ export const TestDetails = ({ game, onBack, onLaunch }) => {
       >
         Open menu
       </button>
-      {menuOpen ? <TestMenu actionTestId="details-menu-action" /> : null}
+      <button
+        type="button"
+        onClick={() => {
+          setDialogOpen(true);
+        }}
+      >
+        Open dialog
+      </button>
+      {menuOpen ? (
+        <TestMenu
+          actionTestId="details-menu-action"
+          onClose={() => {
+            setMenuOpen(false);
+          }}
+        />
+      ) : null}
+      {dialogOpen ? (
+        <TestDetailsDialog
+          onClose={() => {
+            setDialogOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 };

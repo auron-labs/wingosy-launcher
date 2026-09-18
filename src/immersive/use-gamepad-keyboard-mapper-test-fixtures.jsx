@@ -15,8 +15,3 @@ export const HookProbe = ({
   });
   return <span data-testid="unsupported">{String(unsupportedGamepad)}</span>;
 };
-
-export const RoutingProbe = () => {
-  useGamepadKeyboardMapper();
-  return <div data-testid="immersive-library" />;
-};

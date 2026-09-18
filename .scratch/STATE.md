@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-17T23:59:59Z
+Generated: 2026-09-18T01:02:13Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 9 active, 28 resolved
+Tickets: 8 active, 29 resolved
 
 ## Active Tickets
 
@@ -12,7 +12,6 @@ Tickets: 9 active, 28 resolved
 | --- | --- | --- | --- | --- | --- |
 | [eden-integration](eden-integration/spec.md) | [03-reliable-eden-save-sync](eden-integration/issues/03-reliable-eden-save-sync.md) | — | — | ready-for-human | None — can start immediately |
 | [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | ready-for-human | None — can start immediately |
-| [immersive-input](immersive-input/spec.md) | [02-route-details-and-overlay-controller-actions](immersive-input/issues/02-route-details-and-overlay-controller-actions.md) | — | — | ready-for-agent | 01 — Route Library and shell controller actions through the Immersive app seam. |
 | [smoke-test-followups](smoke-test-followups) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [06-restore-frontend-static-analysis](smoke-test-followups/issues/06-restore-frontend-static-analysis.md) | — | — | claimed | None — can start immediately. |
@@ -27,6 +26,7 @@ Tickets: 9 active, 28 resolved
 | [eden-integration](eden-integration/spec.md) | [01-follow-wingosy-fullscreen](eden-integration/issues/01-follow-wingosy-fullscreen.md) | — | — | resolved | None — can start immediately |
 | [eden-integration](eden-integration/spec.md) | [02-configure-controller-for-eden](eden-integration/issues/02-configure-controller-for-eden.md) | — | — | resolved | None — can start immediately |
 | [immersive-input](immersive-input/spec.md) | [01-route-library-and-shell-controller-actions](immersive-input/issues/01-route-library-and-shell-controller-actions.md) | — | — | resolved | None — can start immediately. |
+| [immersive-input](immersive-input/spec.md) | [02-route-details-and-overlay-controller-actions](immersive-input/issues/02-route-details-and-overlay-controller-actions.md) | — | — | resolved | 01 — Route Library and shell controller actions through the Immersive app seam. |
 | [immersive-library-discovery](immersive-library-discovery) | [01-filter-immersive-library-by-platform](immersive-library-discovery/issues/01-filter-immersive-library-by-platform.md) | — | — | resolved | None — can start immediately. |
 | [immersive-library-discovery](immersive-library-discovery) | [02-search-immersive-library-by-name](immersive-library-discovery/issues/02-search-immersive-library-by-name.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |

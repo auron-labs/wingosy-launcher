@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { debugLog, isVerboseDebugEnabled } from "../utils/debug-log";
-import {
-  attachControllerAction,
-  describeControllerElement,
-} from "./controller-debug";
+import { attachControllerAction } from "./controller-debug";
 import { DEFAULT_GAMEPAD_DEADZONE, emptyDigital } from "./gamepad-input";
 import {
   dispatchPadActions,
@@ -23,27 +20,6 @@ export {
   normalizeGamepadDeadzone,
   readStandardPad,
 } from "./gamepad-input";
-
-const LIBRARY_ACTION_KEYS = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Enter",
-  "PageUp",
-  "PageDown",
-  "s",
-  "S",
-]);
-const DETAILS_ACTION_KEYS = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Enter",
-  "Escape",
-]);
-const SHELL_ACTION_KEYS = new Set(["Escape", "h", "H"]);
 
 /**
  * @typedef {{back: boolean, confirmOpen: boolean, down: boolean, left: boolean, menu: boolean, nextSection: boolean, previousSection: boolean, right: boolean, up: boolean, view: boolean}} DigitalState
@@ -82,112 +58,9 @@ export const buildControllerKeydown = (key, action = null) => {
   return attachControllerAction(new KeyboardEvent("keydown", options), action);
 };
 
-/** @param {string} key @param {boolean} hasLibrary @param {boolean} hasDetails */
-const expectedTargetFor = (key, hasLibrary, hasDetails) => {
-  if (hasDetails && DETAILS_ACTION_KEYS.has(key)) {
-    return "details-window";
-  }
-  if (hasLibrary && LIBRARY_ACTION_KEYS.has(key)) {
-    return "library-root";
-  }
-  if (LIBRARY_ACTION_KEYS.has(key)) {
-    return "library-root";
-  }
-  if (SHELL_ACTION_KEYS.has(key)) {
-    return "window";
-  }
-  return null;
-};
-
-/** @param {string} key @param {ControllerAction|null} action @returns {boolean} Whether a menu handled the route. */
-const dispatchMenuKey = (key, action) => {
-  const menu = document.querySelector('[role="menu"]');
-  if (menu === null) {
-    return false;
-  }
-  const { activeElement } = document;
-  const target =
-    activeElement && menu.contains(activeElement) ? activeElement : menu;
-  const dispatchResult = target.dispatchEvent(
-    buildControllerKeydown(key, action)
-  );
-  if (action) {
-    debugLog("controller", "action routed", {
-      ...action,
-      defaultPrevented: !dispatchResult,
-      destinations: [
-        {
-          element: describeControllerElement(target),
-          type: target === menu ? "menu" : "menu-item",
-        },
-      ],
-      expectedTarget: "menu",
-      expectedTargetMissing: false,
-    });
-  }
-  return true;
-};
-
-/** @param {string|null} expectedTarget @param {Element|null} library @param {Element|null} details @returns {boolean} Whether the expected receiver was absent. */
-const isExpectedTargetMissing = (expectedTarget, library, details) => {
-  if (expectedTarget === "library-root") {
-    return library === null;
-  }
-  if (expectedTarget === "details-window") {
-    return details === null;
-  }
-  return false;
-};
-
-/** @param {string} key @param {ControllerAction|null} action */
-const dispatchWindowAndLibraryKey = (key, action) => {
-  const details = document.querySelector(
-    '[data-testid="immersive-game-details"]'
-  );
-  /** @type {{element?: ReturnType<typeof describeControllerElement>, type: string, defaultPrevented?: boolean}[]|null} */
-  const destinations = [{ type: "window" }];
-  const windowDispatchResult = window.dispatchEvent(
-    buildControllerKeydown(key, action)
-  );
-  const library = document.querySelector('[data-testid="immersive-library"]');
-  if (library !== null && LIBRARY_ACTION_KEYS.has(key)) {
-    const libraryDispatchResult = library.dispatchEvent(
-      buildControllerKeydown(key, action)
-    );
-    destinations.push({
-      defaultPrevented: !libraryDispatchResult,
-      element: describeControllerElement(library),
-      type: "library-root",
-    });
-  }
-  if (action) {
-    const expectedTarget = expectedTargetFor(
-      key,
-      library !== null,
-      details !== null
-    );
-    debugLog("controller", "action routed", {
-      ...action,
-      destinations: destinations.map((destination) => ({
-        ...destination,
-        defaultPrevented:
-          destination.type === "window"
-            ? !windowDispatchResult
-            : destination.defaultPrevented,
-      })),
-      expectedTarget,
-      expectedTargetMissing: isExpectedTargetMissing(
-        expectedTarget,
-        library,
-        details
-      ),
-    });
-  }
-};
-
 /**
  * @param {string} key - Logical key to dispatch.
- * @param {boolean} [deferUntilNextFrame] - Defer routing until the next frame.
+ * @param {boolean} [deferUntilNextFrame] - Defer action delivery until the next frame.
  * @param {ControllerAction|null} [action] - Debug action metadata.
  * @param {{current: ControllerActionCallback|null}|null} [onControllerActionRef] - App action callback reference.
  */
@@ -208,22 +81,11 @@ const dispatchKey = (
   }
   const onControllerAction = onControllerActionRef?.current;
   if (onControllerAction) {
-    try {
-      if (dispatchMenuKey(key, action)) {
-        return;
-      }
-    } catch {
-      // Ignore a detached menu during teardown.
-      return;
-    }
     onControllerAction(key, action);
     return;
   }
   try {
-    if (dispatchMenuKey(key, action)) {
-      return;
-    }
-    dispatchWindowAndLibraryKey(key, action);
+    window.dispatchEvent(buildControllerKeydown(key, action));
   } catch {
     // Ignore a detached DOM target during teardown.
   }

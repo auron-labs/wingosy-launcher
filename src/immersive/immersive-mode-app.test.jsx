@@ -320,6 +320,18 @@ const awaitNextAnimationFrame = async () => {
   await deferred.promise;
 };
 
+/** @param {{buttons: {pressed: boolean}[]}} pad Controller to press. @param {number} buttonIndex Standard button index. */
+const tapControllerButton = async (pad, buttonIndex) => {
+  pad.buttons[buttonIndex].pressed = true;
+  await act(async () => {
+    await awaitNextAnimationFrame();
+  });
+  pad.buttons[buttonIndex].pressed = false;
+  await act(async () => {
+    await awaitNextAnimationFrame();
+  });
+};
+
 const resetControllerRouteTest = () => {
   restoreControllerPad();
   resetImmersiveModeTest();
@@ -365,6 +377,102 @@ describe("ImmersiveModeApp controller library route", () => {
       );
     });
     pad.buttons[0].pressed = false;
+  });
+});
+
+describe("ImmersiveModeApp controller details route", () => {
+  afterEach(resetControllerRouteTest);
+
+  it("moves among visible details actions and activates the focused action once", async () => {
+    mockLoadedLibrary();
+    renderImmersiveModeApp();
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("game-1"));
+
+    const favorite = screen.getByRole("button", { name: "Favorite" });
+    const pad = makeControllerPad();
+    installControllerPad(pad);
+    pad.axes[0] = 1;
+    await waitFor(() => {
+      expect(favorite).toHaveFocus();
+    });
+
+    pad.axes[0] = 0;
+    await act(async () => {
+      await awaitNextAnimationFrame();
+    });
+    await tapControllerButton(pad, 0);
+
+    expect(screen.getByRole("button", { name: "Unfavorite" })).toBeVisible();
+  });
+});
+
+describe("ImmersiveModeApp controller details menu priority", () => {
+  afterEach(resetControllerRouteTest);
+
+  it("keeps a details menu ahead of background focus before Back navigates", async () => {
+    mockLoadedLibrary();
+    renderImmersiveModeApp();
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("game-1"));
+    const openMenu = screen.getByRole("button", { name: "Open menu" });
+    openMenu.focus();
+    fireEvent.click(openMenu);
+
+    const pad = makeControllerPad();
+    installControllerPad(pad);
+    pad.axes[0] = 1;
+    await waitFor(() => {
+      expect(screen.getByTestId("details-menu-action")).toHaveTextContent(
+        "ArrowRight"
+      );
+    });
+    expect(openMenu).toHaveFocus();
+
+    pad.axes[0] = 0;
+    await act(async () => {
+      await awaitNextAnimationFrame();
+    });
+    await tapControllerButton(pad, 1);
+    expect(screen.queryByTestId("details-menu-action")).not.toBeInTheDocument();
+    expect(screen.getByTestId("details-game")).toBeInTheDocument();
+
+    await tapControllerButton(pad, 1);
+    await waitFor(() => {
+      expect(screen.getByTestId("immersive-library")).toBeInTheDocument();
+    });
+  });
+});
+
+describe("ImmersiveModeApp controller details overlay priority", () => {
+  afterEach(resetControllerRouteTest);
+
+  it("closes a visible dialog before the next Back leaves details", async () => {
+    mockLoadedLibrary();
+
+    renderImmersiveModeApp();
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("game-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Open dialog" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    const pad = makeControllerPad();
+    installControllerPad(pad);
+    await tapControllerButton(pad, 1);
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("details-game")).toBeInTheDocument();
+
+    await tapControllerButton(pad, 1);
+    await waitFor(() => {
+      expect(screen.getByTestId("immersive-library")).toBeInTheDocument();
+    });
   });
 });
 
