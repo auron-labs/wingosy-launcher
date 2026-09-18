@@ -112,6 +112,41 @@ const createDownloadHarness = (deferReturnedLoads = false) => {
 const countCommand = (calls, command) =>
   calls.filter((calledCommand) => calledCommand === command).length;
 
+/** @param {import("./bios-types").BiosDistributionResult[]|Error} distributionResponse Distribution command response. */
+const createDistributionHarness = (distributionResponse) => {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {import("vitest").Mock<BiosMockInvoke>} */
+  const invokeBiosMock = vi.fn();
+  /** @param {string} command BIOS command. */
+  const respondToBiosCommand = (command) => {
+    calls.push(command);
+    switch (command) {
+      case "get_bios_directory": {
+        return "C:\\Wingosy\\bios";
+      }
+      case "list_bios_firmware": {
+        return [getFirmware(true)];
+      }
+      case "distribute_bios_firmware": {
+        if (distributionResponse instanceof Error) {
+          throw distributionResponse;
+        }
+        return distributionResponse;
+      }
+      default: {
+        return null;
+      }
+    }
+  };
+  invokeBiosMock.mockImplementation(respondToBiosCommand);
+  /** @type {import("./use-bios-settings").BiosInvoke} */
+  // @ts-expect-error -- The mock returns the command-specific BIOS values exercised by this fixture.
+  const invokeBios = invokeBiosMock;
+
+  return { calls, invokeBios };
+};
+
 describe("useBiosSettings", () => {
   afterEach(() => {
     cleanup();
@@ -191,5 +226,56 @@ describe("useBiosSettings", () => {
       await Promise.resolve();
     });
     expect(document.body).toHaveTextContent(/Ready/u);
+  });
+});
+
+describe("BIOS distribution reporting", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("shows the completed distribution result", async () => {
+    const { invokeBios } = createDistributionHarness([
+      {
+        emulator_id: "retroarch",
+        files_copied: 2,
+        target_path: "C:\\Wingosy\\emulators\\retroarch\\system",
+      },
+    ]);
+    render(renderBiosPage(invokeBios));
+
+    const distributeButton = await screen.findByRole("button", {
+      name: "Distribute to emulators",
+    });
+    await waitFor(() => {
+      expect(distributeButton).not.toBeDisabled();
+    });
+    fireEvent.click(distributeButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Distributed 2 file copies (retroarch: 2)."
+    );
+    expect(alert).toHaveClass("MuiAlert-colorSuccess");
+    expect(invokeBios).toHaveBeenCalledWith("distribute_bios_firmware");
+  });
+
+  it("shows a rejected distribution invocation as an error", async () => {
+    const { invokeBios } = createDistributionHarness(
+      new Error("No supported emulator is installed")
+    );
+    render(renderBiosPage(invokeBios));
+
+    const distributeButton = await screen.findByRole("button", {
+      name: "Distribute to emulators",
+    });
+    await waitFor(() => {
+      expect(distributeButton).not.toBeDisabled();
+    });
+    fireEvent.click(distributeButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("No supported emulator is installed");
+    expect(alert).toHaveClass("MuiAlert-colorError");
   });
 });

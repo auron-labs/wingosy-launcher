@@ -1,7 +1,8 @@
 use crate::{
     api::{RomMClient, RomMFirmware},
-    config::{AppConfig, EmulatorPaths},
+    config::{AppConfig, EmulatorPaths, RetroArchInstallKind},
     models::map_romm_slug,
+    sync::switch_content::replace_file,
 };
 use aes::{
     cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit},
@@ -170,6 +171,118 @@ fn file_is_current(path: &Path, expected_md5: Option<&str>) -> bool {
     }
 }
 
+fn file_has_expected_size(path: &Path, expected_size: u64) -> bool {
+    expected_size == 0
+        || std::fs::metadata(path)
+            .map(|metadata| metadata.len() == expected_size)
+            .unwrap_or(false)
+}
+
+fn is_partial_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("part"))
+}
+
+fn file_matches_record(path: &Path, record: &FirmwareRecord) -> bool {
+    if record.firmware.missing_from_fs || is_partial_file(path) {
+        return false;
+    }
+
+    let Some(expected_md5) = record.firmware.md5_hash.as_deref() else {
+        return false;
+    };
+    if !file_has_expected_size(path, record.firmware.file_size_bytes) {
+        return false;
+    }
+    file_is_current(path, Some(expected_md5))
+}
+
+fn copy_staged_file(
+    source: &Path,
+    target: &Path,
+    expected_md5: Option<&str>,
+    expected_size: u64,
+) -> Result<bool> {
+    if (expected_md5.is_none() && expected_size == 0)
+        || !source.is_file()
+        || is_partial_file(source)
+    {
+        return Ok(false);
+    }
+    if let Some(expected_md5) = expected_md5 {
+        if !file_is_current(source, Some(expected_md5)) {
+            return Ok(false);
+        }
+    }
+    if !file_has_expected_size(source, expected_size) {
+        return Ok(false);
+    }
+
+    let parent = target.parent().context("BIOS destination has no parent")?;
+    std::fs::create_dir_all(parent)?;
+    let file_name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .context("Invalid BIOS destination")?;
+    let partial = target.with_file_name(format!("{file_name}.part"));
+
+    let copy_result = std::fs::copy(source, &partial);
+    if let Err(error) = copy_result {
+        let _ = std::fs::remove_file(&partial);
+        return Err(error.into());
+    }
+    if let Some(expected_md5) = expected_md5 {
+        if !file_is_current(&partial, Some(expected_md5)) {
+            let _ = std::fs::remove_file(&partial);
+            return Ok(false);
+        }
+    }
+    if !file_has_expected_size(&partial, expected_size) {
+        let _ = std::fs::remove_file(&partial);
+        return Ok(false);
+    }
+
+    if let Err(error) = replace_file(&partial, target) {
+        let _ = std::fs::remove_file(&partial);
+        return Err(error);
+    }
+    Ok(true)
+}
+
+/// Copy a verified BIOS/firmware source through a staged path before replacing
+/// the emulator's file. An unknown or invalid source is never installed.
+fn distribute_file(
+    source: &Path,
+    target: &Path,
+    expected_md5: Option<&str>,
+    expected_size: u64,
+) -> Result<bool> {
+    let Some(expected_md5) = expected_md5 else {
+        return Ok(false);
+    };
+    copy_staged_file(source, target, Some(expected_md5), expected_size)
+}
+
+fn install_downloaded_file(
+    source: &Path,
+    target: &Path,
+    expected_md5: Option<&str>,
+    expected_size: u64,
+) -> Result<()> {
+    let copied = match expected_md5 {
+        Some(expected_md5) => distribute_file(source, target, Some(expected_md5), expected_size)?,
+        None => copy_staged_file(source, target, None, expected_size)?,
+    };
+    if !copied {
+        anyhow::bail!(
+            "Downloaded BIOS/firmware source {} was unavailable or failed validation",
+            source.display()
+        );
+    }
+    Ok(())
+}
+
 async fn download_record(
     client: &RomMClient,
     root: &Path,
@@ -191,7 +304,9 @@ async fn download_record_at(
         );
     }
 
-    if file_is_current(target, record.firmware.md5_hash.as_deref()) {
+    if file_is_current(target, record.firmware.md5_hash.as_deref())
+        && file_has_expected_size(target, record.firmware.file_size_bytes)
+    {
         return Ok(target.to_path_buf());
     }
 
@@ -222,8 +337,43 @@ async fn download_record_at(
         return Err(error);
     }
 
+    if record.firmware.file_size_bytes != 0 {
+        let actual_size = match std::fs::metadata(&partial) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&partial).await;
+                return Err(error).with_context(|| {
+                    format!(
+                        "Failed to validate downloaded {} size",
+                        record.firmware.file_name
+                    )
+                });
+            }
+        };
+        if actual_size != record.firmware.file_size_bytes {
+            let _ = tokio::fs::remove_file(&partial).await;
+            anyhow::bail!(
+                "Size mismatch for {}: expected {} bytes, got {}",
+                record.firmware.file_name,
+                record.firmware.file_size_bytes,
+                actual_size
+            );
+        }
+    }
+
     if let Some(expected) = record.firmware.md5_hash.as_deref() {
-        let actual = md5_file(&partial)?;
+        let actual = match md5_file(&partial) {
+            Ok(actual) => actual,
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&partial).await;
+                return Err(error).with_context(|| {
+                    format!(
+                        "Failed to validate downloaded {} checksum",
+                        record.firmware.file_name
+                    )
+                });
+            }
+        };
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = tokio::fs::remove_file(&partial).await;
             anyhow::bail!(
@@ -326,7 +476,9 @@ pub async fn download_all_bios_firmware() -> Result<BiosDownloadSummary, String>
 }
 
 fn executable_parent(path: &Option<PathBuf>) -> Option<PathBuf> {
-    path.as_ref()?.parent().map(Path::to_path_buf)
+    let executable = path.as_deref()?;
+    let parent = executable.parent()?;
+    executable.is_file().then_some(parent.to_path_buf())
 }
 
 fn configured_targets(paths: &EmulatorPaths) -> Vec<BiosTarget> {
@@ -344,6 +496,44 @@ fn configured_targets(paths: &EmulatorPaths) -> Vec<BiosTarget> {
         target_from_parent(emulator_id, &parent)
     })
     .collect()
+}
+
+fn configured_executable<'a>(paths: &'a EmulatorPaths, emulator_id: &str) -> Option<&'a Path> {
+    match emulator_id {
+        "retroarch" => paths.retroarch.as_deref(),
+        "duckstation" => paths.duckstation.as_deref(),
+        "pcsx2" => paths.pcsx2.as_deref(),
+        "melonds" => paths.melonds.as_deref(),
+        "flycast" => paths.flycast.as_deref(),
+        "mgba" => paths.mgba.as_deref(),
+        _ => None,
+    }
+}
+
+fn managed_emulators_root() -> Option<PathBuf> {
+    AppConfig::emulators_dir().ok()?.canonicalize().ok()
+}
+
+fn is_managed_emulator_path(path: &Path, managed_root: &Path) -> bool {
+    let Ok(executable) = path.canonicalize() else {
+        return false;
+    };
+    executable.starts_with(managed_root)
+}
+
+fn configured_managed_targets(config: &AppConfig) -> Vec<BiosTarget> {
+    let Some(managed_root) = managed_emulators_root() else {
+        return Vec::new();
+    };
+    configured_targets(&config.emulators)
+        .into_iter()
+        .filter(|target| {
+            configured_executable(&config.emulators, target.emulator_id)
+                .is_some_and(|executable| is_managed_emulator_path(executable, &managed_root))
+                && (target.emulator_id != "retroarch"
+                    || config.emulators.retroarch_install_kind == RetroArchInstallKind::Managed)
+        })
+        .collect()
 }
 
 fn target_from_parent(emulator_id: &str, parent: &Path) -> Option<BiosTarget> {
@@ -413,6 +603,64 @@ fn relevant_records<'a>(
             }
         })
         .collect()
+}
+
+fn target_matches_record(target: &BiosTarget, record: &FirmwareRecord) -> bool {
+    target.platform_slugs.is_empty()
+        || target
+            .platform_slugs
+            .iter()
+            .any(|slug| map_romm_slug(slug) == map_romm_slug(&record.platform_slug))
+}
+
+fn cached_source_paths(root: &Path, record: &FirmwareRecord) -> Result<Vec<PathBuf>> {
+    let regular = target_path(root, record)?;
+    if map_romm_slug(&record.platform_slug) != "switch" {
+        return Ok(vec![regular]);
+    }
+
+    let switch = switch_target_path(root, record)?;
+    if switch == regular {
+        Ok(vec![switch])
+    } else {
+        Ok(vec![switch, regular])
+    }
+}
+
+fn cached_source_for_record(root: &Path, record: &FirmwareRecord) -> Result<Option<PathBuf>> {
+    for path in cached_source_paths(root, record)? {
+        if file_matches_record(&path, record) {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn distribution_target_name(target: &BiosTarget, source: &Path) -> Result<String> {
+    if target.rename_for_retroarch {
+        return Ok(retroarch_filename(source));
+    }
+    source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .context("Invalid firmware destination")
+        .map(str::to_string)
+}
+
+fn distribute_record(root: &Path, target: &BiosTarget, record: &FirmwareRecord) -> Result<bool> {
+    if !target_matches_record(target, record) {
+        return Ok(false);
+    }
+    let Some(source) = cached_source_for_record(root, record)? else {
+        return Ok(false);
+    };
+    let target_name = distribution_target_name(target, &source)?;
+    distribute_file(
+        &source,
+        &target.path.join(target_name),
+        record.firmware.md5_hash.as_deref(),
+        record.firmware.file_size_bytes,
+    )
 }
 
 fn select_switch_record<'a>(
@@ -626,16 +874,13 @@ pub(crate) async fn prepare_bios_for_launch(
     std::fs::create_dir_all(&target.path)?;
     for record in relevant {
         let source = target_path(&root, record)?;
-        let target_name = if target.rename_for_retroarch {
-            retroarch_filename(&source)
-        } else {
-            source
-                .file_name()
-                .and_then(|value| value.to_str())
-                .context("Invalid firmware destination")?
-                .to_string()
-        };
-        std::fs::copy(source, target.path.join(target_name))?;
+        let target_name = distribution_target_name(&target, &source)?;
+        install_downloaded_file(
+            &source,
+            &target.path.join(target_name),
+            record.firmware.md5_hash.as_deref(),
+            record.firmware.file_size_bytes,
+        )?;
     }
 
     Ok(summary)
@@ -864,14 +1109,6 @@ pub(crate) fn eden_data_root(eden_executable: &Path, appdata: Option<&Path>) -> 
     Ok(portable_user)
 }
 
-fn replace_file(source: &Path, target: &Path) -> Result<()> {
-    if target.exists() {
-        std::fs::remove_file(target)?;
-    }
-    std::fs::rename(source, target)?;
-    Ok(())
-}
-
 fn install_switch_firmware(
     root: &Path,
     eden_executable: &Path,
@@ -884,6 +1121,22 @@ fn install_switch_firmware(
         return Ok(None);
     };
     install_switch_firmware_from_files(&prod_keys, &firmware_zip, eden_executable, appdata)
+}
+
+fn validated_switch_firmware_files(
+    root: &Path,
+    records: &[FirmwareRecord],
+) -> Result<Option<(PathBuf, PathBuf)>> {
+    let Some((prod_keys, firmware_zip)) = switch_records(records)? else {
+        return Ok(None);
+    };
+    let Some(prod_keys_path) = cached_source_for_record(root, prod_keys)? else {
+        return Ok(None);
+    };
+    let Some(firmware_zip_path) = cached_source_for_record(root, firmware_zip)? else {
+        return Ok(None);
+    };
+    Ok(Some((prod_keys_path, firmware_zip_path)))
 }
 
 fn install_switch_firmware_from_files(
@@ -905,9 +1158,14 @@ fn install_switch_firmware_from_files(
     std::fs::create_dir_all(&registered_directory)?;
 
     let prod_keys_partial = keys_directory.join("prod.keys.part");
-    std::fs::copy(prod_keys, &prod_keys_partial).context("Failed to stage prod.keys for Eden")?;
-    replace_file(&prod_keys_partial, &keys_directory.join("prod.keys"))
-        .context("Failed to install prod.keys for Eden")?;
+    if let Err(error) = std::fs::copy(prod_keys, &prod_keys_partial) {
+        let _ = std::fs::remove_file(&prod_keys_partial);
+        return Err(error).context("Failed to stage prod.keys for Eden");
+    }
+    if let Err(error) = replace_file(&prod_keys_partial, &keys_directory.join("prod.keys")) {
+        let _ = std::fs::remove_file(&prod_keys_partial);
+        return Err(error).context("Failed to install prod.keys for Eden");
+    }
 
     let file = File::open(firmware_zip)?;
     let mut archive = ZipArchive::new(file)?;
@@ -965,51 +1223,47 @@ fn install_switch_firmware_from_files(
 }
 
 #[tauri::command]
-pub fn distribute_bios_firmware() -> Result<Vec<BiosDistributionResult>, String> {
+pub async fn distribute_bios_firmware() -> Result<Vec<BiosDistributionResult>, String> {
     let config = AppConfig::load().unwrap_or_default();
     let root = config.bios_dir();
     if !root.is_dir() {
         return Ok(Vec::new());
     }
 
-    let mut platform_files = Vec::new();
-    for entry in std::fs::read_dir(&root).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if !entry.path().is_dir() {
-            continue;
-        }
-        let slug = entry.file_name().to_string_lossy().into_owned();
-        for file in std::fs::read_dir(entry.path()).map_err(|error| error.to_string())? {
-            let file = file.map_err(|error| error.to_string())?;
-            if file.path().is_file()
-                && file.path().extension().and_then(|ext| ext.to_str()) != Some("part")
-            {
-                platform_files.push((slug.clone(), file.path()));
-            }
-        }
+    let targets = configured_managed_targets(&config);
+    let managed_root = managed_emulators_root();
+    let eden_executable = config.emulators.eden.as_deref().filter(|path| {
+        path.is_file()
+            && managed_root
+                .as_deref()
+                .is_some_and(|root| is_managed_emulator_path(path, root))
+    });
+    if targets.is_empty() && eden_executable.is_none() {
+        return Ok(Vec::new());
     }
+    let (_, records) = fetch_firmware(&config)
+        .await
+        .map_err(|error| error.to_string())?;
 
     let mut results = Vec::new();
-    for target in configured_targets(&config.emulators) {
+    for target in targets {
+        if !records
+            .iter()
+            .any(|record| target_matches_record(&target, record))
+        {
+            results.push(BiosDistributionResult {
+                emulator_id: target.emulator_id.to_string(),
+                target_path: target.path.to_string_lossy().into_owned(),
+                files_copied: 0,
+            });
+            continue;
+        }
         std::fs::create_dir_all(&target.path).map_err(|error| error.to_string())?;
         let mut copied = 0;
-        for (slug, source) in &platform_files {
-            if !target.platform_slugs.is_empty() && !target.platform_slugs.contains(&slug.as_str())
-            {
-                continue;
+        for record in &records {
+            if distribute_record(&root, &target, record).map_err(|error| error.to_string())? {
+                copied += 1;
             }
-            let target_name = if target.rename_for_retroarch {
-                retroarch_filename(source)
-            } else {
-                source
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("firmware.bin")
-                    .to_string()
-            };
-            std::fs::copy(source, target.path.join(target_name))
-                .map_err(|error| error.to_string())?;
-            copied += 1;
         }
         results.push(BiosDistributionResult {
             emulator_id: target.emulator_id.to_string(),
@@ -1017,12 +1271,21 @@ pub fn distribute_bios_firmware() -> Result<Vec<BiosDistributionResult>, String>
             files_copied: copied,
         });
     }
-    if let Some(eden_executable) = config.emulators.eden.as_deref() {
+    if let Some(eden_executable) = eden_executable {
         let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
-        if let Some(result) = install_switch_firmware(&root, eden_executable, appdata.as_deref())
-            .map_err(|error| error.to_string())?
+        if let Some((prod_keys, firmware_zip)) =
+            validated_switch_firmware_files(&root, &records).map_err(|error| error.to_string())?
         {
-            results.push(result);
+            if let Some(result) = install_switch_firmware_from_files(
+                &prod_keys,
+                &firmware_zip,
+                eden_executable,
+                appdata.as_deref(),
+            )
+            .map_err(|error| error.to_string())?
+            {
+                results.push(result);
+            }
         }
     }
     Ok(results)
@@ -1069,6 +1332,189 @@ mod tests {
         assert!(!file_is_current(&path, None));
         let expected_md5 = md5_file(&path).unwrap();
         assert!(file_is_current(&path, Some(expected_md5.as_str())));
+    }
+
+    #[test]
+    fn launch_copy_preserves_completed_downloads_without_md5_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("downloaded.bin");
+        let target = temp.path().join("emulator/bios.bin");
+        std::fs::write(&source, b"completed download").unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"existing emulator file").unwrap();
+
+        install_downloaded_file(&source, &target, None, b"completed download".len() as u64)
+            .unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"completed download");
+        assert!(!target.with_file_name("bios.bin.part").exists());
+    }
+
+    #[test]
+    fn launch_copy_rejects_short_checksumless_source_without_replacing_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("downloaded.bin");
+        let target = temp.path().join("emulator/bios.bin");
+        std::fs::write(&source, b"short").unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"existing emulator file").unwrap();
+
+        let error = install_downloaded_file(&source, &target, None, 32)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("failed validation"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+        assert!(!target.with_file_name("bios.bin.part").exists());
+    }
+
+    #[test]
+    fn distribution_rejects_invalid_source_without_replacing_existing_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("bios");
+        let source_directory = root.join("psx");
+        let emulator_directory = temp.path().join("duckstation");
+        std::fs::create_dir_all(&source_directory).unwrap();
+        std::fs::create_dir_all(&emulator_directory).unwrap();
+
+        let mut record = firmware_record("psx", 1);
+        record.firmware.file_name = "bios.bin".to_string();
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
+        std::fs::write(source_directory.join("bios.bin"), b"incomplete artifact").unwrap();
+        let target = emulator_directory.join("bios").join("bios.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"existing emulator file").unwrap();
+        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
+
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+
+        record.firmware.md5_hash = None;
+        std::fs::write(source_directory.join("bios.bin"), b"complete artifact").unwrap();
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
+        std::fs::remove_file(source_directory.join("bios.bin")).unwrap();
+        std::fs::write(source_directory.join("bios.bin.part"), b"complete artifact").unwrap();
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+    }
+
+    #[test]
+    fn distribution_copies_valid_relevant_record_using_platform_alias() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("bios");
+        let source_directory = root.join("sony-playstation");
+        let emulator_directory = temp.path().join("duckstation");
+        std::fs::create_dir_all(&source_directory).unwrap();
+
+        let contents = b"complete artifact";
+        let mut record = firmware_record("sony-playstation", 1);
+        record.firmware.file_name = "bios.bin".to_string();
+        record.firmware.file_size_bytes = contents.len() as u64;
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(contents)));
+        std::fs::write(source_directory.join("bios.bin"), contents).unwrap();
+        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
+
+        assert!(distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(
+            std::fs::read(emulator_directory.join("bios/bios.bin")).unwrap(),
+            contents
+        );
+        assert!(!emulator_directory.join("bios/bios.bin.part").exists());
+    }
+
+    #[test]
+    fn configured_targets_skip_stale_emulator_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let installed_directory = temp.path().join("mgba");
+        let installed_executable = installed_directory.join("mGBA.exe");
+        std::fs::create_dir_all(&installed_directory).unwrap();
+        std::fs::write(&installed_executable, b"installed emulator").unwrap();
+
+        let paths = EmulatorPaths {
+            mgba: Some(installed_executable),
+            duckstation: Some(temp.path().join("removed/duckstation.exe")),
+            ..EmulatorPaths::default()
+        };
+
+        let targets = configured_targets(&paths);
+
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.emulator_id)
+                .collect::<Vec<_>>(),
+            vec!["mgba"]
+        );
+    }
+
+    #[test]
+    fn configured_managed_targets_skip_external_emulator_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("mGBA.exe");
+        std::fs::write(&executable, b"external emulator").unwrap();
+        let config = AppConfig {
+            emulators: EmulatorPaths {
+                mgba: Some(executable),
+                ..EmulatorPaths::default()
+            },
+            ..AppConfig::default()
+        };
+
+        assert!(configured_managed_targets(&config).is_empty());
+    }
+
+    #[test]
+    fn managed_path_check_rejects_parent_directory_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed_root = temp.path().join("managed");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let executable = outside.join("mgba.exe");
+        std::fs::write(&executable, b"external emulator").unwrap();
+        let escaped = managed_root.join("..").join("outside/mgba.exe");
+
+        assert!(!is_managed_emulator_path(
+            &escaped,
+            &managed_root.canonicalize().unwrap()
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_path_check_rejects_symlink_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed_root = temp.path().join("managed");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("mgba.exe"), b"external emulator").unwrap();
+        std::os::unix::fs::symlink(&outside, managed_root.join("linked")).unwrap();
+        let escaped = managed_root.join("linked/mgba.exe");
+
+        assert!(!is_managed_emulator_path(
+            &escaped,
+            &managed_root.canonicalize().unwrap()
+        ));
+    }
+
+    #[test]
+    fn validated_switch_files_propagate_metadata_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let records = vec![
+            switch_firmware_record("prod-one.keys", 1),
+            switch_firmware_record("prod-two.keys", 2),
+            switch_firmware_record("firmware.zip", 3),
+        ];
+
+        let error = validated_switch_firmware_files(temp.path(), &records)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("Multiple Switch prod.keys fallback records"));
     }
 
     fn firmware_record(platform_slug: &str, id: i64) -> FirmwareRecord {

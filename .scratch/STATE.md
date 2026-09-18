@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-18T02:49:55Z
+Generated: 2026-09-18T04:32:12Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 6 active, 31 resolved
+Tickets: 5 active, 32 resolved
 
 ## Active Tickets
 
@@ -14,7 +14,6 @@ Tickets: 6 active, 31 resolved
 | [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | ready-for-human | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
-| [smoke-test-followups](smoke-test-followups/map.md) | [11-distribute-bios-and-firmware](smoke-test-followups/issues/11-distribute-bios-and-firmware.md) | — | — | ready-for-agent | 10 — Keep BIOS downloads alive across navigation. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [12-certify-eden-content-loading](smoke-test-followups/issues/12-certify-eden-content-loading.md) | — | — | ready-for-human | None — can start immediately. |
 
 ## Resolved Tickets
@@ -35,6 +34,7 @@ Tickets: 6 active, 31 resolved
 | [smoke-test-followups](smoke-test-followups/map.md) | [08-restore-rust-test-baseline](smoke-test-followups/issues/08-restore-rust-test-baseline.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [09-fix-emulators-settings-markup](smoke-test-followups/issues/09-fix-emulators-settings-markup.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | resolved | None — can start immediately. |
+| [smoke-test-followups](smoke-test-followups/map.md) | [11-distribute-bios-and-firmware](smoke-test-followups/issues/11-distribute-bios-and-firmware.md) | — | — | resolved | 10 — Keep BIOS downloads alive across navigation. |
 | [ui-audit](ui-audit) | [01-design-system-typography-buttons-states](ui-audit/issues/01-design-system-typography-buttons-states.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [02-layout-width-scrollbars](ui-audit/issues/02-layout-width-scrollbars.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [03-desktop-library-grid](ui-audit/issues/03-desktop-library-grid.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |
