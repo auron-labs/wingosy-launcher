@@ -3,15 +3,55 @@ import { useEffect, useRef, useState } from "react";
 /** @type {Array<[{id: string, name: string}, number]>} */
 const emptyPlatforms = [];
 
-/** @typedef {{loading: boolean, error: string|null, games: import("./immersive-types").ImmersiveGame[], platforms?: import("./immersive-types").PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: (platform: string|null) => void, searchQuery?: string, onSearchChange?: (query: string) => void, selectedIndex: number, onSelectedIndexChange: (index: number, game?: import("./immersive-types").ImmersiveGame) => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onExitImmersive: () => void|Promise<void>, onOpenSettings: () => void, onOpenDownloads?: () => void}} TestLibraryProps */
+/** @param {{actionTestId: string}} props Test menu properties. */
+const TestMenu = ({ actionTestId }) => {
+  const [lastAction, setLastAction] = useState("");
+  return (
+    <div
+      role="menu"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        setLastAction(event.key);
+      }}
+    >
+      <span data-testid={actionTestId}>{lastAction}</span>
+    </div>
+  );
+};
 
-/** @param {React.RefObject<HTMLDivElement|null>} rootRef @param {number} gameCount @param {number} selectedIndex @param {(index: number) => void} onSelectedIndexChange */
-const useLibraryKeyboard = (
-  rootRef,
+/** @param {{onToggle: () => void}} props Test menu toggle properties. */
+const TestMenuToggle = ({ onToggle }) => (
+  <button type="button" onClick={onToggle}>
+    Open menu
+  </button>
+);
+
+const TestLibraryMenu = () => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <>
+      <TestMenuToggle
+        onToggle={() => {
+          setMenuOpen((open) => !open);
+        }}
+      />
+      {menuOpen ? <TestMenu actionTestId="library-menu-action" /> : null}
+    </>
+  );
+};
+
+/** @typedef {{loading: boolean, error: string|null, games: import("./immersive-types").ImmersiveGame[], platforms?: import("./immersive-types").PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: (platform: string|null) => void, searchQuery?: string, onSearchChange?: (query: string) => void, selectedIndex: number, onSelectedIndexChange: (index: number, game?: import("./immersive-types").ImmersiveGame) => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onExitImmersive: () => void|Promise<void>, onOpenSettings: () => void, onOpenDownloads?: () => void, controllerRouteRef?: {current: HTMLDivElement|null}}} TestLibraryProps */
+
+/** @param {{games: import("./immersive-types").ImmersiveGame[], gameCount: number, onOpenSettings: () => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onSelectedIndexChange: (index: number) => void, rootRef: React.RefObject<HTMLDivElement|null>, selectedIndex: number}} options Test library keyboard options. */
+const useLibraryKeyboard = ({
+  games,
   gameCount,
+  onOpenSettings,
+  onSelectGame,
+  onSelectedIndexChange,
+  rootRef,
   selectedIndex,
-  onSelectedIndexChange
-) => {
+}) => {
   useEffect(() => {
     const root = rootRef.current;
     /** @param {KeyboardEvent} event Keyboard event. */
@@ -22,11 +62,28 @@ const useLibraryKeyboard = (
       ) {
         return;
       }
-      if (event.key !== "ArrowRight") {
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        onOpenSettings();
         return;
       }
-      event.preventDefault();
-      onSelectedIndexChange(Math.min(gameCount - 1, selectedIndex + 1));
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const game = games[selectedIndex];
+        if (game !== undefined) {
+          onSelectGame(game);
+        }
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        onSelectedIndexChange(Math.min(gameCount - 1, selectedIndex + 1));
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        onSelectedIndexChange(Math.max(0, selectedIndex - 1));
+      }
     };
     const removeKeyDownListener = () => {
       if (root !== null) {
@@ -41,7 +98,15 @@ const useLibraryKeyboard = (
     return () => {
       root.removeEventListener("keydown", handleKeyDown);
     };
-  }, [gameCount, onSelectedIndexChange, rootRef, selectedIndex]);
+  }, [
+    gameCount,
+    games,
+    onOpenSettings,
+    onSelectGame,
+    onSelectedIndexChange,
+    rootRef,
+    selectedIndex,
+  ]);
 };
 
 /** @param {TestLibraryProps} props Test library properties. */
@@ -52,6 +117,8 @@ export const TestLibrary = ({
   onSelectGame,
   onSelectedIndexChange,
   onSelectedPlatformChange,
+  onOpenSettings,
+  controllerRouteRef,
   platforms = emptyPlatforms,
   searchQuery = "",
   selectedIndex,
@@ -59,13 +126,17 @@ export const TestLibrary = ({
 }) => {
   /** @type {HTMLDivElement|null} */
   const initialRoot = null;
-  const rootRef = useRef(initialRoot);
-  useLibraryKeyboard(
+  const localRootRef = useRef(initialRoot);
+  const rootRef = controllerRouteRef ?? localRootRef;
+  useLibraryKeyboard({
+    gameCount: games.length,
+    games,
+    onOpenSettings,
+    onSelectGame,
+    onSelectedIndexChange,
     rootRef,
-    games.length,
     selectedIndex,
-    onSelectedIndexChange
-  );
+  });
 
   return (
     <div ref={rootRef} data-testid="immersive-library" role="application">
@@ -100,6 +171,7 @@ export const TestLibrary = ({
           Clear game search
         </button>
       ) : null}
+      <TestLibraryMenu />
       <span data-testid="selected-index">{selectedIndex}</span>
       {games.map((game, index) => (
         <button
@@ -145,7 +217,7 @@ export const TestDetails = ({ game, onBack, onLaunch }) => {
       >
         Open menu
       </button>
-      {menuOpen ? <div role="menu">Menu owns input</div> : null}
+      {menuOpen ? <TestMenu actionTestId="details-menu-action" /> : null}
     </div>
   );
 };

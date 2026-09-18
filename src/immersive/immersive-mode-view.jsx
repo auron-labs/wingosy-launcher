@@ -15,7 +15,7 @@ import ImmersiveLibrary from "./immersive-library";
 
 /** @typedef {{audio?: typeof AmbientAudioPlayer, details?: typeof ImmersiveGameDetails, downloads?: typeof RomDownloadsView, hintBar?: typeof ImmersiveHintBar, library?: typeof ImmersiveLibrary, settings?: typeof Settings}} ImmersiveModeComponents */
 
-/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, components?: ImmersiveModeComponents, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void}} ImmersiveModeViewProps */
+/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, components?: ImmersiveModeComponents, controllerRouteRef?: {current: HTMLDivElement|null}, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void}} ImmersiveModeViewProps */
 
 /** @param {{components: ImmersiveModeComponents, setView: (view: string) => void}} props Downloads view properties. */
 const DownloadsMain = ({ components, setView }) => {
@@ -144,7 +144,7 @@ const DetailsMain = ({
   );
 };
 
-/** @param {Pick<ImmersiveModeViewProps, "games"|"platforms"|"selectedPlatform"|"searchQuery"|"selectedIndex"|"loading"|"error"|"onSelectedPlatformChange"|"onSearchChange"|"onSelectedIndexChange"|"onSelectGame"|"handleExit"|"openSettings"|"setView"> & {components: ImmersiveModeComponents}} props Library view properties. */
+/** @param {Pick<ImmersiveModeViewProps, "games"|"platforms"|"selectedPlatform"|"searchQuery"|"selectedIndex"|"loading"|"error"|"onSelectedPlatformChange"|"onSearchChange"|"onSelectedIndexChange"|"onSelectGame"|"handleExit"|"openSettings"|"setView"|"controllerRouteRef"> & {components: ImmersiveModeComponents}} props Library view properties. */
 const LibraryMain = (props) => {
   const LibraryView = props.components.library ?? ImmersiveLibrary;
   return (
@@ -160,6 +160,7 @@ const LibraryMain = (props) => {
       selectedIndex={props.selectedIndex}
       onSelectedIndexChange={props.onSelectedIndexChange}
       onSelectGame={props.onSelectGame}
+      controllerRouteRef={props.controllerRouteRef}
       onExitImmersive={props.handleExit}
       onOpenSettings={() => {
         props.openSettings();

@@ -28,9 +28,10 @@ import {
  * @property {() => void|Promise<void>} onExitImmersive Leaves immersive mode.
  * @property {() => void} onOpenSettings Opens settings.
  * @property {() => void} [onOpenDownloads] Opens downloads.
+ * @property {{current: HTMLDivElement|null}} [controllerRouteRef] App-owned controller route target.
  */
 
-/** @typedef {{loading: boolean, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void}} LibraryDataOptions */
+/** @typedef {{loading: boolean, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, controllerRouteRef?: {current: HTMLDivElement|null}}} LibraryDataOptions */
 /** @typedef {{colors: Record<string, string>, section: string, setSectionAndReset: (section: string) => void, platformOptions: {id: string|null, label: string}[], selectedPlatform: string|null, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, onSelectedPlatformChange: (platform: string|null) => void, activeCount: number, onOpenDownloads?: () => void, onOpenSettings: () => void, onExitImmersive: () => void, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, onSearchChange: (query: string) => void, error: string|null, loading: boolean, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, columns: number, selectedIndex: number, getProgress: (id: number|string) => object|null, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, scrollRef: {current: HTMLElement|null}, rootRef: {current: HTMLElement|null}, handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void, onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void}} LibraryController */
 
 /** @type {PlatformEntry[]} */
@@ -180,10 +181,12 @@ const useLibraryData = ({
   searchQuery,
   selectedIndex,
   onSelectedIndexChange,
+  controllerRouteRef,
 }) => {
   const [section, setSection] = useState("all");
   const gridRef = useRef(initialGridRef());
-  const rootRef = useRef(initialRootRef());
+  const localRootRef = useRef(initialRootRef());
+  const rootRef = controllerRouteRef ?? localRootRef;
   const scrollRef = useRef(initialScrollRef());
   const searchInputRef = useRef(initialSearchInputRef());
   /** @type {(HTMLButtonElement|null)[]} */
@@ -317,10 +320,12 @@ export const useImmersiveLibraryController = ({
   onExitImmersive,
   onOpenSettings,
   onOpenDownloads,
+  controllerRouteRef,
 }) => {
   const { colors } = useAppTheme();
   const { getProgress, activeCount } = useRomDownloads();
   const data = useLibraryData({
+    controllerRouteRef,
     games,
     loading,
     onSelectedIndexChange,

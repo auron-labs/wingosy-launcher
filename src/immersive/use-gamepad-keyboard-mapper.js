@@ -49,6 +49,7 @@ const SHELL_ACTION_KEYS = new Set(["Escape", "h", "H"]);
  * @typedef {{back: boolean, confirmOpen: boolean, down: boolean, left: boolean, menu: boolean, nextSection: boolean, previousSection: boolean, right: boolean, up: boolean, view: boolean}} DigitalState
  * @typedef {{key: number, pad: Gamepad, input: {digital: DigitalState, hasInput: boolean, activeAxes: string[], hasUnmappedInput: boolean, pressedButtons: number[]}}} StandardPad
  * @typedef {{actionId: number, controllerIndex: number, deferred: boolean, elapsedSincePreviousMs: number|null, key: string, phase: string}} ControllerAction
+ * @typedef {(key: string, action: ControllerAction|null) => void} ControllerActionCallback
  * @typedef {{at: number, repeating: boolean}} RepeatState
  * @typedef {{elapsedSincePreviousMs: number|null, phase: string}|null} RepeatTiming
  */
@@ -71,7 +72,7 @@ const KEY_TO_CODE = {
 };
 
 /** @param {string} key @param {ControllerAction|null} [action] */
-const buildKeydown = (key, action = null) => {
+export const buildControllerKeydown = (key, action = null) => {
   const code = KEY_TO_CODE[key] ?? "";
   /** @type {KeyboardEventInit & {code?: string}} */
   const options = { bubbles: true, cancelable: true, key };
@@ -107,7 +108,9 @@ const dispatchMenuKey = (key, action) => {
   const { activeElement } = document;
   const target =
     activeElement && menu.contains(activeElement) ? activeElement : menu;
-  const dispatchResult = target.dispatchEvent(buildKeydown(key, action));
+  const dispatchResult = target.dispatchEvent(
+    buildControllerKeydown(key, action)
+  );
   if (action) {
     debugLog("controller", "action routed", {
       ...action,
@@ -143,11 +146,13 @@ const dispatchWindowAndLibraryKey = (key, action) => {
   );
   /** @type {{element?: ReturnType<typeof describeControllerElement>, type: string, defaultPrevented?: boolean}[]|null} */
   const destinations = [{ type: "window" }];
-  const windowDispatchResult = window.dispatchEvent(buildKeydown(key, action));
+  const windowDispatchResult = window.dispatchEvent(
+    buildControllerKeydown(key, action)
+  );
   const library = document.querySelector('[data-testid="immersive-library"]');
   if (library !== null && LIBRARY_ACTION_KEYS.has(key)) {
     const libraryDispatchResult = library.dispatchEvent(
-      buildKeydown(key, action)
+      buildControllerKeydown(key, action)
     );
     destinations.push({
       defaultPrevented: !libraryDispatchResult,
@@ -184,16 +189,35 @@ const dispatchWindowAndLibraryKey = (key, action) => {
  * @param {string} key - Logical key to dispatch.
  * @param {boolean} [deferUntilNextFrame] - Defer routing until the next frame.
  * @param {ControllerAction|null} [action] - Debug action metadata.
+ * @param {{current: ControllerActionCallback|null}|null} [onControllerActionRef] - App action callback reference.
  */
-const dispatchKey = (key, deferUntilNextFrame = false, action = null) => {
+const dispatchKey = (
+  key,
+  deferUntilNextFrame = false,
+  action = null,
+  onControllerActionRef = null
+) => {
   if (deferUntilNextFrame) {
     requestAnimationFrame(() => {
-      dispatchKey(key, false, action);
+      dispatchKey(key, false, action, onControllerActionRef);
     });
     return;
   }
   if (action) {
     debugLog("controller", "recognized input/action", { ...action });
+  }
+  const onControllerAction = onControllerActionRef?.current;
+  if (onControllerAction) {
+    try {
+      if (dispatchMenuKey(key, action)) {
+        return;
+      }
+    } catch {
+      // Ignore a detached menu during teardown.
+      return;
+    }
+    onControllerAction(key, action);
+    return;
   }
   try {
     if (dispatchMenuKey(key, action)) {
@@ -263,9 +287,9 @@ const createRepeatGate = (refs, repeatDelayMs, repeatRateMs) =>
     return { elapsedSincePreviousMs, phase: "repeat" };
   };
 
-/** @param {MapperRefs} refs @param {boolean} debugEnabled @returns {(key: string, controllerIndex: number, timing: RepeatTiming, deferUntilNextFrame?: boolean) => void} */
+/** @param {MapperRefs} refs @param {boolean} debugEnabled @param {{current: ControllerActionCallback|null}} onControllerActionRef @returns {(key: string, controllerIndex: number, timing: RepeatTiming, deferUntilNextFrame?: boolean) => void} */
 const createControllerDispatcher =
-  (refs, debugEnabled) =>
+  (refs, debugEnabled, onControllerActionRef) =>
   (key, controllerIndex, timing, deferUntilNextFrame = false) => {
     const action = debugEnabled
       ? {
@@ -277,7 +301,7 @@ const createControllerDispatcher =
           phase: timing?.phase ?? "edge",
         }
       : null;
-    dispatchKey(key, deferUntilNextFrame, action);
+    dispatchKey(key, deferUntilNextFrame, action, onControllerActionRef);
   };
 
 /** @param {{deadzone: number, debugEnabled: boolean, refs: MapperRefs, updateUnsupported: (value: boolean) => void, canFire: (key: string, wasHeld: boolean) => RepeatTiming, dispatchControllerAction: (key: string, controllerIndex: number, timing: RepeatTiming, deferUntilNextFrame?: boolean) => void}} options @returns {() => void} A scheduled gamepad polling callback. */
@@ -359,13 +383,14 @@ const createGamepadTick = ({
  * - View: Back/View -> "h" (toggle on-screen help/hints)
  */
 /**
- * @param {{enabled?: boolean, repeatDelayMs?: number, repeatRateMs?: number, deadzone?: number}} [options] - Mapper options.
+ * @param {{enabled?: boolean, repeatDelayMs?: number, repeatRateMs?: number, deadzone?: number, onControllerAction?: ControllerActionCallback|null}} [options] - Mapper options.
  */
 export const useGamepadKeyboardMapper = ({
   enabled = true,
   repeatDelayMs = 240,
   repeatRateMs = 110,
   deadzone = DEFAULT_GAMEPAD_DEADZONE,
+  onControllerAction = null,
 } = {}) => {
   const rafRef = useRef(0);
   /** @type {Map<string, RepeatState>} */
@@ -385,6 +410,11 @@ export const useGamepadKeyboardMapper = ({
   const connectedPadsRef = useRef(initialConnectedPads);
   const unmappedInputRef = useRef("");
   const actionSequenceRef = useRef(0);
+  /** @type {{current: ControllerActionCallback|null}} */
+  const onControllerActionRef = useRef(onControllerAction);
+  useEffect(() => {
+    onControllerActionRef.current = onControllerAction;
+  }, [onControllerAction]);
 
   useEffect(() => {
     /** @type {MapperRefs} */
@@ -419,7 +449,8 @@ export const useGamepadKeyboardMapper = ({
     const canFire = createRepeatGate(refs, repeatDelayMs, repeatRateMs);
     const dispatchControllerAction = createControllerDispatcher(
       refs,
-      debugEnabled
+      debugEnabled,
+      onControllerActionRef
     );
     const tick = createGamepadTick({
       canFire,

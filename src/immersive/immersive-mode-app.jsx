@@ -1,7 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
+import { isTextInputTarget, logControllerOutcome } from "./controller-debug";
 import ImmersiveModeView from "./immersive-mode-view";
-import { useGamepadKeyboardMapper } from "./use-gamepad-keyboard-mapper";
+import {
+  buildControllerKeydown,
+  useGamepadKeyboardMapper,
+} from "./use-gamepad-keyboard-mapper";
 import { useImmersiveModeDisplay } from "./use-immersive-mode-display";
 import { useImmersiveModeFavorite } from "./use-immersive-mode-favorite";
 import { useImmersiveModeHotkeys } from "./use-immersive-mode-hotkeys";
@@ -25,6 +29,49 @@ const runIgnoringFailure = async (operation) => {
     return null;
   }
   return null;
+};
+
+/** @param {string} key Controller key. @returns {boolean} Whether shell owns the key. */
+const isShellControllerKey = (key) =>
+  key === "Escape" || key === "h" || key === "H";
+
+/** @param {{view: string}} options Routing options. @returns {{libraryTargetRef: {current: HTMLDivElement|null}, onControllerAction: (key: string, action: {actionId: number, controllerIndex: number, deferred: boolean, elapsedSincePreviousMs: number|null, key: string, phase: string}|null) => void}} Controller route. */
+const useImmersiveModeControllerRoute = ({ view }) => {
+  /** @type {HTMLDivElement|null} */
+  const initialLibraryTarget = null;
+  const libraryTargetRef = useRef(initialLibraryTarget);
+  const onControllerAction = useCallback(
+    /** @param {string} key Controller key. @param {{actionId: number, controllerIndex: number, deferred: boolean, elapsedSincePreviousMs: number|null, key: string, phase: string}|null} action Controller action metadata. */
+    (key, action) => {
+      try {
+        if (isTextInputTarget(document.activeElement)) {
+          const receiver =
+            view === "library" && !isShellControllerKey(key)
+              ? "library"
+              : "shell";
+          logControllerOutcome(action, receiver, "suppressed", {
+            reason: "text-input-focused",
+          });
+          return;
+        }
+        const target =
+          view === "library" && !isShellControllerKey(key)
+            ? libraryTargetRef.current
+            : window;
+        if (target === null) {
+          logControllerOutcome(action, "library", "ignored", {
+            reason: "route-target-missing",
+          });
+          return;
+        }
+        target.dispatchEvent(buildControllerKeydown(key, action));
+      } catch {
+        // Ignore a detached view during route transitions or teardown.
+      }
+    },
+    [view]
+  );
+  return { libraryTargetRef, onControllerAction };
 };
 
 /** @param {{display: ReturnType<typeof useImmersiveModeDisplay>, onExit?: () => void|Promise<void>}} options Navigation options. */
@@ -64,11 +111,12 @@ const useImmersiveModeNavigation = ({ display, onExit }) => {
   };
 };
 
-/** @param {{library: ReturnType<typeof useImmersiveModeLibrary>, display: ReturnType<typeof useImmersiveModeDisplay>, navigation: ReturnType<typeof useImmersiveModeNavigation>, prepareLaunch?: typeof import("./immersive-mode-ipc").prepareAndLaunchGame, toggleGameFavorite?: typeof import("./immersive-mode-ipc").toggleFavorite}} options Immersive command options. */
+/** @param {{library: ReturnType<typeof useImmersiveModeLibrary>, display: ReturnType<typeof useImmersiveModeDisplay>, navigation: ReturnType<typeof useImmersiveModeNavigation>, view: string, prepareLaunch?: typeof import("./immersive-mode-ipc").prepareAndLaunchGame, toggleGameFavorite?: typeof import("./immersive-mode-ipc").toggleFavorite}} options Immersive command options. */
 const useImmersiveModeCommands = ({
   library,
   display,
   navigation,
+  view,
   prepareLaunch,
   toggleGameFavorite,
 }) => {
@@ -88,11 +136,18 @@ const useImmersiveModeCommands = ({
     setSelectedGame: library.setSelectedGame,
     toggleGameFavorite,
   });
+  const controllerRoute = useImmersiveModeControllerRoute({ view });
   const { unsupportedGamepad } = useGamepadKeyboardMapper({
     deadzone: display.controllerDeadzone,
     enabled: true,
+    onControllerAction: controllerRoute.onControllerAction,
   });
-  return { handleLaunchGame, handleToggleFavorite, unsupportedGamepad };
+  return {
+    controllerRouteRef: controllerRoute.libraryTargetRef,
+    handleLaunchGame,
+    handleToggleFavorite,
+    unsupportedGamepad,
+  };
 };
 
 /** @param {{platforms: Array<[ {id: string, name: string}, number ]>}} options Platform options. */
@@ -162,6 +217,7 @@ const useImmersiveModeAppController = ({
     navigation,
     prepareLaunch: dependencies.prepareLaunch,
     toggleGameFavorite: dependencies.toggleGameFavorite,
+    view: navigation.view,
   });
   useImmersiveModeHotkeys({
     handleExit: navigation.handleExit,
@@ -177,13 +233,12 @@ const useImmersiveModeAppController = ({
     navigation,
   });
   return {
+    ...commands,
     audioConfig: display.audioConfig,
     components: dependencies.components,
     error: library.error,
     games: library.games,
     handleExit: navigation.handleExit,
-    handleLaunchGame: commands.handleLaunchGame,
-    handleToggleFavorite: commands.handleToggleFavorite,
     loadData: library.loadData,
     loading: library.loading,
     onControllerDeadzoneChange: callbacks.handleControllerDeadzoneChange,
@@ -211,7 +266,6 @@ const useImmersiveModeAppController = ({
     setView: navigation.setView,
     settingsInitialSection: navigation.settingsInitialSection,
     showHints: navigation.showHints,
-    unsupportedGamepad: commands.unsupportedGamepad,
     view: navigation.view,
   };
 };
