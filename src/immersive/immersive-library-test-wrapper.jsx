@@ -27,10 +27,16 @@ const downloadsValue = {
   activeCount: 0,
   activeDownloads: [],
   clearRecentDownloads: noOp,
+  getBiosProgress: () => null,
+  getBiosRecentDownload: () => null,
   getLaunchProgress: () => null,
   getProgress: () => null,
   getSwitchContentProgress: () => null,
   recentDownloads: [],
+  retryBiosDownload: async () => {
+    await Promise.resolve();
+    return null;
+  },
 };
 /** @type {PlatformEntry[]} */
 const emptyPlatforms = [];

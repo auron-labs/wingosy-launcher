@@ -222,7 +222,7 @@ const MediaGrid = ({ urls, getMediaSrc, onOpen }) => (
 const DetailsMediaGallery = ({ screenshots, getMediaSrc }) => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const urls = screenshots;
+  const urls = screenshots.filter((url) => url !== "");
   if (urls.length === 0) {
     return null;
   }
@@ -253,11 +253,12 @@ const DetailsMediaGallery = ({ screenshots, getMediaSrc }) => {
   );
 };
 
-/** @param {{game: ImmersiveGame, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} props About properties. */
+/** @param {{game: ImmersiveGame, achievementState: ReturnType<typeof import("../components/game/use-game-details-achievements").useGameDetailsAchievements>, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} props About properties. */
 const DetailsAbout = ({
+  achievementState,
   game,
-  retroachievementsEnabled,
   onOpenIntegrations,
+  retroachievementsEnabled,
 }) => (
   <Box sx={{ maxWidth: 720, mt: 4 }}>
     <Typography
@@ -284,17 +285,32 @@ const DetailsAbout = ({
     </Typography>
     <Box sx={{ mt: 2 }}>
       <GameAchievementsSection
+        achievements={achievementState.achievements}
+        error={achievementState.error}
         gameName={game.name}
-        retroAchievementsEnabled={retroachievementsEnabled}
+        loading={achievementState.loading}
+        onRefresh={
+          achievementState.canRefresh
+            ? achievementState.refreshAchievements
+            : null
+        }
         onOpenIntegrations={onOpenIntegrations}
+        previousResult={achievementState.previousResult}
+        retroAchievementsEnabled={retroachievementsEnabled}
+        refreshing={achievementState.refreshing}
       />
     </Box>
   </Box>
 );
 
-/** @param {{game: ImmersiveGame, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps, screenshots: string[], getMediaSrc: (url: string) => string|null, primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, onToggleFavorite: (gameId: number|string) => void|Promise<void>}} props Summary properties. */
+/** @param {{game: ImmersiveGame, achievementState: ReturnType<typeof import("../components/game/use-game-details-achievements").useGameDetailsAchievements>, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps, screenshots: string[], getMediaSrc: (url: string) => string|null, primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, onToggleFavorite: (gameId: number|string) => void|Promise<void>}} props Summary properties. */
 export const DetailsSummary = (props) => {
-  const { game, retroachievementsEnabled, onOpenIntegrations } = props;
+  const {
+    achievementState,
+    game,
+    onOpenIntegrations,
+    retroachievementsEnabled,
+  } = props;
   return (
     <Box sx={{ maxWidth: 1200 }}>
       <DetailsHeroMetadata game={game} platformLabel={props.platformLabel} />
@@ -303,6 +319,7 @@ export const DetailsSummary = (props) => {
         <DetailsActions {...props} />
       </Box>
       <DetailsAbout
+        achievementState={achievementState}
         game={game}
         retroachievementsEnabled={retroachievementsEnabled}
         onOpenIntegrations={onOpenIntegrations}

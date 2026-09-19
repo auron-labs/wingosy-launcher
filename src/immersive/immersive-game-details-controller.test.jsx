@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -103,12 +109,45 @@ describe("ImmersiveGameDetails controller launch", () => {
     const onLaunch = vi.fn().mockResolvedValue({ success: true });
     const localGame = { ...remoteOnlyGame, local_file_path: "/roms/cloud.gba" };
     renderDetails(onLaunch, localGame);
+    const details = screen.getByTestId("immersive-game-details");
 
     dispatchControllerKey("Enter");
 
     expect(onLaunch).toHaveBeenCalledWith(localGame.id);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled();
+      expect(
+        within(details).getByText("Play", { selector: "button" })
+      ).toBeEnabled();
+    });
+  });
+});
+
+describe("ImmersiveGameDetails RetroAchievements", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("uses the shared achievement state from the immersive controller", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_romm_retroachievements") {
+        return [
+          { id: 101, title: "Earned", unlocked: true },
+          { id: 102, title: "Locked", unlocked: false },
+        ];
+      }
+      return null;
+    });
+
+    renderDetails(undefined, remoteOnlyGame, {
+      retroachievementsEnabled: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("(1/2)")).toBeInTheDocument();
+    });
+    expect(invoke).toHaveBeenCalledWith("get_romm_retroachievements", {
+      refreshProgression: false,
+      romId: remoteOnlyGame.romm_id,
+      serverUrl: "https://romm.example",
+      token: "saved-token",
     });
   });
 });

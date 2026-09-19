@@ -144,7 +144,7 @@ const useEmulatorSectionLoading = ({
   }, [settingsSection]);
 };
 
-/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. */
+/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onRetroAchievementsChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, onBack?: () => void, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. */
 const Settings = (props) => {
   const settings = useSettingsController(props);
   const { settingsSection, setSettingsSection } = settings;

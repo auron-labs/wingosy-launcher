@@ -49,6 +49,58 @@ describe("ImmersiveModeApp duplicate games", () => {
   });
 });
 
+describe("ImmersiveModeApp RomM sync monitor", () => {
+  afterEach(resetImmersiveModeTest);
+
+  it("opens the shared monitor from immersive utilities and returns to the library", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") {
+        return { games: initialGames, total: initialGames.length };
+      }
+      if (command === "get_platforms_with_games") {
+        return [];
+      }
+      if (command === "get_config") {
+        return { display: { big_picture: true } };
+      }
+      return null;
+    });
+    /** @type {import("../components/use-romm-sync-monitor").RommSyncMonitorState} */
+    const rommSyncMonitor = {
+      activeOperation: null,
+      error: null,
+      loadOverview: vi.fn(async () => {}),
+      loading: false,
+      platformStatuses: {},
+      platforms: [
+        {
+          installed_games: 1,
+          local_games: 2,
+          name: "Game Boy Advance",
+          platform_id: "gba",
+          romm_platform_id: 7,
+          server_games: 3,
+        },
+      ],
+      syncAll: vi.fn(async () => {}),
+      syncAllStatus: { error: null, state: "idle", totalGames: null },
+      syncPlatform: vi.fn(async () => {}),
+    };
+
+    renderImmersiveModeApp({ rommSyncMonitor });
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "RomM Sync" }));
+
+    expect(screen.getByTestId("romm-sync-monitor")).toBeInTheDocument();
+    expect(screen.getByText("Game Boy Advance")).toBeInTheDocument();
+    expect(screen.getByText("Server ROMs")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to library" }));
+    expect(screen.getByTestId("immersive-library")).toBeInTheDocument();
+  });
+});
+
 describe("ImmersiveModeApp selected game refresh", () => {
   afterEach(resetImmersiveModeTest);
 
@@ -93,6 +145,44 @@ describe("ImmersiveModeApp selected game refresh", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("selected-index")).toHaveTextContent("1");
+  });
+});
+
+describe("ImmersiveModeApp settings callbacks", () => {
+  afterEach(resetImmersiveModeTest);
+
+  it("supplies a saved RetroAchievements preference to details after returning from settings", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_games_page") {
+        return { games: initialGames, total: initialGames.length };
+      }
+      if (command === "get_platforms_with_games") {
+        return [];
+      }
+      if (command === "get_config") {
+        return { display: { big_picture: true } };
+      }
+      return null;
+    });
+
+    renderImmersiveModeApp();
+    await waitFor(() => {
+      expect(screen.getByTestId("game-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("game-1"));
+    expect(screen.getByTestId("details-retroachievements")).toHaveTextContent(
+      "false"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save RetroAchievements" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back to details" }));
+
+    expect(screen.getByTestId("details-retroachievements")).toHaveTextContent(
+      "true"
+    );
   });
 });
 

@@ -1,12 +1,14 @@
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import LockIcon from "@mui/icons-material/Lock";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import LinearProgress from "@mui/material/LinearProgress";
 import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
+import AchievementBadge from "./achievement-badge";
 import AchievementListOverlay from "./achievement-list-overlay";
+import { getAchievementStats } from "./achievement-presentation";
 
 /** @typedef {import("./game-details-types").GameDetailsAchievementsAchievement} Achievement */
 
@@ -70,31 +72,223 @@ const AchievementsEmptyState = ({ enabled, onOpenIntegrations, total }) => {
 /** @param {{achievements: Achievement[]}} props Renders achievement badge tiles. */
 const AchievementTiles = ({ achievements }) => (
   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, pb: 0.5 }}>
-    {achievements.slice(0, 12).map((achievement) => (
-      <Box
-        key={achievement.id}
-        sx={{
-          alignItems: "center",
-          bgcolor:
-            achievement.unlocked === true ? "action.selected" : "action.hover",
-          border: 1,
-          borderColor:
-            achievement.unlocked === true ? "warning.main" : "divider",
-          borderRadius: 1,
-          display: "flex",
-          flexShrink: 0,
-          height: 72,
-          justifyContent: "center",
-          width: 72,
+    {achievements.slice(0, 12).map((achievement) => {
+      const unlocked = achievement.unlocked === true;
+      return (
+        <Box
+          aria-label={`${achievement.title} (${unlocked ? "unlocked" : "locked"})`}
+          data-testid={`achievement-tile-${achievement.id}`}
+          key={achievement.id}
+          sx={{
+            alignItems: "center",
+            bgcolor: unlocked ? "action.selected" : "action.hover",
+            border: 1,
+            borderColor: unlocked ? "warning.main" : "divider",
+            borderRadius: 1,
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+            height: 72,
+            justifyContent: "center",
+            position: "relative",
+            width: 72,
+          }}
+        >
+          <AchievementBadge achievement={achievement} compact />
+          {achievement.unlocked_hardcore === true && (
+            <Typography
+              component="span"
+              sx={{
+                bgcolor: "background.paper",
+                borderRadius: 0.5,
+                bottom: 2,
+                color: "warning.main",
+                fontSize: "0.55rem",
+                fontWeight: 700,
+                lineHeight: 1.2,
+                position: "absolute",
+                px: 0.25,
+                right: 2,
+              }}
+            >
+              HC
+            </Typography>
+          )}
+        </Box>
+      );
+    })}
+  </Box>
+);
+
+/** @param {{canRefresh: boolean, loading: boolean, onRefresh: (() => Promise<void>)|null, refreshing: boolean, showData: boolean, onOpen: () => void}} props Achievement actions. */
+const AchievementActions = ({
+  canRefresh,
+  loading,
+  onOpen,
+  onRefresh,
+  refreshing,
+  showData,
+}) => (
+  <Box sx={{ display: "flex", gap: 1 }}>
+    {canRefresh && (
+      <Button
+        aria-label="Refresh achievement progress"
+        disabled={loading || refreshing}
+        onClick={() => {
+          void onRefresh?.();
         }}
+        size="small"
       >
-        {achievement.unlocked === true ? (
-          <EmojiEventsIcon sx={{ color: TROPHY_AMBER }} />
-        ) : (
-          <LockIcon color="disabled" fontSize="small" />
-        )}
-      </Box>
-    ))}
+        {refreshing ? "Refreshing…" : "Refresh"}
+      </Button>
+    )}
+    {showData && (
+      <Button onClick={onOpen} size="small" variant="outlined">
+        View all
+      </Button>
+    )}
+  </Box>
+);
+
+/** @param {{error: string|null, loading: boolean, previousResult: boolean, total: number}} props Achievement status. */
+const AchievementStatus = ({ error, loading, previousResult, total }) => {
+  if (error !== null && total > 0) {
+    return (
+      <Typography
+        color="error"
+        data-testid={
+          previousResult ? "achievements-previous-result" : "achievements-error"
+        }
+        role="alert"
+        sx={{ mb: 1.5 }}
+        variant="body2"
+      >
+        {previousResult
+          ? "Could not refresh achievement progress. Showing previous results. "
+          : "Could not load achievement progress. "}
+        {error}
+      </Typography>
+    );
+  }
+  if (loading && total === 0) {
+    return (
+      <Typography
+        color="text.secondary"
+        data-testid="achievements-loading"
+        variant="body2"
+      >
+        Loading RetroAchievements…
+      </Typography>
+    );
+  }
+  if (error !== null && total === 0) {
+    return (
+      <Typography
+        color="error"
+        data-testid="achievements-error"
+        role="alert"
+        variant="body2"
+      >
+        Could not load achievement progress: {error}
+      </Typography>
+    );
+  }
+  return null;
+};
+
+/** @param {{progress: number, total: number}} props Achievement progress summary. */
+const AchievementProgress = ({ progress, total }) => {
+  if (total === 0) {
+    return null;
+  }
+  return (
+    <Box sx={{ alignItems: "center", display: "flex", gap: 1.25, mb: 1.5 }}>
+      <LinearProgress
+        aria-label="Achievement completion"
+        sx={{ borderRadius: 999, flex: 1, height: 7 }}
+        value={progress}
+        variant="determinate"
+      />
+      <Typography color="text.secondary" variant="caption">
+        {progress}%
+      </Typography>
+    </Box>
+  );
+};
+
+/** @param {{achievements: Achievement[], enabled: boolean, onOpenIntegrations: (() => void)|null, total: number}} props Achievement body. */
+const AchievementBody = ({
+  achievements,
+  enabled,
+  onOpenIntegrations,
+  total,
+}) => {
+  if (enabled && total > 0) {
+    return <AchievementTiles achievements={achievements} />;
+  }
+  return (
+    <AchievementsEmptyState
+      enabled={enabled}
+      onOpenIntegrations={onOpenIntegrations}
+      total={total}
+    />
+  );
+};
+
+/** @param {{canRefresh: boolean, earnedPoints: number, loading: boolean, onOpen: () => void, onRefresh: (() => Promise<void>)|null, refreshing: boolean, showData: boolean, total: number, totalPoints: number, unlocked: number}} props Achievement heading. */
+const AchievementHeading = ({
+  canRefresh,
+  earnedPoints,
+  loading,
+  onOpen,
+  onRefresh,
+  refreshing,
+  showData,
+  total,
+  totalPoints,
+  unlocked,
+}) => (
+  <Box
+    sx={{
+      alignItems: "center",
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 1,
+      justifyContent: "space-between",
+      mb: 1.5,
+    }}
+  >
+    <Box sx={{ alignItems: "center", display: "flex", gap: 1 }}>
+      <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 22 }} />
+      <Typography
+        sx={{
+          color: "primary.main",
+          fontWeight: 800,
+          letterSpacing: 0.8,
+        }}
+        variant="subtitle2"
+      >
+        ACHIEVEMENTS
+      </Typography>
+      {showData && (
+        <Box sx={{ alignItems: "center", display: "flex", gap: 1 }}>
+          <Typography color="text.secondary" variant="body2">
+            ({unlocked}/{total})
+          </Typography>
+          <Typography color="text.secondary" variant="caption">
+            {earnedPoints}/{totalPoints} pts
+          </Typography>
+        </Box>
+      )}
+    </Box>
+    <AchievementActions
+      canRefresh={canRefresh}
+      loading={loading}
+      onOpen={onOpen}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
+      showData={showData}
+    />
   </Box>
 );
 
@@ -104,66 +298,56 @@ const AchievementTiles = ({ achievements }) => (
  * @param {boolean} props.retroAchievementsEnabled Integration state.
  * @param {(() => void)|null} [props.onOpenIntegrations] Settings navigation callback.
  * @param {Achievement[]} [props.achievements] Achievement rows.
+ * @param {string|null} [props.error] Achievement loading error.
+ * @param {boolean} [props.loading] Whether the initial result is loading.
+ * @param {(() => Promise<void>)|null} [props.onRefresh] Refresh callback.
+ * @param {boolean} [props.previousResult] Whether data was retained after refresh failure.
+ * @param {boolean} [props.refreshing] Whether an explicit refresh is active.
  */
 const GameAchievementsSection = ({
   achievements = EMPTY_ACHIEVEMENTS,
+  error = null,
   gameName,
+  loading = false,
   onOpenIntegrations = null,
+  onRefresh = null,
+  previousResult = false,
   retroAchievementsEnabled,
+  refreshing = false,
 }) => {
   const [overlayOpen, setOverlayOpen] = useState(false);
-  const total = achievements.length;
-  const unlocked = achievements.filter(
-    (achievement) => achievement.unlocked === true
-  ).length;
+  const { earnedPoints, progress, total, totalPoints, unlocked } =
+    getAchievementStats(achievements);
   const showData = retroAchievementsEnabled && total > 0;
+  const canRefresh = retroAchievementsEnabled && onRefresh !== null;
+  const hasEmptyDataStatus = total === 0 && (loading || error !== null);
   return (
     <>
       <Box sx={{ mb: 3 }}>
-        <Box
-          sx={{
-            alignItems: "center",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 1,
-            justifyContent: "space-between",
-            mb: 1.5,
+        <AchievementHeading
+          canRefresh={canRefresh}
+          earnedPoints={earnedPoints}
+          loading={loading}
+          onOpen={() => {
+            setOverlayOpen(true);
           }}
-        >
-          <Box sx={{ alignItems: "center", display: "flex", gap: 1 }}>
-            <EmojiEventsIcon sx={{ color: TROPHY_AMBER, fontSize: 22 }} />
-            <Typography
-              sx={{
-                color: "primary.main",
-                fontWeight: 800,
-                letterSpacing: 0.8,
-              }}
-              variant="subtitle2"
-            >
-              ACHIEVEMENTS
-            </Typography>
-            {showData && (
-              <Typography color="text.secondary" variant="body2">
-                ({unlocked}/{total})
-              </Typography>
-            )}
-          </Box>
-          {showData && (
-            <Button
-              onClick={() => {
-                setOverlayOpen(true);
-              }}
-              size="small"
-              variant="outlined"
-            >
-              View all
-            </Button>
-          )}
-        </Box>
-        {showData ? (
-          <AchievementTiles achievements={achievements} />
-        ) : (
-          <AchievementsEmptyState
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+          showData={showData}
+          total={total}
+          totalPoints={totalPoints}
+          unlocked={unlocked}
+        />
+        <AchievementStatus
+          error={error}
+          loading={loading}
+          previousResult={previousResult}
+          total={total}
+        />
+        {showData && <AchievementProgress progress={progress} total={total} />}
+        {!hasEmptyDataStatus && (
+          <AchievementBody
+            achievements={achievements}
             enabled={retroAchievementsEnabled}
             onOpenIntegrations={onOpenIntegrations}
             total={total}

@@ -1,6 +1,8 @@
 //! Eden / yuzu-style Switch save paths and ZIP layout compatible with Argosy `SwitchSaveHandler`.
 use anyhow::{bail, Context, Result};
 use regex_lite::Regex;
+use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -295,18 +297,109 @@ pub fn zip_title_folder(title_dir: &Path, title_id: &str, dest_zip: &Path) -> Re
     Ok(())
 }
 
-/// Extract a single-root-folder Argosy/Eden zip into `target_title_dir`.
-pub fn unzip_into_title_folder(zip_path: &Path, target_title_dir: &Path) -> Result<()> {
+/// A locally applied title-folder replacement that can be committed or rolled
+/// back after callers finish their durable bookkeeping.
+pub struct TitleFolderRestore {
+    target_title_dir: PathBuf,
+    previous_title_dir: Option<PathBuf>,
+    finished: bool,
+}
+
+impl TitleFolderRestore {
+    pub fn commit(&mut self) {
+        if let Some(previous_title_dir) = self.previous_title_dir.take() {
+            let _ = std::fs::remove_dir_all(previous_title_dir);
+        }
+        self.finished = true;
+    }
+
+    pub fn rollback(&mut self) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
+
+        if self.target_title_dir.exists() {
+            std::fs::remove_dir_all(&self.target_title_dir)?;
+        }
+        if let Some(previous_title_dir) = self.previous_title_dir.as_ref() {
+            std::fs::rename(previous_title_dir, &self.target_title_dir)?;
+            self.previous_title_dir = None;
+        }
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for TitleFolderRestore {
+    fn drop(&mut self) {
+        if let Err(error) = self.rollback() {
+            tracing::error!("Failed to roll back Switch save restore: {error}");
+        }
+    }
+}
+
+/// Produce a stable fingerprint of the save files, independent of file
+/// timestamps and directory enumeration order.
+pub fn fingerprint_title_folder(title_dir: &Path) -> Result<String> {
+    if !title_dir.is_dir() {
+        bail!("Save folder does not exist: {}", title_dir.display());
+    }
+
+    let mut files = Vec::new();
+    for entry in WalkDir::new(title_dir) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let relative_path = entry
+            .path()
+            .strip_prefix(title_dir)
+            .context("strip_prefix title_dir")?
+            .to_string_lossy()
+            .replace('\\', "/");
+        files.push((relative_path, entry.into_path()));
+    }
+    files.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    let mut hasher = Sha256::new();
+    for (relative_path, path) in files {
+        let path_bytes = relative_path.as_bytes();
+        hasher.update((path_bytes.len() as u64).to_be_bytes());
+        hasher.update(path_bytes);
+
+        let mut file = File::open(path)?;
+        hasher.update(file.metadata()?.len().to_be_bytes());
+        let mut buffer = [0; 8192];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+    }
+
+    let mut digest = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        write!(&mut digest, "{byte:02x}")
+            .expect("writing a SHA-256 digest to a String cannot fail");
+    }
+    Ok(format!("sha256:{digest}"))
+}
+
+/// Safely replace `target_title_dir` with a single-root-folder
+/// Argosy/Eden archive. The returned replacement rolls itself back unless it
+/// is committed.
+pub fn restore_title_folder_from_zip(
+    zip_path: &Path,
+    target_title_dir: &Path,
+) -> Result<TitleFolderRestore> {
     let file = File::open(zip_path)?;
     let mut archive = ZipArchive::new(file)?;
     let parent = target_title_dir
         .parent()
         .context("Save folder has no parent directory")?;
     std::fs::create_dir_all(parent)?;
-    let nonce = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let temp_dir = parent.join(format!(".wingosy-restore-{nonce}"));
-    let old_dir = parent.join(format!(".wingosy-previous-{nonce}"));
-    std::fs::create_dir_all(&temp_dir)?;
 
     let mut root_folder: Option<String> = None;
     for i in 0..archive.len() {
@@ -314,12 +407,29 @@ pub fn unzip_into_title_folder(zip_path: &Path, target_title_dir: &Path) -> Resu
         let safe_path = entry
             .enclosed_name()
             .context("Save archive contains an unsafe path")?;
-        if let Some(seg) = safe_path.components().next() {
-            if safe_path.components().count() > 1 {
-                root_folder.get_or_insert_with(|| seg.as_os_str().to_string_lossy().into_owned());
+        let mut components = safe_path.components();
+        let root = components
+            .next()
+            .context("Save archive contains an empty path")?
+            .as_os_str()
+            .to_string_lossy()
+            .into_owned();
+        if components.next().is_none() && !entry.is_dir() {
+            bail!("Save archive must contain one root folder");
+        }
+        if let Some(expected_root) = root_folder.as_deref() {
+            if expected_root != root {
+                bail!("Save archive must contain exactly one root folder");
             }
+        } else {
+            root_folder = Some(root);
         }
     }
+    let root_folder = root_folder.context("Save archive contains no root folder")?;
+    let nonce = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
+    let temp_dir = parent.join(format!(".wingosy-restore-{nonce}"));
+    let old_dir = parent.join(format!(".wingosy-previous-{nonce}"));
+    std::fs::create_dir_all(&temp_dir)?;
 
     let extraction = (|| -> Result<()> {
         for i in 0..archive.len() {
@@ -328,11 +438,9 @@ pub fn unzip_into_title_folder(zip_path: &Path, target_title_dir: &Path) -> Resu
                 .enclosed_name()
                 .context("Save archive contains an unsafe path")?
                 .to_path_buf();
-            let relative = if let Some(ref root) = root_folder {
-                safe_path.strip_prefix(root).unwrap_or(&safe_path)
-            } else {
-                safe_path.as_path()
-            };
+            let relative = safe_path
+                .strip_prefix(&root_folder)
+                .context("Save archive entry did not match its root folder")?;
             if relative.as_os_str().is_empty() {
                 continue;
             }
@@ -365,8 +473,18 @@ pub fn unzip_into_title_folder(zip_path: &Path, target_title_dir: &Path) -> Resu
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
-    let _ = std::fs::remove_dir_all(&old_dir);
 
+    Ok(TitleFolderRestore {
+        target_title_dir: target_title_dir.to_path_buf(),
+        previous_title_dir: old_dir.exists().then_some(old_dir),
+        finished: false,
+    })
+}
+
+/// Extract a single-root-folder Argosy/Eden zip into `target_title_dir`.
+pub fn unzip_into_title_folder(zip_path: &Path, target_title_dir: &Path) -> Result<()> {
+    let mut restore = restore_title_folder_from_zip(zip_path, target_title_dir)?;
+    restore.commit();
     Ok(())
 }
 
@@ -479,5 +597,29 @@ mod tests {
         let target = temp.path().join("save");
         assert!(unzip_into_title_folder(&archive_path, &target).is_err());
         assert!(!temp.path().join("escaped.dat").exists());
+    }
+
+    #[test]
+    fn rejects_archives_with_multiple_root_folders_without_replacing_the_save() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("multiple-roots.zip");
+        let file = File::create(&archive_path).unwrap();
+        let mut archive = ZipWriter::new(file);
+        archive
+            .start_file("first/save.dat", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"first").unwrap();
+        archive
+            .start_file("second/save.dat", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"second").unwrap();
+        archive.finish().unwrap();
+
+        let target = temp.path().join("save");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("existing.dat"), b"keep").unwrap();
+
+        assert!(unzip_into_title_folder(&archive_path, &target).is_err());
+        assert_eq!(std::fs::read(target.join("existing.dat")).unwrap(), b"keep");
     }
 }

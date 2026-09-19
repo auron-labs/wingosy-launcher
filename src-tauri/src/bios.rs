@@ -1,5 +1,5 @@
 use crate::{
-    api::{RomMClient, RomMFirmware},
+    api::{download::DownloadProgress, download::DownloadRateEstimator, RomMClient, RomMFirmware},
     config::{AppConfig, EmulatorPaths, RetroArchInstallKind},
     models::map_romm_slug,
     sync::switch_content::replace_file,
@@ -11,18 +11,268 @@ use aes::{
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{
+    collections::{HashMap, HashSet, VecDeque},
     fs::File,
+    future::Future,
     io::{Read, Write},
     path::{Path, PathBuf},
+    pin::Pin,
+    sync::{Arc, Mutex, OnceLock},
+    time::Instant,
 };
-use tokio::io::AsyncWriteExt;
+use tauri::{AppHandle, Emitter};
+use tokio::{io::AsyncWriteExt, sync::watch, task::JoinSet};
 use zip::ZipArchive;
+
+const BIOS_DOWNLOAD_CONCURRENCY: usize = 3;
+
+type BiosDownloadResult = std::result::Result<PathBuf, String>;
+type BiosDownloadWork = Pin<Box<dyn Future<Output = BiosDownloadResult> + Send>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct BiosDownloadKey {
+    transfer_id: String,
+    destination: PathBuf,
+}
+
+struct QueuedBiosDownload {
+    key: BiosDownloadKey,
+    result: watch::Sender<Option<BiosDownloadResult>>,
+    work: Mutex<Option<BiosDownloadWork>>,
+}
+
+struct PendingBiosDownload {
+    job: Arc<QueuedBiosDownload>,
+    ready: bool,
+}
+
+struct BiosDownloadSubmission {
+    is_new: bool,
+    queued: bool,
+    receiver: watch::Receiver<Option<BiosDownloadResult>>,
+}
+
+struct BiosDownloadQueueState {
+    active_count: usize,
+    active_destinations: HashSet<PathBuf>,
+    jobs_by_key: HashMap<BiosDownloadKey, Arc<QueuedBiosDownload>>,
+    pending: VecDeque<PendingBiosDownload>,
+}
+
+#[derive(Clone)]
+struct BiosDownloadQueue {
+    concurrency: usize,
+    state: Arc<Mutex<BiosDownloadQueueState>>,
+}
+
+impl BiosDownloadQueue {
+    fn new(concurrency: usize) -> Self {
+        assert!(
+            concurrency > 0,
+            "BIOS download concurrency must be positive"
+        );
+        Self {
+            concurrency,
+            state: Arc::new(Mutex::new(BiosDownloadQueueState {
+                active_count: 0,
+                active_destinations: HashSet::new(),
+                jobs_by_key: HashMap::new(),
+                pending: VecDeque::new(),
+            })),
+        }
+    }
+
+    fn submit(&self, key: BiosDownloadKey, work: BiosDownloadWork) -> BiosDownloadSubmission {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(job) = state.jobs_by_key.get(&key) {
+            return BiosDownloadSubmission {
+                is_new: false,
+                queued: false,
+                receiver: job.result.subscribe(),
+            };
+        }
+        let queued = state.active_count >= self.concurrency
+            || !state.pending.is_empty()
+            || state.active_destinations.contains(&key.destination)
+            || state
+                .pending
+                .iter()
+                .any(|job| job.job.key.destination == key.destination);
+        let (result, receiver) = watch::channel(None);
+        let job = Arc::new(QueuedBiosDownload {
+            key: key.clone(),
+            result,
+            work: Mutex::new(Some(work)),
+        });
+        state.jobs_by_key.insert(key.clone(), Arc::clone(&job));
+        state
+            .pending
+            .push_back(PendingBiosDownload { job, ready: false });
+        BiosDownloadSubmission {
+            is_new: true,
+            queued,
+            receiver,
+        }
+    }
+
+    fn activate(&self, key: &BiosDownloadKey) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(pending) = state
+            .pending
+            .iter_mut()
+            .find(|pending| &pending.job.key == key)
+        else {
+            return;
+        };
+        pending.ready = true;
+        drop(state);
+        self.start_pending();
+    }
+
+    fn start_pending(&self) {
+        loop {
+            let job = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if state.active_count >= self.concurrency {
+                    return;
+                }
+                let Some(index) = state.pending.iter().position(|pending| {
+                    pending.ready
+                        && !state
+                            .active_destinations
+                            .contains(&pending.job.key.destination)
+                }) else {
+                    return;
+                };
+                let job = state
+                    .pending
+                    .remove(index)
+                    .expect("queued BIOS download must remain pending");
+                state.active_count += 1;
+                state
+                    .active_destinations
+                    .insert(job.job.key.destination.clone());
+                job.job
+            };
+            let queue = self.clone();
+            tokio::spawn(async move {
+                queue.run(job).await;
+            });
+        }
+    }
+
+    async fn run(&self, job: Arc<QueuedBiosDownload>) {
+        let work = job
+            .work
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .expect("queued BIOS download must have work");
+        let result = work.await;
+
+        {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.active_count -= 1;
+            state.active_destinations.remove(&job.key.destination);
+            state.jobs_by_key.remove(&job.key);
+        }
+        job.result.send_replace(Some(result));
+        self.start_pending();
+    }
+
+    async fn wait_for_result(
+        mut receiver: watch::Receiver<Option<BiosDownloadResult>>,
+    ) -> Result<PathBuf> {
+        loop {
+            if let Some(result) = receiver.borrow().clone() {
+                return result.map_err(anyhow::Error::msg);
+            }
+            receiver
+                .changed()
+                .await
+                .map_err(|_| anyhow::anyhow!("BIOS download queue stopped unexpectedly"))?;
+        }
+    }
+}
+
+fn bios_download_queue() -> &'static BiosDownloadQueue {
+    static QUEUE: OnceLock<BiosDownloadQueue> = OnceLock::new();
+    QUEUE.get_or_init(|| BiosDownloadQueue::new(BIOS_DOWNLOAD_CONCURRENCY))
+}
 
 #[derive(Debug, Clone)]
 struct FirmwareRecord {
     platform_slug: String,
     platform_name: String,
     firmware: RomMFirmware,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BiosDownloadEvent {
+    transfer_id: String,
+    firmware_id: i64,
+    platform_slug: String,
+    platform_name: String,
+    file_name: String,
+    downloaded: Option<u64>,
+    total: Option<u64>,
+    percent: Option<u8>,
+    speed: Option<String>,
+    path: Option<String>,
+    message: Option<String>,
+}
+
+impl BiosDownloadEvent {
+    fn for_record(record: &FirmwareRecord) -> Self {
+        Self {
+            transfer_id: bios_transfer_id(record),
+            firmware_id: record.firmware.id,
+            platform_slug: record.platform_slug.clone(),
+            platform_name: record.platform_name.clone(),
+            file_name: record.firmware.file_name.clone(),
+            downloaded: Some(0),
+            total: None,
+            percent: None,
+            speed: None,
+            path: None,
+            message: None,
+        }
+    }
+
+    fn with_progress(mut self, progress: DownloadProgress, include_speed: bool) -> Self {
+        self.downloaded = Some(progress.downloaded);
+        self.total = progress.total;
+        self.percent = progress.percent;
+        self.speed = include_speed
+            .then(|| progress.speed.map(DownloadProgress::format_speed))
+            .flatten();
+        self
+    }
+}
+
+fn bios_transfer_id(record: &FirmwareRecord) -> String {
+    format!("bios:{}:{}", record.platform_slug, record.firmware.id)
+}
+
+fn emit_bios_download_event(app: Option<&AppHandle>, event_name: &str, event: BiosDownloadEvent) {
+    let Some(app) = app else {
+        return;
+    };
+    if let Err(error) = app.emit(event_name, event) {
+        tracing::warn!("[BIOS] Failed to emit {event_name}: {error}");
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,10 +442,8 @@ fn file_matches_record(path: &Path, record: &FirmwareRecord) -> bool {
     let Some(expected_md5) = record.firmware.md5_hash.as_deref() else {
         return false;
     };
-    if !file_has_expected_size(path, record.firmware.file_size_bytes) {
-        return false;
-    }
-    file_is_current(path, Some(expected_md5))
+    file_has_expected_size(path, record.firmware.file_size_bytes)
+        && file_is_current(path, Some(expected_md5))
 }
 
 fn copy_staged_file(
@@ -210,12 +458,9 @@ fn copy_staged_file(
     {
         return Ok(false);
     }
-    if let Some(expected_md5) = expected_md5 {
-        if !file_is_current(source, Some(expected_md5)) {
-            return Ok(false);
-        }
-    }
-    if !file_has_expected_size(source, expected_size) {
+    if expected_md5.is_some_and(|expected| !file_is_current(source, Some(expected)))
+        || !file_has_expected_size(source, expected_size)
+    {
         return Ok(false);
     }
 
@@ -227,18 +472,13 @@ fn copy_staged_file(
         .context("Invalid BIOS destination")?;
     let partial = target.with_file_name(format!("{file_name}.part"));
 
-    let copy_result = std::fs::copy(source, &partial);
-    if let Err(error) = copy_result {
+    if let Err(error) = std::fs::copy(source, &partial) {
         let _ = std::fs::remove_file(&partial);
         return Err(error.into());
     }
-    if let Some(expected_md5) = expected_md5 {
-        if !file_is_current(&partial, Some(expected_md5)) {
-            let _ = std::fs::remove_file(&partial);
-            return Ok(false);
-        }
-    }
-    if !file_has_expected_size(&partial, expected_size) {
+    if expected_md5.is_some_and(|expected| !file_is_current(&partial, Some(expected)))
+        || !file_has_expected_size(&partial, expected_size)
+    {
         let _ = std::fs::remove_file(&partial);
         return Ok(false);
     }
@@ -264,39 +504,213 @@ fn distribute_file(
     copy_staged_file(source, target, Some(expected_md5), expected_size)
 }
 
-fn install_downloaded_file(
-    source: &Path,
-    target: &Path,
-    expected_md5: Option<&str>,
-    expected_size: u64,
-) -> Result<()> {
-    let copied = match expected_md5 {
-        Some(expected_md5) => distribute_file(source, target, Some(expected_md5), expected_size)?,
-        None => copy_staged_file(source, target, None, expected_size)?,
-    };
-    if !copied {
-        anyhow::bail!(
-            "Downloaded BIOS/firmware source {} was unavailable or failed validation",
-            source.display()
-        );
-    }
-    Ok(())
-}
-
 async fn download_record(
     client: &RomMClient,
     root: &Path,
     record: &FirmwareRecord,
+    app: Option<&AppHandle>,
 ) -> Result<PathBuf> {
     let target = target_path(root, record)?;
-    download_record_at(client, &target, record).await
+    download_record_at_with_queue(client, &target, record, app, bios_download_queue()).await
 }
 
 async fn download_record_at(
     client: &RomMClient,
     target: &Path,
     record: &FirmwareRecord,
+    app: Option<&AppHandle>,
 ) -> Result<PathBuf> {
+    download_record_at_with_queue(client, target, record, app, bios_download_queue()).await
+}
+
+async fn download_record_at_with_queue(
+    client: &RomMClient,
+    target: &Path,
+    record: &FirmwareRecord,
+    app: Option<&AppHandle>,
+    queue: &BiosDownloadQueue,
+) -> Result<PathBuf> {
+    let target = resolved_destination(target)?;
+    let event = BiosDownloadEvent::for_record(record);
+    let key = BiosDownloadKey {
+        transfer_id: event.transfer_id.clone(),
+        destination: destination_lock_key(&target),
+    };
+    let client = client.clone();
+    let record = record.clone();
+    let app = app.cloned();
+    let work_app = app.clone();
+    let work = Box::pin(async move {
+        run_download_record(client, target, record, work_app)
+            .await
+            .map_err(|error| error.to_string())
+    });
+    let submission = queue.submit(key.clone(), work);
+    if submission.is_new {
+        if submission.queued {
+            emit_bios_download_event(app.as_ref(), "bios-download-queued", event);
+        }
+        queue.activate(&key);
+    }
+    BiosDownloadQueue::wait_for_result(submission.receiver).await
+}
+
+fn resolved_destination(target: &Path) -> Result<PathBuf> {
+    let target = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(target)
+    };
+    if let Ok(resolved) = target.canonicalize() {
+        return Ok(resolved);
+    }
+
+    let mut existing_ancestor = target.as_path();
+    while !existing_ancestor.exists() {
+        existing_ancestor = existing_ancestor
+            .parent()
+            .context("Firmware destination has no existing parent")?;
+    }
+    let suffix = target
+        .strip_prefix(existing_ancestor)
+        .context("Firmware destination is outside its existing parent")?;
+    Ok(existing_ancestor.canonicalize()?.join(suffix))
+}
+
+fn destination_lock_key(destination: &Path) -> PathBuf {
+    if cfg!(windows) {
+        return PathBuf::from(destination.to_string_lossy().to_lowercase());
+    }
+    destination.to_path_buf()
+}
+
+async fn run_download_record(
+    client: RomMClient,
+    target: PathBuf,
+    record: FirmwareRecord,
+    app: Option<AppHandle>,
+) -> Result<PathBuf> {
+    let event = BiosDownloadEvent::for_record(&record);
+    emit_bios_download_event(app.as_ref(), "bios-download-started", event.clone());
+    let latest_progress = Arc::new(Mutex::new(DownloadProgress::terminal(0, None)));
+    let progress_event = event.clone();
+    let progress_app = app.clone();
+    let progress_state = Arc::clone(&latest_progress);
+    let download_result = download_record_to_target(&client, &target, &record, move |progress| {
+        *progress_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = progress;
+        emit_bios_download_event(
+            progress_app.as_ref(),
+            "bios-download-progress",
+            progress_event.clone().with_progress(progress, true),
+        );
+    })
+    .await;
+
+    match download_result {
+        Ok((path, progress)) => {
+            emit_bios_download_event(
+                app.as_ref(),
+                "bios-download-complete",
+                event
+                    .with_progress(progress, false)
+                    .with_path(path.to_string_lossy().into_owned()),
+            );
+            Ok(path)
+        }
+        Err(error) => {
+            let progress = *latest_progress
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            emit_bios_download_event(
+                app.as_ref(),
+                "bios-download-error",
+                event
+                    .with_progress(progress, false)
+                    .with_message(error.to_string()),
+            );
+            Err(error)
+        }
+    }
+}
+
+async fn download_records_at(
+    client: &RomMClient,
+    records: Vec<(FirmwareRecord, PathBuf)>,
+    app: Option<&AppHandle>,
+    queue: &BiosDownloadQueue,
+) -> Result<BiosDownloadSummary> {
+    let mut downloads = JoinSet::new();
+    for (index, (record, path)) in records.into_iter().enumerate() {
+        let client = client.clone();
+        let app = app.cloned();
+        let queue = queue.clone();
+        downloads.spawn(async move {
+            let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
+            let result =
+                download_record_at_with_queue(&client, &path, &record, app.as_ref(), &queue).await;
+            (index, existed, result)
+        });
+    }
+
+    let mut completed = Vec::new();
+    let mut failure = None;
+    while let Some(result) = downloads.join_next().await {
+        match result {
+            Ok(result) => completed.push(result),
+            Err(error) if failure.is_none() => {
+                failure = Some(anyhow::Error::msg(error.to_string()))
+            }
+            Err(_) => {}
+        }
+    }
+    completed.sort_by_key(|(index, _, _)| *index);
+
+    let mut summary = BiosDownloadSummary {
+        downloaded: 0,
+        skipped: 0,
+        paths: Vec::new(),
+    };
+    for (_, existed, result) in completed {
+        match result {
+            Ok(path) => {
+                if existed {
+                    summary.skipped += 1;
+                } else {
+                    summary.downloaded += 1;
+                }
+                summary.paths.push(path.to_string_lossy().into_owned());
+            }
+            Err(error) if failure.is_none() => failure = Some(error),
+            Err(_) => {}
+        }
+    }
+
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(summary),
+    }
+}
+
+impl BiosDownloadEvent {
+    fn with_path(mut self, path: String) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    fn with_message(mut self, message: String) -> Self {
+        self.message = Some(message);
+        self
+    }
+}
+
+async fn download_record_to_target(
+    client: &RomMClient,
+    target: &Path,
+    record: &FirmwareRecord,
+    progress_callback: impl Fn(DownloadProgress),
+) -> Result<(PathBuf, DownloadProgress)> {
     if record.firmware.missing_from_fs {
         anyhow::bail!(
             "{} is missing from the RomM server filesystem",
@@ -307,7 +721,11 @@ async fn download_record_at(
     if file_is_current(target, record.firmware.md5_hash.as_deref())
         && file_has_expected_size(target, record.firmware.file_size_bytes)
     {
-        return Ok(target.to_path_buf());
+        let downloaded = std::fs::metadata(target)?.len();
+        return Ok((
+            target.to_path_buf(),
+            DownloadProgress::terminal(downloaded, None),
+        ));
     }
 
     let parent = target
@@ -320,45 +738,53 @@ async fn download_record_at(
         .context("Invalid firmware destination")?;
     let partial = target.with_file_name(format!("{file_name}.part"));
 
-    let stream_result: Result<()> = async {
+    let stream_result: Result<DownloadProgress> = async {
         let mut response = client
             .download_firmware(record.firmware.id, &record.firmware.file_name)
             .await?;
+        let total = response.content_length();
         let mut output = tokio::fs::File::create(&partial).await?;
+        let mut downloaded = 0;
+        let mut rate_estimator = DownloadRateEstimator::new();
+        progress_callback(DownloadProgress::from_transfer(
+            downloaded,
+            total,
+            &mut rate_estimator,
+            Instant::now(),
+        ));
         while let Some(chunk) = response.chunk().await? {
             output.write_all(&chunk).await?;
+            downloaded += chunk.len() as u64;
+            progress_callback(DownloadProgress::from_transfer(
+                downloaded,
+                total,
+                &mut rate_estimator,
+                Instant::now(),
+            ));
         }
         output.flush().await?;
-        Ok(())
+        Ok(DownloadProgress::terminal(downloaded, total))
     }
     .await;
-    if let Err(error) = stream_result {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err(error);
-    }
-
-    if record.firmware.file_size_bytes != 0 {
-        let actual_size = match std::fs::metadata(&partial) {
-            Ok(metadata) => metadata.len(),
-            Err(error) => {
-                let _ = tokio::fs::remove_file(&partial).await;
-                return Err(error).with_context(|| {
-                    format!(
-                        "Failed to validate downloaded {} size",
-                        record.firmware.file_name
-                    )
-                });
-            }
-        };
-        if actual_size != record.firmware.file_size_bytes {
+    let progress = match stream_result {
+        Ok(progress) => progress,
+        Err(error) => {
             let _ = tokio::fs::remove_file(&partial).await;
-            anyhow::bail!(
-                "Size mismatch for {}: expected {} bytes, got {}",
-                record.firmware.file_name,
-                record.firmware.file_size_bytes,
-                actual_size
-            );
+            return Err(error);
         }
+    };
+
+    if !file_has_expected_size(&partial, record.firmware.file_size_bytes) {
+        let actual_size = std::fs::metadata(&partial)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let _ = tokio::fs::remove_file(&partial).await;
+        anyhow::bail!(
+            "Size mismatch for {}: expected {} bytes, got {}",
+            record.firmware.file_name,
+            record.firmware.file_size_bytes,
+            actual_size
+        );
     }
 
     if let Some(expected) = record.firmware.md5_hash.as_deref() {
@@ -366,12 +792,7 @@ async fn download_record_at(
             Ok(actual) => actual,
             Err(error) => {
                 let _ = tokio::fs::remove_file(&partial).await;
-                return Err(error).with_context(|| {
-                    format!(
-                        "Failed to validate downloaded {} checksum",
-                        record.firmware.file_name
-                    )
-                });
+                return Err(error);
             }
         };
         if !actual.eq_ignore_ascii_case(expected) {
@@ -385,11 +806,8 @@ async fn download_record_at(
         }
     }
 
-    if target.exists() {
-        tokio::fs::remove_file(target).await?;
-    }
-    tokio::fs::rename(&partial, target).await?;
-    Ok(target.to_path_buf())
+    replace_file(&partial, target)?;
+    Ok((target.to_path_buf(), progress))
 }
 
 #[tauri::command]
@@ -424,7 +842,7 @@ pub async fn list_bios_firmware() -> Result<Vec<BiosFirmwareStatus>, String> {
 }
 
 #[tauri::command]
-pub async fn download_bios_firmware(firmware_id: i64) -> Result<String, String> {
+pub async fn download_bios_firmware(app: AppHandle, firmware_id: i64) -> Result<String, String> {
     let config = AppConfig::load().unwrap_or_default();
     let root = config.bios_dir();
     let (client, records) = fetch_firmware(&config)
@@ -435,44 +853,31 @@ pub async fn download_bios_firmware(firmware_id: i64) -> Result<String, String> 
         .find(|record| record.firmware.id == firmware_id)
         .context("Firmware is no longer available from RomM")
         .map_err(|error| error.to_string())?;
-    download_record(&client, &root, record)
+    download_record(&client, &root, record, Some(&app))
         .await
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn download_all_bios_firmware() -> Result<BiosDownloadSummary, String> {
+pub async fn download_all_bios_firmware(app: AppHandle) -> Result<BiosDownloadSummary, String> {
     let config = AppConfig::load().unwrap_or_default();
     let root = config.bios_dir();
     let (client, records) = fetch_firmware(&config)
         .await
         .map_err(|error| error.to_string())?;
-    let mut summary = BiosDownloadSummary {
-        downloaded: 0,
-        skipped: 0,
-        paths: Vec::new(),
-    };
-
-    for record in records
-        .iter()
+    let downloads = records
+        .into_iter()
         .filter(|record| !record.firmware.missing_from_fs)
-    {
-        let path = target_path(&root, record).map_err(|error| error.to_string())?;
-        let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
-        let downloaded_path = download_record(&client, &root, record)
-            .await
-            .map_err(|error| error.to_string())?;
-        if existed {
-            summary.skipped += 1;
-        } else {
-            summary.downloaded += 1;
-        }
-        summary
-            .paths
-            .push(downloaded_path.to_string_lossy().into_owned());
-    }
-    Ok(summary)
+        .map(|record| {
+            let path = target_path(&root, &record)?;
+            Ok((record, path))
+        })
+        .collect::<Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
+    download_records_at(&client, downloads, Some(&app), bios_download_queue())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 fn executable_parent(path: &Option<PathBuf>) -> Option<PathBuf> {
@@ -515,10 +920,9 @@ fn managed_emulators_root() -> Option<PathBuf> {
 }
 
 fn is_managed_emulator_path(path: &Path, managed_root: &Path) -> bool {
-    let Ok(executable) = path.canonicalize() else {
-        return false;
-    };
-    executable.starts_with(managed_root)
+    path.canonicalize()
+        .map(|executable| executable.starts_with(managed_root))
+        .unwrap_or(false)
 }
 
 fn configured_managed_targets(config: &AppConfig) -> Vec<BiosTarget> {
@@ -746,6 +1150,7 @@ async fn prepare_eden_firmware_for_launch(
     config: &AppConfig,
     game_platform_id: &str,
     eden_executable: &Path,
+    app: Option<&AppHandle>,
 ) -> Result<BiosDownloadSummary> {
     if map_romm_slug(game_platform_id) != "switch" {
         return Ok(BiosDownloadSummary {
@@ -792,24 +1197,11 @@ async fn prepare_eden_firmware_for_launch(
         anyhow::bail!("No Switch prod.keys or firmware archive was found in the configured RomM");
     };
 
-    let mut summary = BiosDownloadSummary {
-        downloaded: 0,
-        skipped: 0,
-        paths: Vec::new(),
-    };
-    for record in [prod_keys_record, firmware_zip_record] {
-        let path = switch_target_path(&root, record)?;
-        let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
-        let downloaded_path = download_record_at(&client, &path, record).await?;
-        if existed {
-            summary.skipped += 1;
-        } else {
-            summary.downloaded += 1;
-        }
-        summary
-            .paths
-            .push(downloaded_path.to_string_lossy().into_owned());
-    }
+    let downloads = [prod_keys_record, firmware_zip_record]
+        .into_iter()
+        .map(|record| Ok((record.clone(), switch_target_path(&root, record)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let summary = download_records_at(&client, downloads, app, bios_download_queue()).await?;
 
     let prod_keys_path = switch_target_path(&root, prod_keys_record)?;
     let firmware_zip_path = switch_target_path(&root, firmware_zip_record)?;
@@ -832,8 +1224,19 @@ pub(crate) async fn prepare_bios_for_launch(
     game_platform_id: &str,
     executable: &Path,
 ) -> Result<BiosDownloadSummary> {
+    prepare_bios_for_launch_with_events(config, emulator_id, game_platform_id, executable, None)
+        .await
+}
+
+pub(crate) async fn prepare_bios_for_launch_with_events(
+    config: &AppConfig,
+    emulator_id: &str,
+    game_platform_id: &str,
+    executable: &Path,
+    app: Option<&AppHandle>,
+) -> Result<BiosDownloadSummary> {
     if emulator_id == "eden" {
-        return prepare_eden_firmware_for_launch(config, game_platform_id, executable).await;
+        return prepare_eden_firmware_for_launch(config, game_platform_id, executable, app).await;
     }
 
     let Some(target) = launch_target(emulator_id, executable) else {
@@ -847,25 +1250,11 @@ pub(crate) async fn prepare_bios_for_launch(
     let root = config.bios_dir();
     let (client, records) = fetch_firmware(config).await?;
     let relevant = relevant_records(&records, &target, game_platform_id);
-    let mut summary = BiosDownloadSummary {
-        downloaded: 0,
-        skipped: 0,
-        paths: Vec::new(),
-    };
-
-    for record in &relevant {
-        let path = target_path(&root, record)?;
-        let existed = file_is_current(&path, record.firmware.md5_hash.as_deref());
-        let downloaded_path = download_record(&client, &root, record).await?;
-        if existed {
-            summary.skipped += 1;
-        } else {
-            summary.downloaded += 1;
-        }
-        summary
-            .paths
-            .push(downloaded_path.to_string_lossy().into_owned());
-    }
+    let downloads = relevant
+        .iter()
+        .map(|record| Ok(((*record).clone(), target_path(&root, record)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let summary = download_records_at(&client, downloads, app, bios_download_queue()).await?;
 
     if relevant.is_empty() {
         return Ok(summary);
@@ -874,13 +1263,16 @@ pub(crate) async fn prepare_bios_for_launch(
     std::fs::create_dir_all(&target.path)?;
     for record in relevant {
         let source = target_path(&root, record)?;
-        let target_name = distribution_target_name(&target, &source)?;
-        install_downloaded_file(
-            &source,
-            &target.path.join(target_name),
-            record.firmware.md5_hash.as_deref(),
-            record.firmware.file_size_bytes,
-        )?;
+        let target_name = if target.rename_for_retroarch {
+            retroarch_filename(&source)
+        } else {
+            source
+                .file_name()
+                .and_then(|value| value.to_str())
+                .context("Invalid firmware destination")?
+                .to_string()
+        };
+        std::fs::copy(source, target.path.join(target_name))?;
     }
 
     Ok(summary)
@@ -1158,14 +1550,9 @@ fn install_switch_firmware_from_files(
     std::fs::create_dir_all(&registered_directory)?;
 
     let prod_keys_partial = keys_directory.join("prod.keys.part");
-    if let Err(error) = std::fs::copy(prod_keys, &prod_keys_partial) {
-        let _ = std::fs::remove_file(&prod_keys_partial);
-        return Err(error).context("Failed to stage prod.keys for Eden");
-    }
-    if let Err(error) = replace_file(&prod_keys_partial, &keys_directory.join("prod.keys")) {
-        let _ = std::fs::remove_file(&prod_keys_partial);
-        return Err(error).context("Failed to install prod.keys for Eden");
-    }
+    std::fs::copy(prod_keys, &prod_keys_partial).context("Failed to stage prod.keys for Eden")?;
+    replace_file(&prod_keys_partial, &keys_directory.join("prod.keys"))
+        .context("Failed to install prod.keys for Eden")?;
 
     let file = File::open(firmware_zip)?;
     let mut archive = ZipArchive::new(file)?;
@@ -1294,6 +1681,74 @@ pub async fn distribute_bios_firmware() -> Result<Vec<BiosDistributionResult>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
+    use tokio::{io::AsyncReadExt, net::TcpListener, sync::Semaphore, time::timeout};
+
+    async fn serve_firmware_once(body: &[u8]) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let body = body.to_vec();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            stream.write_all(&body).await.unwrap();
+        });
+        (format!("http://{address}"), task)
+    }
+
+    async fn serve_blocking_firmware_downloads(
+        count: usize,
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let mut handlers = JoinSet::new();
+            let fail_first = Arc::new(AtomicBool::new(true));
+            for _ in 0..count {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let started = Arc::clone(&started);
+                let release = Arc::clone(&release);
+                let fail_first = Arc::clone(&fail_first);
+                handlers.spawn(async move {
+                    let mut request = [0_u8; 1024];
+                    let _ = stream.read(&mut request).await.unwrap();
+                    started.add_permits(1);
+                    release.acquire_owned().await.unwrap().forget();
+                    let response = if fail_first.swap(false, Ordering::SeqCst) {
+                        "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            .to_string()
+                    } else {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nfirmware"
+                            .to_string()
+                    };
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+            while let Some(result) = handlers.join_next().await {
+                result.unwrap();
+            }
+        });
+        (format!("http://{address}"), task)
+    }
 
     #[test]
     fn safe_component_rejects_parent_traversal() {
@@ -1324,6 +1779,408 @@ mod tests {
     }
 
     #[test]
+    fn bios_transfer_identity_is_namespaced_by_platform_and_firmware() {
+        let psx_firmware = firmware_record("psx", 42);
+        let ps2_firmware = firmware_record("ps2", 42);
+        let other_psx_firmware = firmware_record("psx", 43);
+
+        assert_eq!(bios_transfer_id(&psx_firmware), "bios:psx:42");
+        assert_ne!(
+            bios_transfer_id(&psx_firmware),
+            bios_transfer_id(&ps2_firmware)
+        );
+        assert_ne!(
+            bios_transfer_id(&psx_firmware),
+            bios_transfer_id(&other_psx_firmware)
+        );
+    }
+
+    #[test]
+    fn bios_terminal_events_keep_metrics_but_clear_active_speed() {
+        let record = firmware_record("psx", 42);
+        let active = BiosDownloadEvent::for_record(&record).with_progress(
+            DownloadProgress {
+                downloaded: 512,
+                total: Some(1024),
+                percent: Some(50),
+                speed: Some(1024),
+            },
+            true,
+        );
+        let completed = BiosDownloadEvent::for_record(&record)
+            .with_progress(DownloadProgress::terminal(1024, Some(1024)), false);
+        let unknown_total = BiosDownloadEvent::for_record(&record)
+            .with_progress(DownloadProgress::terminal(512, None), false);
+
+        assert_eq!(active.transfer_id, "bios:psx:42");
+        assert_eq!(active.platform_name, "psx");
+        assert_eq!(active.file_name, "firmware-42.bin");
+        assert_eq!(active.speed.as_deref(), Some("1.00 KB/s"));
+        assert_eq!(completed.downloaded, Some(1024));
+        assert_eq!(completed.total, Some(1024));
+        assert_eq!(completed.percent, Some(100));
+        assert_eq!(completed.speed, None);
+        assert_eq!(unknown_total.total, None);
+        assert_eq!(unknown_total.percent, None);
+    }
+
+    #[tokio::test]
+    async fn bios_queue_runs_multiple_downloads_but_caps_and_queues_excess_work() {
+        let queue = BiosDownloadQueue::new(3);
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Semaphore::new(0));
+        let release = Arc::new(Semaphore::new(0));
+        let temp = tempfile::tempdir().unwrap();
+        let mut receivers = Vec::new();
+        let mut queued = Vec::new();
+
+        for id in 0..4 {
+            let destination = temp.path().join(format!("firmware-{id}.bin"));
+            let key = BiosDownloadKey {
+                transfer_id: format!("bios:psx:{id}"),
+                destination: destination.clone(),
+            };
+            let submission = queue.submit(
+                key.clone(),
+                controlled_download(
+                    destination,
+                    Arc::clone(&active),
+                    Arc::clone(&maximum),
+                    Arc::clone(&started),
+                    Arc::clone(&release),
+                ),
+            );
+            receivers.push(submission.receiver);
+            queued.push(submission.queued);
+            queue.activate(&key);
+        }
+
+        let permits = timeout(Duration::from_secs(2), started.acquire_many(3))
+            .await
+            .expect("three downloads should start")
+            .unwrap();
+        permits.forget();
+        assert_eq!(active.load(Ordering::SeqCst), 3);
+        assert_eq!(maximum.load(Ordering::SeqCst), 3);
+        assert_eq!(queued, vec![false, false, false, true]);
+
+        release.add_permits(3);
+        let permit = timeout(Duration::from_secs(2), started.acquire())
+            .await
+            .expect("queued download should start after a slot opens")
+            .unwrap();
+        permit.forget();
+        release.add_permits(1);
+        for receiver in receivers {
+            BiosDownloadQueue::wait_for_result(receiver).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn bios_queue_deduplicates_identical_requests_and_serializes_destination_collisions() {
+        let queue = BiosDownloadQueue::new(2);
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Semaphore::new(0));
+        let release = Arc::new(Semaphore::new(0));
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("shared.bin");
+        let key = BiosDownloadKey {
+            transfer_id: "bios:psx:42".to_string(),
+            destination: destination.clone(),
+        };
+        let first_submission = queue.submit(
+            key.clone(),
+            controlled_download(
+                destination.clone(),
+                Arc::clone(&active),
+                Arc::clone(&maximum),
+                Arc::clone(&started),
+                Arc::clone(&release),
+            ),
+        );
+        assert!(first_submission.is_new);
+        assert!(!first_submission.queued);
+        assert!(timeout(Duration::from_millis(50), started.acquire())
+            .await
+            .is_err());
+        queue.activate(&key);
+        let permit = timeout(Duration::from_secs(2), started.acquire())
+            .await
+            .expect("first download should start")
+            .unwrap();
+        permit.forget();
+
+        let same_identity_submission = queue.submit(
+            key.clone(),
+            controlled_download(
+                destination.clone(),
+                Arc::clone(&active),
+                Arc::clone(&maximum),
+                Arc::clone(&started),
+                Arc::clone(&release),
+            ),
+        );
+        assert!(!same_identity_submission.is_new);
+        let same_destination_key = BiosDownloadKey {
+            transfer_id: "bios:psx:43".to_string(),
+            destination: destination.clone(),
+        };
+        let same_destination_submission = queue.submit(
+            same_destination_key.clone(),
+            controlled_download(
+                destination.clone(),
+                Arc::clone(&active),
+                Arc::clone(&maximum),
+                Arc::clone(&started),
+                Arc::clone(&release),
+            ),
+        );
+        assert!(same_destination_submission.is_new);
+        assert!(same_destination_submission.queued);
+        queue.activate(&same_destination_key);
+        assert!(timeout(Duration::from_millis(50), started.acquire())
+            .await
+            .is_err());
+
+        release.add_permits(1);
+        assert_eq!(
+            BiosDownloadQueue::wait_for_result(first_submission.receiver)
+                .await
+                .unwrap(),
+            destination
+        );
+        assert_eq!(
+            BiosDownloadQueue::wait_for_result(same_identity_submission.receiver)
+                .await
+                .unwrap(),
+            destination
+        );
+        let permit = timeout(Duration::from_secs(2), started.acquire())
+            .await
+            .expect("distinct destination collision should start after its owner")
+            .unwrap();
+        permit.forget();
+        release.add_permits(1);
+        assert_eq!(
+            BiosDownloadQueue::wait_for_result(same_destination_submission.receiver)
+                .await
+                .unwrap(),
+            destination
+        );
+        assert_eq!(maximum.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn record_downloads_use_the_queue_limit_and_continue_after_a_failure() {
+        let queue = BiosDownloadQueue::new(3);
+        let started = Arc::new(Semaphore::new(0));
+        let release = Arc::new(Semaphore::new(0));
+        let (server_url, server) =
+            serve_blocking_firmware_downloads(4, Arc::clone(&started), Arc::clone(&release)).await;
+        let temp = tempfile::tempdir().unwrap();
+        let records = (1..=4)
+            .map(|id| {
+                let record = firmware_record("psx", id);
+                let target = temp.path().join(format!("firmware-{id}.bin"));
+                (record, target)
+            })
+            .collect();
+        let client = RomMClient::new(server_url);
+        let queue_for_downloads = queue.clone();
+        let downloads = tokio::spawn(async move {
+            download_records_at(&client, records, None, &queue_for_downloads).await
+        });
+
+        let permits = timeout(Duration::from_secs(2), started.acquire_many(3))
+            .await
+            .expect("only the queue limit should reach the download server")
+            .unwrap();
+        permits.forget();
+        assert!(timeout(Duration::from_millis(50), started.acquire())
+            .await
+            .is_err());
+
+        release.add_permits(3);
+        let permit = timeout(Duration::from_secs(2), started.acquire())
+            .await
+            .expect("a queued download should proceed after an earlier failure")
+            .unwrap();
+        permit.forget();
+        release.add_permits(1);
+
+        let error = downloads.await.unwrap().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Firmware download returned HTTP 500"));
+        server.await.unwrap();
+        assert_eq!(
+            (1..=4)
+                .filter(|id| temp.path().join(format!("firmware-{id}.bin")).is_file())
+                .count(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn bios_queue_isolates_failures_and_allows_retry() {
+        let queue = BiosDownloadQueue::new(2);
+        let temp = tempfile::tempdir().unwrap();
+        let failed_destination = temp.path().join("failed.bin");
+        let successful_destination = temp.path().join("successful.bin");
+        let successful_started = Arc::new(Semaphore::new(0));
+        let successful_release = Arc::new(Semaphore::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+
+        let failed_key = BiosDownloadKey {
+            transfer_id: "bios:psx:1".to_string(),
+            destination: failed_destination.clone(),
+        };
+        let failed_submission = queue.submit(
+            failed_key.clone(),
+            Box::pin(async { Err("RomM refused this firmware".to_string()) }),
+        );
+        let successful_key = BiosDownloadKey {
+            transfer_id: "bios:psx:2".to_string(),
+            destination: successful_destination.clone(),
+        };
+        let successful_submission = queue.submit(
+            successful_key.clone(),
+            controlled_download(
+                successful_destination.clone(),
+                active,
+                maximum,
+                Arc::clone(&successful_started),
+                Arc::clone(&successful_release),
+            ),
+        );
+        queue.activate(&failed_key);
+        queue.activate(&successful_key);
+
+        assert!(
+            BiosDownloadQueue::wait_for_result(failed_submission.receiver)
+                .await
+                .is_err()
+        );
+        let permit = timeout(Duration::from_secs(2), successful_started.acquire())
+            .await
+            .expect("unrelated download should still start")
+            .unwrap();
+        permit.forget();
+        successful_release.add_permits(1);
+        assert_eq!(
+            BiosDownloadQueue::wait_for_result(successful_submission.receiver)
+                .await
+                .unwrap(),
+            successful_destination
+        );
+
+        let retry_submission = queue.submit(
+            failed_key,
+            Box::pin({
+                let failed_destination = failed_destination.clone();
+                async move { Ok(failed_destination) }
+            }),
+        );
+        assert!(retry_submission.is_new);
+        assert!(!retry_submission.queued);
+        queue.activate(&BiosDownloadKey {
+            transfer_id: "bios:psx:1".to_string(),
+            destination: failed_destination.clone(),
+        });
+        assert_eq!(
+            BiosDownloadQueue::wait_for_result(retry_submission.receiver)
+                .await
+                .unwrap(),
+            failed_destination
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_destination_coalesces_existing_file_and_parent_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let actual = temp.path().join("actual");
+        std::fs::create_dir(&actual).unwrap();
+        let alias = temp.path().join("alias");
+        symlink(&actual, &alias).unwrap();
+
+        let existing_file = actual.join("firmware.bin");
+        std::fs::write(&existing_file, b"old firmware").unwrap();
+        let file_alias = temp.path().join("firmware-alias.bin");
+        symlink(&existing_file, &file_alias).unwrap();
+
+        assert_eq!(resolved_destination(&file_alias).unwrap(), existing_file);
+        assert_eq!(
+            resolved_destination(&alias.join("new-directory/firmware.bin")).unwrap(),
+            actual.join("new-directory/firmware.bin")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn destination_lock_key_coalesces_case_insensitive_leaf_aliases() {
+        let destination = PathBuf::from(r"C:\Wingosy\bios\psx\firmware.bin");
+        let alias = PathBuf::from(r"c:\wingosy\BIOS\PSX\FIRMWARE.BIN");
+
+        assert_eq!(
+            destination_lock_key(&destination),
+            destination_lock_key(&alias)
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_bios_retry_preserves_the_existing_destination_and_cleans_the_part() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("psx/firmware-42.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"known-good cached firmware").unwrap();
+        let expected_body = b"replacement firmware";
+        let (server_url, server) = serve_firmware_once(b"truncated firmware").await;
+        let mut record = firmware_record("psx", 42);
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(expected_body)));
+
+        let error = download_record_at(&RomMClient::new(server_url), &target, &record, None)
+            .await
+            .unwrap_err();
+
+        server.await.unwrap();
+        assert!(error.to_string().contains("MD5 mismatch"));
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"known-good cached firmware"
+        );
+        assert!(!target.with_file_name("firmware-42.bin.part").exists());
+    }
+
+    #[tokio::test]
+    async fn checksumless_short_download_preserves_existing_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("psx/firmware-42.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"known-good cached firmware").unwrap();
+        let (server_url, server) = serve_firmware_once(b"short").await;
+        let mut record = firmware_record("psx", 42);
+        record.firmware.file_size_bytes = 64;
+
+        let error = download_record_at(&RomMClient::new(server_url), &target, &record, None)
+            .await
+            .unwrap_err();
+
+        server.await.unwrap();
+        assert!(error.to_string().contains("Size mismatch"));
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"known-good cached firmware"
+        );
+        assert!(!target.with_file_name("firmware-42.bin.part").exists());
+    }
+
+    #[test]
     fn file_without_expected_md5_is_not_current() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("firmware.bin");
@@ -1332,189 +2189,6 @@ mod tests {
         assert!(!file_is_current(&path, None));
         let expected_md5 = md5_file(&path).unwrap();
         assert!(file_is_current(&path, Some(expected_md5.as_str())));
-    }
-
-    #[test]
-    fn launch_copy_preserves_completed_downloads_without_md5_metadata() {
-        let temp = tempfile::tempdir().unwrap();
-        let source = temp.path().join("downloaded.bin");
-        let target = temp.path().join("emulator/bios.bin");
-        std::fs::write(&source, b"completed download").unwrap();
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, b"existing emulator file").unwrap();
-
-        install_downloaded_file(&source, &target, None, b"completed download".len() as u64)
-            .unwrap();
-
-        assert_eq!(std::fs::read(&target).unwrap(), b"completed download");
-        assert!(!target.with_file_name("bios.bin.part").exists());
-    }
-
-    #[test]
-    fn launch_copy_rejects_short_checksumless_source_without_replacing_target() {
-        let temp = tempfile::tempdir().unwrap();
-        let source = temp.path().join("downloaded.bin");
-        let target = temp.path().join("emulator/bios.bin");
-        std::fs::write(&source, b"short").unwrap();
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, b"existing emulator file").unwrap();
-
-        let error = install_downloaded_file(&source, &target, None, 32)
-            .unwrap_err()
-            .to_string();
-
-        assert!(error.contains("failed validation"));
-        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
-        assert!(!target.with_file_name("bios.bin.part").exists());
-    }
-
-    #[test]
-    fn distribution_rejects_invalid_source_without_replacing_existing_target() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("bios");
-        let source_directory = root.join("psx");
-        let emulator_directory = temp.path().join("duckstation");
-        std::fs::create_dir_all(&source_directory).unwrap();
-        std::fs::create_dir_all(&emulator_directory).unwrap();
-
-        let mut record = firmware_record("psx", 1);
-        record.firmware.file_name = "bios.bin".to_string();
-        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
-        std::fs::write(source_directory.join("bios.bin"), b"incomplete artifact").unwrap();
-        let target = emulator_directory.join("bios").join("bios.bin");
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, b"existing emulator file").unwrap();
-        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
-
-        assert!(!distribute_record(&root, &target_config, &record).unwrap());
-        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
-
-        record.firmware.md5_hash = None;
-        std::fs::write(source_directory.join("bios.bin"), b"complete artifact").unwrap();
-        assert!(!distribute_record(&root, &target_config, &record).unwrap());
-        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
-
-        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
-        std::fs::remove_file(source_directory.join("bios.bin")).unwrap();
-        std::fs::write(source_directory.join("bios.bin.part"), b"complete artifact").unwrap();
-        assert!(!distribute_record(&root, &target_config, &record).unwrap());
-        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
-    }
-
-    #[test]
-    fn distribution_copies_valid_relevant_record_using_platform_alias() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("bios");
-        let source_directory = root.join("sony-playstation");
-        let emulator_directory = temp.path().join("duckstation");
-        std::fs::create_dir_all(&source_directory).unwrap();
-
-        let contents = b"complete artifact";
-        let mut record = firmware_record("sony-playstation", 1);
-        record.firmware.file_name = "bios.bin".to_string();
-        record.firmware.file_size_bytes = contents.len() as u64;
-        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(contents)));
-        std::fs::write(source_directory.join("bios.bin"), contents).unwrap();
-        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
-
-        assert!(distribute_record(&root, &target_config, &record).unwrap());
-        assert_eq!(
-            std::fs::read(emulator_directory.join("bios/bios.bin")).unwrap(),
-            contents
-        );
-        assert!(!emulator_directory.join("bios/bios.bin.part").exists());
-    }
-
-    #[test]
-    fn configured_targets_skip_stale_emulator_paths() {
-        let temp = tempfile::tempdir().unwrap();
-        let installed_directory = temp.path().join("mgba");
-        let installed_executable = installed_directory.join("mGBA.exe");
-        std::fs::create_dir_all(&installed_directory).unwrap();
-        std::fs::write(&installed_executable, b"installed emulator").unwrap();
-
-        let paths = EmulatorPaths {
-            mgba: Some(installed_executable),
-            duckstation: Some(temp.path().join("removed/duckstation.exe")),
-            ..EmulatorPaths::default()
-        };
-
-        let targets = configured_targets(&paths);
-
-        assert_eq!(
-            targets
-                .iter()
-                .map(|target| target.emulator_id)
-                .collect::<Vec<_>>(),
-            vec!["mgba"]
-        );
-    }
-
-    #[test]
-    fn configured_managed_targets_skip_external_emulator_paths() {
-        let temp = tempfile::tempdir().unwrap();
-        let executable = temp.path().join("mGBA.exe");
-        std::fs::write(&executable, b"external emulator").unwrap();
-        let config = AppConfig {
-            emulators: EmulatorPaths {
-                mgba: Some(executable),
-                ..EmulatorPaths::default()
-            },
-            ..AppConfig::default()
-        };
-
-        assert!(configured_managed_targets(&config).is_empty());
-    }
-
-    #[test]
-    fn managed_path_check_rejects_parent_directory_escape() {
-        let temp = tempfile::tempdir().unwrap();
-        let managed_root = temp.path().join("managed");
-        let outside = temp.path().join("outside");
-        std::fs::create_dir_all(&managed_root).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        let executable = outside.join("mgba.exe");
-        std::fs::write(&executable, b"external emulator").unwrap();
-        let escaped = managed_root.join("..").join("outside/mgba.exe");
-
-        assert!(!is_managed_emulator_path(
-            &escaped,
-            &managed_root.canonicalize().unwrap()
-        ));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn managed_path_check_rejects_symlink_escape() {
-        let temp = tempfile::tempdir().unwrap();
-        let managed_root = temp.path().join("managed");
-        let outside = temp.path().join("outside");
-        std::fs::create_dir_all(&managed_root).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        std::fs::write(outside.join("mgba.exe"), b"external emulator").unwrap();
-        std::os::unix::fs::symlink(&outside, managed_root.join("linked")).unwrap();
-        let escaped = managed_root.join("linked/mgba.exe");
-
-        assert!(!is_managed_emulator_path(
-            &escaped,
-            &managed_root.canonicalize().unwrap()
-        ));
-    }
-
-    #[test]
-    fn validated_switch_files_propagate_metadata_errors() {
-        let temp = tempfile::tempdir().unwrap();
-        let records = vec![
-            switch_firmware_record("prod-one.keys", 1),
-            switch_firmware_record("prod-two.keys", 2),
-            switch_firmware_record("firmware.zip", 3),
-        ];
-
-        let error = validated_switch_firmware_files(temp.path(), &records)
-            .unwrap_err()
-            .to_string();
-
-        assert!(error.contains("Multiple Switch prod.keys fallback records"));
     }
 
     fn firmware_record(platform_slug: &str, id: i64) -> FirmwareRecord {
@@ -1532,6 +2206,24 @@ mod tests {
                 missing_from_fs: false,
             },
         }
+    }
+
+    fn controlled_download(
+        destination: PathBuf,
+        active: Arc<AtomicUsize>,
+        maximum: Arc<AtomicUsize>,
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+    ) -> BiosDownloadWork {
+        Box::pin(async move {
+            let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+            maximum.fetch_max(current, Ordering::SeqCst);
+            started.add_permits(1);
+            let permit = release.acquire_owned().await.unwrap();
+            permit.forget();
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok(destination)
+        })
     }
 
     fn switch_firmware_record(file_name: &str, id: i64) -> FirmwareRecord {
@@ -1661,6 +2353,137 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![4, 7]
         );
+    }
+
+    #[test]
+    fn distribution_rejects_invalid_source_without_replacing_existing_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("bios");
+        let source_directory = root.join("psx");
+        let emulator_directory = temp.path().join("duckstation");
+        std::fs::create_dir_all(&source_directory).unwrap();
+        std::fs::create_dir_all(&emulator_directory).unwrap();
+
+        let mut record = firmware_record("psx", 1);
+        record.firmware.file_name = "bios.bin".to_string();
+        record.firmware.file_size_bytes = b"complete artifact".len() as u64;
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
+        std::fs::write(source_directory.join("bios.bin"), b"incomplete artifact").unwrap();
+        let target = emulator_directory.join("bios").join("bios.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"existing emulator file").unwrap();
+        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
+
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+
+        record.firmware.md5_hash = None;
+        std::fs::write(source_directory.join("bios.bin"), b"complete artifact").unwrap();
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(b"complete artifact")));
+        std::fs::remove_file(source_directory.join("bios.bin")).unwrap();
+        std::fs::write(source_directory.join("bios.bin.part"), b"complete artifact").unwrap();
+        assert!(!distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing emulator file");
+    }
+
+    #[test]
+    fn distribution_copies_valid_relevant_record_using_platform_alias() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("bios");
+        let source_directory = root.join("sony-playstation");
+        let emulator_directory = temp.path().join("duckstation");
+        std::fs::create_dir_all(&source_directory).unwrap();
+
+        let contents = b"complete artifact";
+        let mut record = firmware_record("sony-playstation", 1);
+        record.firmware.file_name = "bios.bin".to_string();
+        record.firmware.file_size_bytes = contents.len() as u64;
+        record.firmware.md5_hash = Some(format!("{:x}", md5::compute(contents)));
+        std::fs::write(source_directory.join("bios.bin"), contents).unwrap();
+        let target_config = target_from_parent("duckstation", &emulator_directory).unwrap();
+
+        assert!(distribute_record(&root, &target_config, &record).unwrap());
+        assert_eq!(
+            std::fs::read(emulator_directory.join("bios/bios.bin")).unwrap(),
+            contents
+        );
+        assert!(!emulator_directory.join("bios/bios.bin.part").exists());
+    }
+
+    #[test]
+    fn configured_targets_skip_stale_emulator_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let installed_directory = temp.path().join("mgba");
+        let installed_executable = installed_directory.join("mGBA.exe");
+        std::fs::create_dir_all(&installed_directory).unwrap();
+        std::fs::write(&installed_executable, b"installed emulator").unwrap();
+
+        let paths = EmulatorPaths {
+            mgba: Some(installed_executable),
+            duckstation: Some(temp.path().join("removed/duckstation.exe")),
+            ..EmulatorPaths::default()
+        };
+
+        let targets = configured_targets(&paths);
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.emulator_id)
+                .collect::<Vec<_>>(),
+            vec!["mgba"]
+        );
+    }
+
+    #[test]
+    fn configured_managed_targets_skip_external_emulator_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("mGBA.exe");
+        std::fs::write(&executable, b"external emulator").unwrap();
+        let config = AppConfig {
+            emulators: EmulatorPaths {
+                mgba: Some(executable),
+                ..EmulatorPaths::default()
+            },
+            ..AppConfig::default()
+        };
+
+        assert!(configured_managed_targets(&config).is_empty());
+    }
+
+    #[test]
+    fn managed_path_check_rejects_parent_directory_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed_root = temp.path().join("managed");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let executable = outside.join("mgba.exe");
+        std::fs::write(&executable, b"external emulator").unwrap();
+        let escaped = managed_root.join("..").join("outside/mgba.exe");
+
+        assert!(!is_managed_emulator_path(
+            &escaped,
+            &managed_root.canonicalize().unwrap()
+        ));
+    }
+
+    #[test]
+    fn validated_switch_files_propagate_metadata_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let records = vec![
+            switch_firmware_record("prod-one.keys", 1),
+            switch_firmware_record("prod-two.keys", 2),
+            switch_firmware_record("firmware.zip", 3),
+        ];
+
+        let error = validated_switch_firmware_files(temp.path(), &records)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("Multiple Switch prod.keys fallback records"));
     }
 
     #[test]

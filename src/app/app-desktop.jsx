@@ -3,6 +3,7 @@ import Box from "@mui/material/Box";
 import GameDetails from "../components/game-details";
 import Library from "../components/library";
 import RomDownloadsView from "../components/rom-downloads-view";
+import RommSyncMonitor from "../components/romm-sync-monitor";
 import Settings from "../components/settings";
 import Sidebar from "../components/sidebar";
 
@@ -29,8 +30,10 @@ const DRAWER_WIDTH = 260;
  * @property {string} searchQuery Current search query.
  * @property {LibraryLaunchError} libraryLaunchError Latest launch error.
  * @property {string|null} error Latest library error.
- * @property {"name"|"recent"|"play_time"} librarySortBy Current sort mode.
- * @property {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} libraryFilterBy Current filter mode.
+ * @property {"name"|"recent"|"play_time"|"play_count"|"release_year"} librarySortBy Current sort mode.
+ * @property {boolean} sortDescending Whether the current sort is descending.
+ * @property {"all"|"favorites"|"recent"} libraryFilterBy Current primary filter mode.
+ * @property {"all"|"downloaded"|"not_downloaded"} libraryAvailability Current availability filter.
  * @property {(page: number) => void} onPageChange Changes the current page.
  * @property {(query: string) => void} onSearchChange Changes the search query.
  * @property {(game: LibraryGame) => void} onSelectGame Selects a game.
@@ -42,7 +45,9 @@ const DRAWER_WIDTH = 260;
  * @property {() => Promise<unknown>|null} onRetryLaunch Retries the latest launch.
  * @property {() => void} onDismissError Dismisses the library error.
  * @property {(sortBy: string) => void} onSortChange Changes the sort mode.
- * @property {(filterBy: string) => void} onFilterChange Changes the filter mode.
+ * @property {(descending: boolean) => void} onSortDirectionChange Changes the sort direction.
+ * @property {(filterBy: string) => void} onFilterChange Changes the primary filter mode.
+ * @property {(availability: string) => void} onAvailabilityChange Changes the availability filter.
  */
 /** @typedef {object} DetailsPanelProps
  * @property {GameDetailsGame|null} selectedGame Selected game, when one is open.
@@ -64,17 +69,21 @@ const DRAWER_WIDTH = 260;
  * @property {() => void} onRommDisconnect Clears the RomM session.
  * @property {() => void|Promise<void>} onLibraryChange Refreshes the library.
  */
+/** @typedef {object} RommSyncPanelProps
+ * @property {import("../components/use-romm-sync-monitor").RommSyncMonitorState} monitor RomM monitor state.
+ */
 /** @typedef {object} MainViewProps
  * @property {string} view Active desktop view.
  * @property {LibraryPanelProps} libraryProps Library panel properties.
  * @property {DownloadsPanelProps} downloadsProps Downloads panel properties.
  * @property {DetailsPanelProps} detailsProps Details panel properties.
  * @property {SettingsPanelProps} settingsProps Settings panel properties.
+ * @property {RommSyncPanelProps} rommSyncProps RomM sync monitor properties.
  */
 /** @typedef {object} AppDesktopProps
  * @property {PlatformEntry[]} platforms Available library platforms.
  * @property {string|null} selectedPlatform Selected platform identifier.
- * @property {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} libraryFilterBy Active library filter.
+ * @property {"all"|"favorites"|"recent"} libraryFilterBy Active primary library filter.
  * @property {string} view Active desktop view.
  * @property {string} rommUrl RomM server URL.
  * @property {(platformId: string|null) => void} onSelectPlatform Selects a platform.
@@ -83,6 +92,7 @@ const DRAWER_WIDTH = 260;
  * @property {DownloadsPanelProps} downloadsProps Downloads panel properties.
  * @property {DetailsPanelProps} detailsProps Details panel properties.
  * @property {SettingsPanelProps} settingsProps Settings panel properties.
+ * @property {RommSyncPanelProps} rommSyncProps RomM sync monitor properties.
  */
 
 const panelSx = {
@@ -117,7 +127,9 @@ const LibraryPanel = ({
   libraryLaunchError,
   error,
   librarySortBy,
+  sortDescending,
   libraryFilterBy,
+  libraryAvailability,
   onPageChange,
   onSearchChange,
   onSelectGame,
@@ -129,7 +141,9 @@ const LibraryPanel = ({
   onRetryLaunch,
   onDismissError,
   onSortChange,
+  onSortDirectionChange,
   onFilterChange,
+  onAvailabilityChange,
 }) => (
   <Box ref={scrollRef} sx={panelSx}>
     <Library
@@ -162,9 +176,13 @@ const LibraryPanel = ({
       error={error}
       onDismissError={onDismissError}
       sortBy={librarySortBy}
+      sortDescending={sortDescending}
       filterBy={libraryFilterBy}
+      availability={libraryAvailability}
       onSortChange={onSortChange}
+      onSortDirectionChange={onSortDirectionChange}
       onFilterChange={onFilterChange}
+      onAvailabilityChange={onAvailabilityChange}
     />
   </Box>
 );
@@ -236,12 +254,20 @@ const SettingsPanel = ({
   </Box>
 );
 
+/** @param {RommSyncPanelProps} props RomM sync monitor properties. */
+const RommSyncPanel = ({ monitor }) => (
+  <ScrollPanel>
+    <RommSyncMonitor monitor={monitor} />
+  </ScrollPanel>
+);
+
 /** @param {MainViewProps} props Main view properties. */
 const MainView = ({
   view,
   libraryProps,
   downloadsProps,
   detailsProps,
+  rommSyncProps,
   settingsProps,
 }) => {
   if (view === "downloads") {
@@ -255,6 +281,9 @@ const MainView = ({
   }
   if (view === "settings") {
     return <SettingsPanel {...settingsProps} />;
+  }
+  if (view === "romm-sync") {
+    return <RommSyncPanel {...rommSyncProps} />;
   }
   return null;
 };
@@ -271,6 +300,7 @@ const AppDesktop = ({
   libraryProps,
   downloadsProps,
   detailsProps,
+  rommSyncProps,
   settingsProps,
 }) => (
   <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -301,6 +331,7 @@ const AppDesktop = ({
         libraryProps={libraryProps}
         downloadsProps={downloadsProps}
         detailsProps={detailsProps}
+        rommSyncProps={rommSyncProps}
         settingsProps={settingsProps}
       />
     </Box>

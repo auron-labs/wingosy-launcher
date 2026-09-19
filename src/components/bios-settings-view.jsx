@@ -52,6 +52,8 @@ const getAvailabilityExplanation = (totals) => {
  * @property {(id: number, fileName: string) => Promise<void>} downloadOne - Download one file.
  * @property {Record<string, boolean>} expanded - Expanded group state.
  * @property {BiosGroup[]} groups - Grouped firmware records.
+ * @property {(firmwareId: number|string, platformSlug: string) => import("../rom-downloads-context-value").DownloadProgress|null} getBiosProgress - Active BIOS transfer lookup.
+ * @property {(firmwareId: number|string, platformSlug: string) => import("../rom-downloads-context-value").RecentDownload|null} getBiosRecentDownload - Recent BIOS transfer lookup.
  * @property {Set<number|string>} libraryPlatformIds - Platforms used by the library.
  * @property {() => Promise<void>} load - Reload BIOS state.
  * @property {boolean} loading - Whether BIOS state is loading.
@@ -233,12 +235,14 @@ const BiosSummaryCard = ({
   </Paper>
 );
 
-/** @param {Pick<BiosSettingsViewProps, "busy"|"downloadGroup"|"downloadOne"|"expanded"|"groups"|"libraryPlatformIds"|"loading"|"setExpanded">} props BIOS group content. */
+/** @param {Pick<BiosSettingsViewProps, "busy"|"downloadGroup"|"downloadOne"|"expanded"|"getBiosProgress"|"getBiosRecentDownload"|"groups"|"libraryPlatformIds"|"loading"|"setExpanded">} props BIOS group content. */
 const BiosGroupsContent = ({
   busy,
   downloadGroup,
   downloadOne,
   expanded,
+  getBiosProgress,
+  getBiosRecentDownload,
   groups,
   libraryPlatformIds,
   loading,
@@ -265,6 +269,8 @@ const BiosGroupsContent = ({
       downloadGroup={downloadGroup}
       downloadOne={downloadOne}
       expanded={expanded}
+      getBiosProgress={getBiosProgress}
+      getBiosRecentDownload={getBiosRecentDownload}
       groups={groups}
       libraryPlatformIds={libraryPlatformIds}
       setExpanded={setExpanded}
@@ -272,12 +278,14 @@ const BiosGroupsContent = ({
   );
 };
 
-/** @param {BiosSettingsViewProps} props - BIOS settings view state and actions. */
+/** @param {Pick<BiosSettingsViewProps, "busy"|"downloadGroup"|"downloadOne"|"expanded"|"getBiosProgress"|"getBiosRecentDownload"|"groups"|"libraryPlatformIds"|"loading"|"setExpanded">} props BIOS group card. */
 const BiosGroupsCard = ({
   busy,
   downloadGroup,
   downloadOne,
   expanded,
+  getBiosProgress,
+  getBiosRecentDownload,
   groups,
   libraryPlatformIds,
   loading,
@@ -292,6 +300,8 @@ const BiosGroupsCard = ({
       downloadGroup={downloadGroup}
       downloadOne={downloadOne}
       expanded={expanded}
+      getBiosProgress={getBiosProgress}
+      getBiosRecentDownload={getBiosRecentDownload}
       groups={groups}
       libraryPlatformIds={libraryPlatformIds}
       loading={loading}

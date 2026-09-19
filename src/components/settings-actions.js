@@ -10,7 +10,7 @@ import { createSettingsUpdateActions } from "./settings-update-actions";
 /** @typedef {ReturnType<typeof import("./use-settings-library-state").default>} SettingsLibraryState */
 /** @typedef {ReturnType<typeof import("./use-settings-romm-state").default>} SettingsRommState */
 /** @typedef {ReturnType<typeof import("./use-settings-update-state").default>} SettingsUpdateState */
-/** @typedef {{activeRomDownloadCount: number, coreState: SettingsCoreState, emulatorState: SettingsEmulatorState, libraryState: SettingsLibraryState, rommState: SettingsRommState, runtime: import("./settings-runtime").SettingsRuntime, updateState: SettingsUpdateState, normalizeGamepadDeadzone: (value: number) => number, onControllerDeadzoneChange?: ((value: number) => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, refreshUiSoundsFromConfig: (config: import("./settings-types").SettingsConfig) => void, rommToken: string|null, rommUrlProp?: string, setUiSoundsEnabled: (value: boolean) => void, setUiSoundsVolume: (value: number) => void}} SettingsActionsContext */
+/** @typedef {{activeRomDownloadCount: number, coreState: SettingsCoreState, emulatorState: SettingsEmulatorState, libraryState: SettingsLibraryState, rommState: SettingsRommState, runtime: import("./settings-runtime").SettingsRuntime, updateState: SettingsUpdateState, normalizeGamepadDeadzone: (value: number) => number, onControllerDeadzoneChange?: ((value: number) => void)|null, onRetroAchievementsChange?: ((value: boolean) => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, refreshUiSoundsFromConfig: (config: import("./settings-types").SettingsConfig) => void, rommToken: string|null, rommUrlProp?: string, setUiSoundsEnabled: (value: boolean) => void, setUiSoundsVolume: (value: number) => void}} SettingsActionsContext */
 
 /** @param {SettingsActionsContext} context Settings state and service dependencies. */
 const createStorageActions = (context) =>
@@ -68,6 +68,7 @@ const createAudioActions = (context) =>
     normalizeGamepadDeadzone: context.normalizeGamepadDeadzone,
     onControllerDeadzoneChange: context.onControllerDeadzoneChange,
     onLibraryChange: context.onLibraryChange,
+    onRetroAchievementsChange: context.onRetroAchievementsChange,
     refreshUiSoundsFromConfig: context.refreshUiSoundsFromConfig,
     runtime: context.runtime,
     setAmbientEnabled: context.coreState.setAmbientEnabled,

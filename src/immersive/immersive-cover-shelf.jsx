@@ -2,13 +2,27 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import { getShelfLabel } from "./immersive-cover-shelf-utils";
 import ImmersiveGameTile from "./immersive-game-tile";
 import { FocusBrackets } from "./immersive-shell";
 import { formatImmersivePosition } from "./immersive-shell-utils";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {{downloaded?: number|null, total?: number|null, percent?: number|null}|null} DownloadProgress */
+
+/** @param {string} section Section identifier. @returns {string} Shelf label. */
+const getShelfLabel = (section) => {
+  switch (section) {
+    case "favorites": {
+      return "Favorites";
+    }
+    case "recent": {
+      return "Recent";
+    }
+    default: {
+      return "All games";
+    }
+  }
+};
 
 /** @param {{section: string, selectedIndex: number, total: number}} props Shelf heading properties. */
 export const ShelfHeading = ({ section, selectedIndex, total }) => (
@@ -52,9 +66,9 @@ export const ShelfCard = ({
   <Box
     data-immersive-index={index}
     sx={{
-      minWidth: 0,
+      flexShrink: 0,
       position: "relative",
-      width: "100%",
+      width: { lg: 208, md: 188, xs: 164 },
     }}
   >
     <Box sx={{ position: "relative" }}>
@@ -91,9 +105,8 @@ export const ShelfCard = ({
   </Box>
 );
 
-/** @param {{columns: number, gridRef: {current: HTMLElement|null}, selectedIndex: number, visibleGames: ImmersiveGame[], getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean}} props Cover shelf properties. */
+/** @param {{gridRef: {current: HTMLElement|null}, selectedIndex: number, visibleGames: ImmersiveGame[], getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean}} props Cover shelf properties. */
 export const CoverShelf = ({
-  columns,
   gridRef,
   selectedIndex,
   visibleGames,
@@ -106,12 +119,14 @@ export const CoverShelf = ({
     ref={gridRef}
     data-testid="immersive-grid"
     sx={{
-      display: "grid",
-      gap: { md: 2.5, sm: 2, xs: 1.5 },
-      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      display: "flex",
+      gap: 2.5,
+      overflowX: "auto",
+      overflowY: "visible",
       pb: 2,
       pt: 1.5,
       px: 1,
+      scrollPaddingLeft: 8,
     }}
   >
     {visibleGames.map((game, index) => (

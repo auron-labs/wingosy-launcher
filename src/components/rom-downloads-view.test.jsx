@@ -4,8 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MuiTestProvider } from "../test/mui-harness";
 import RomDownloadsView from "./rom-downloads-view";
 
-/** @typedef {{activeDownloads: {gameId?: number|string, gameName?: string, percent?: number|null, kind?: "complete"|"error", path?: string, message?: string, at?: number, downloaded?: number|null, total?: number|null, stage?: string}[], clearRecentDownloads: () => void, recentDownloads: ({kind: "complete", gameId: number|string, gameName: string, path: string, at: number}|{kind: "error", gameId: number|string, gameName: string, message: string, at: number})[]}} DownloadsValue */
+/** @typedef {{activeDownloads: {gameId?: number|string, gameName?: string, percent?: number|null, kind?: "complete"|"error", path?: string, message?: string, at?: number, downloaded?: number|null, total?: number|null, stage?: string}[], clearRecentDownloads: () => void, retryBiosDownload: (firmwareId: number|string) => Promise<unknown>, recentDownloads: ({kind: "complete", transferId: string, transferKind: "rom", gameId: number|string, gameName: string, path: string, at: number}|{kind: "error", transferId: string, transferKind: "rom", gameId: number|string, gameName: string, message: string, at: number})[]}} DownloadsValue */
 /** @typedef {{onOpenGameDetails?: (() => void)|null, onOpenCloudLibrary?: (() => void)|null}} DownloadViewProps */
+/** @returns {Promise<null>} Inert BIOS retry callback. */
+const retryBiosDownload = async () => {
+  await Promise.resolve();
+  return null;
+};
 /** @param {DownloadsValue} value Download data. @param {DownloadViewProps} [props] View properties. */
 const renderDownloads = (value, props = {}) =>
   render(
@@ -25,6 +30,7 @@ describe(RomDownloadsView, () => {
         activeDownloads: [],
         clearRecentDownloads: () => {},
         recentDownloads: [],
+        retryBiosDownload,
       },
       {
         onOpenCloudLibrary: () => {
@@ -57,6 +63,7 @@ describe(RomDownloadsView, () => {
         clearRecentDownloads();
       },
       recentDownloads: [],
+      retryBiosDownload,
     });
 
     expect(screen.getByTestId("downloads-empty-state")).toBeInTheDocument();
@@ -82,8 +89,11 @@ describe(RomDownloadsView, () => {
           gameName: "Cloud Game",
           kind: "complete",
           path: "C:\\Games\\cloud.gba",
+          transferId: "rom:7",
+          transferKind: "rom",
         },
       ],
+      retryBiosDownload,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear history" }));

@@ -4,7 +4,7 @@ import { getSaveSyncErrorStatus } from "./game-details-utils";
 /** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 
-/** @typedef {{game: GameDetailsGame, ipc: typeof import("./game-details-ipc").gameDetailsIpc, openDialog: typeof import("@tauri-apps/plugin-dialog").open, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saveSyncInFlightRef: {current: boolean}, setSaveStatus: (status: GameDetailsStatus|null) => void, setSaves: (saves: GameDetailsSave[]) => void, setSavesLoaded: (loaded: boolean) => void, setSavesLoading: (loading: boolean) => void, setSwitchSyncBusy: (busy: boolean) => void}} SaveActionContextBase */
+/** @typedef {{game: GameDetailsGame, ipc: typeof import("./game-details-ipc").gameDetailsIpc, openDialog: typeof import("@tauri-apps/plugin-dialog").open, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saveSyncInFlightRef: {current: boolean}, setSaveStatus: (status: GameDetailsStatus|null) => void, setSaves: (saves: GameDetailsSave[]) => void, setSavesLoaded: (loaded: boolean) => void, setSavesLoading: (loading: boolean) => void, setSwitchSyncBusy: (busy: boolean) => void, switchSlot: string, refreshSwitchRestoreProtection: () => Promise<void>}} SaveActionContextBase */
 /** @typedef {SaveActionContextBase & {refreshSaveList: (preserveStatus?: boolean) => Promise<void>}} SaveActionContext */
 
 /** @param {SaveActionContextBase} context Save action context. @returns {{rommId: number, serverUrl: string, token: string}|null} Valid remote save configuration. */
@@ -34,13 +34,11 @@ export const refreshGameSaveList = async (context, preserveStatus = false) => {
   }
   context.setSavesLoading(true);
   try {
-    const result = context.isSwitch
-      ? await context.ipc.getSwitchGameSaves(context.game.id)
-      : await context.ipc.getGameSaves(
-          remote.rommId,
-          remote.serverUrl,
-          remote.token
-        );
+    const result = await context.ipc.getGameSaves(
+      remote.rommId,
+      remote.serverUrl,
+      remote.token
+    );
     context.setSaves(result);
     context.setSavesLoaded(true);
   } finally {
@@ -61,7 +59,7 @@ export const listGameSaves = async (context, isRetry = false) => {
     await listGameSaves(context, true);
   };
   try {
-    await context.refreshSaveList(true);
+    await context.refreshSaveList(isRetry);
     if (isRetry) {
       context.setSaveStatus(null);
     }
@@ -78,7 +76,8 @@ export const downloadGameSaveAction = async (context, saveId, retrySlot) => {
   if (remote === null || context.saveSyncInFlightRef.current) {
     return;
   }
-  const slot = retrySlot ?? null;
+  const slot =
+    retrySlot === undefined ? context.switchSlot.trim() || null : retrySlot;
   const retry = async () => {
     await downloadGameSaveAction(context, saveId, slot);
   };
@@ -94,34 +93,21 @@ export const downloadGameSaveAction = async (context, saveId, retrySlot) => {
         saveId,
         slot
       );
+      await context.refreshSwitchRestoreProtection();
       context.setSaveStatus({
-        message:
-          result.backupSaveId === null || result.backupSaveId === undefined
-            ? "Save restored."
-            : "Save restored. Your previous save is in history.",
+        message: result.message ?? "Switch save restored to Eden",
         type: "success",
       });
-      try {
-        await context.refreshSaveList(true);
-      } catch {
-        context.setSaveStatus({
-          message: "Save restored. Save history could not refresh.",
-          retry: async () => {
-            await listGameSaves(context, true);
-          },
-          type: "error",
-        });
-      }
       return;
     }
-    await context.ipc.downloadGameSave(
+    const path = await context.ipc.downloadGameSave(
       remote.rommId,
       saveId,
       remote.serverUrl,
       remote.token
     );
     context.setSaveStatus({
-      message: "Save downloaded.",
+      message: `Save downloaded to ${path}`,
       type: "success",
     });
   } catch (error) {
@@ -141,7 +127,8 @@ export const uploadSwitchSaveAction = async (context, retrySlot) => {
   ) {
     return;
   }
-  const slot = retrySlot ?? null;
+  const slot =
+    retrySlot === undefined ? context.switchSlot.trim() || null : retrySlot;
   const retry = async () => {
     await uploadSwitchSaveAction(context, slot);
   };
@@ -154,21 +141,20 @@ export const uploadSwitchSaveAction = async (context, retrySlot) => {
         type: "info",
       });
     }
-    await context.ipc.uploadSwitchSave(context.game.id, slot);
-    const successMessage = slot?.startsWith("backup-")
-      ? "Backup created."
-      : "Current save synced.";
-    context.setSaveStatus({ message: successMessage, type: "success" });
+    const result = await context.ipc.uploadSwitchSave(context.game.id, slot);
+    await context.refreshSwitchRestoreProtection();
+    context.setSaveStatus({
+      message: result.message ?? "Uploaded to RomM",
+      type: "success",
+    });
     try {
       await context.refreshSaveList(true);
-    } catch {
-      context.setSaveStatus({
-        message: `${successMessage} Save history could not refresh.`,
-        retry: async () => {
+    } catch (error) {
+      context.setSaveStatus(
+        getSaveSyncErrorStatus(error, async () => {
           await listGameSaves(context, true);
-        },
-        type: "error",
-      });
+        })
+      );
     }
   } catch (error) {
     context.setSaveStatus(getSaveSyncErrorStatus(error, retry));
@@ -177,54 +163,6 @@ export const uploadSwitchSaveAction = async (context, retrySlot) => {
     context.saveSyncInFlightRef.current = false;
   }
 };
-
-/** @param {SaveActionContext} context Save action context. */
-export const syncCurrentSwitchSaveAction = async (context) => {
-  if (
-    context.game.romm_id === null ||
-    context.game.romm_id === undefined ||
-    context.saveSyncInFlightRef.current
-  ) {
-    return;
-  }
-  context.saveSyncInFlightRef.current = true;
-  context.setSwitchSyncBusy(true);
-  context.setSaveStatus({
-    message: "Synchronizing current save…",
-    type: "info",
-  });
-  try {
-    await context.ipc.syncCurrentSwitchSave(context.game.id);
-    context.setSaveStatus({
-      message: "Current save synced.",
-      type: "success",
-    });
-    try {
-      await context.refreshSaveList(true);
-    } catch {
-      context.setSaveStatus({
-        message: "Current save synced. Save history could not refresh.",
-        retry: async () => {
-          await listGameSaves(context, true);
-        },
-        type: "error",
-      });
-    }
-  } catch (error) {
-    context.setSaveStatus(
-      getSaveSyncErrorStatus(error, async () => {
-        await syncCurrentSwitchSaveAction(context);
-      })
-    );
-  } finally {
-    context.setSwitchSyncBusy(false);
-    context.saveSyncInFlightRef.current = false;
-  }
-};
-
-/** @returns {string} An implementation-safe, user-generated backup identifier. */
-export const createSwitchBackupName = () =>
-  `backup-${new Date().toISOString().replaceAll(/[:.]/gu, "-")}`;
 
 /** @param {SaveActionContext} context Save action context. @param {string|null|undefined} retrySlot Slot from a retry. */
 export const downloadSwitchSaveAction = async (context, retrySlot) => {
@@ -235,7 +173,8 @@ export const downloadSwitchSaveAction = async (context, retrySlot) => {
   ) {
     return;
   }
-  const slot = retrySlot ?? null;
+  const slot =
+    retrySlot === undefined ? context.switchSlot.trim() || null : retrySlot;
   const retry = async () => {
     await downloadSwitchSaveAction(context, slot);
   };
@@ -248,9 +187,48 @@ export const downloadSwitchSaveAction = async (context, retrySlot) => {
         type: "info",
       });
     }
-    await context.ipc.downloadSwitchSave(context.game.id, null, slot);
+    const result = await context.ipc.downloadSwitchSave(
+      context.game.id,
+      null,
+      slot
+    );
+    await context.refreshSwitchRestoreProtection();
     context.setSaveStatus({
-      message: "Save restored.",
+      message: result.message ?? "Restored to Eden",
+      type: "success",
+    });
+  } catch (error) {
+    context.setSaveStatus(getSaveSyncErrorStatus(error, retry));
+  } finally {
+    context.setSwitchSyncBusy(false);
+    context.saveSyncInFlightRef.current = false;
+  }
+};
+
+/** @param {SaveActionContext} context Save action context. */
+export const resumeSwitchSaveNormalSyncAction = async (context) => {
+  if (
+    !context.isSwitch ||
+    context.game.romm_id === null ||
+    context.game.romm_id === undefined ||
+    context.saveSyncInFlightRef.current
+  ) {
+    return;
+  }
+  const retry = async () => {
+    await resumeSwitchSaveNormalSyncAction(context);
+  };
+  context.saveSyncInFlightRef.current = true;
+  try {
+    context.setSwitchSyncBusy(true);
+    context.setSaveStatus({
+      message: "Resuming normal Eden save sync…",
+      type: "info",
+    });
+    await context.ipc.resumeSwitchSaveNormalSync(context.game.id);
+    await context.refreshSwitchRestoreProtection();
+    context.setSaveStatus({
+      message: "Normal Eden save sync resumed.",
       type: "success",
     });
   } catch (error) {

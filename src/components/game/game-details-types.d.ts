@@ -74,6 +74,20 @@ export interface GameDetailsSwitchSyncResult {
   reused?: number | null;
 }
 
+export interface GameDetailsSwitchSaveRevision {
+  id: number;
+  file_name: string;
+  file_size_bytes?: number | null;
+  emulator?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  slot?: string | null;
+}
+
+export interface GameDetailsSwitchSaveRestoreProtection {
+  selected_revision: GameDetailsSwitchSaveRevision;
+}
+
 export interface GameDetailsSwitchPathInfo {
   title_id: string;
   local_save_path: string;
@@ -93,7 +107,12 @@ export interface GameDetailsAchievementsAchievement {
   title: string;
   description?: string | null;
   points?: number | null;
+  achievement_type?: string | null;
+  badge_url?: string | null;
+  badge_url_lock?: string | null;
   unlocked?: boolean;
+  unlocked_hardcore?: boolean;
+  unlocked_at?: string | null;
 }
 
 export interface GameDetailsStatus {

@@ -20,10 +20,11 @@ import { getImmersiveCoverSrc } from "./immersive-shell-utils";
 /** @typedef {import("./immersive-shell-utils").SpinePlatformOption} SpinePlatformOption */
 /** @typedef {{downloaded?: number|null, total?: number|null, percent?: number|null}|null} DownloadProgress */
 
-/** @param {{activeCount: number, onOpenDownloads?: () => void, onOpenSettings: () => void, onExitImmersive: () => void}} props Utility button properties. */
+/** @param {{activeCount: number, onOpenDownloads?: () => void, onOpenRommSync?: () => void, onOpenSettings: () => void, onExitImmersive: () => void}} props Utility button properties. */
 const HeaderUtilities = ({
   activeCount,
   onOpenDownloads,
+  onOpenRommSync,
   onOpenSettings,
   onExitImmersive,
 }) => (
@@ -39,6 +40,19 @@ const HeaderUtilities = ({
         }}
       >
         {activeCount > 0 ? `Downloads (${activeCount})` : "Downloads"}
+      </Button>
+    ) : null}
+    {onOpenRommSync ? (
+      <Button
+        onClick={onOpenRommSync}
+        sx={{
+          color: "text.secondary",
+          fontSize: "0.95rem",
+          fontWeight: 600,
+          textTransform: "none",
+        }}
+      >
+        RomM Sync
       </Button>
     ) : null}
     <Button
@@ -67,7 +81,7 @@ const HeaderUtilities = ({
   </Stack>
 );
 
-/** @param {{section: string, setSectionAndReset: (section: string) => void, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, onSearchChange: (query: string) => void, activeCount: number, onOpenDownloads?: () => void, onOpenSettings: () => void, onExitImmersive: () => void}} props Library header properties. */
+/** @param {{section: string, setSectionAndReset: (section: string) => void, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, onSearchChange: (query: string) => void, activeCount: number, onOpenDownloads?: () => void, onOpenRommSync?: () => void, onOpenSettings: () => void, onExitImmersive: () => void}} props Library header properties. */
 const LibraryHeader = (props) => {
   const {
     section,
@@ -77,6 +91,7 @@ const LibraryHeader = (props) => {
     onSearchChange,
     activeCount,
     onOpenDownloads,
+    onOpenRommSync,
     onOpenSettings,
     onExitImmersive,
   } = props;
@@ -103,6 +118,7 @@ const LibraryHeader = (props) => {
         <HeaderUtilities
           activeCount={activeCount}
           onOpenDownloads={onOpenDownloads}
+          onOpenRommSync={onOpenRommSync}
           onOpenSettings={onOpenSettings}
           onExitImmersive={onExitImmersive}
         />
@@ -138,7 +154,7 @@ const EmptyLibrary = ({ searchQuery }) => {
   );
 };
 
-/** @param {{columns: number, searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Populated library properties. */
+/** @param {{searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Populated library properties. */
 const PopulatedLibrary = (props) => {
   const { visibleGames, selectedIndex, platformOptions } = props;
   const heroGame = visibleGames[selectedIndex] ?? visibleGames[0];
@@ -152,7 +168,6 @@ const PopulatedLibrary = (props) => {
           total={visibleGames.length}
         />
         <CoverShelf
-          columns={props.columns}
           gridRef={props.gridRef}
           selectedIndex={props.selectedIndex}
           visibleGames={visibleGames}
@@ -166,7 +181,7 @@ const PopulatedLibrary = (props) => {
   );
 };
 
-/** @param {{columns: number, loading: boolean, searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Library body properties. */
+/** @param {{loading: boolean, searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Library body properties. */
 const LibraryBody = (props) => {
   const { loading, visibleGames } = props;
   if (loading) {
@@ -195,7 +210,7 @@ const LibraryBody = (props) => {
   return <PopulatedLibrary {...props} />;
 };
 
-/** @param {{columns: number, error: string|null, loading: boolean, searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Library stage properties. */
+/** @param {{error: string|null, loading: boolean, searchQuery: string, section: string, selectedIndex: number, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, getProgress: (id: number|string) => DownloadProgress, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, reducedMotion: boolean, platformOptions: SpinePlatformOption[]}} props Library stage properties. */
 const LibraryMainStage = (props) => (
   <Box
     sx={{
@@ -244,72 +259,84 @@ const LibraryContentColumn = ({
   </Box>
 );
 
-/** @param {{activeCount: number, columns: number, error: string|null, getProgress: (id: number|string) => DownloadProgress, gridRef: {current: HTMLElement|null}, loading: boolean, onExitImmersive: () => void, onOpenDownloads?: () => void, onOpenSettings: () => void, onSelectGame: (game: ImmersiveGame) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, platformOptions: SpinePlatformOption[], searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, section: string, selectedIndex: number, setSectionAndReset: (section: string) => void, visibleGames: ImmersiveGame[]}} props Library content properties. */
-const LibraryViewContent = ({
+/** @typedef {{activeCount: number, error: string|null, getProgress: (id: number|string) => DownloadProgress, gridRef: {current: HTMLElement|null}, handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void, loading: boolean, onExitImmersive: () => void, onOpenDownloads?: () => void, onOpenRommSync?: () => void, onOpenSettings: () => void, onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void, onSelectGame: (game: ImmersiveGame) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectedPlatformChange: (platform: string|null) => void, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, platformOptions: SpinePlatformOption[], rootRef: {current: HTMLElement|null}, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, section: string, selectedIndex: number, selectedPlatform: string|null, setSectionAndReset: (section: string) => void, visibleGames: ImmersiveGame[]}} ImmersiveLibraryViewProps */
+
+/** @param {Omit<ImmersiveLibraryViewProps, "handleKeyDown"|"onPointerDown"|"rootRef">} props Library content properties. */
+const LibraryContent = ({
   activeCount,
-  columns,
   error,
   getProgress,
   gridRef,
   loading,
   onExitImmersive,
   onOpenDownloads,
+  onOpenRommSync,
   onOpenSettings,
-  onSelectGame,
   onSearchChange,
+  onSelectGame,
   onSelectedIndexChange,
+  onSelectedPlatformChange,
+  platformButtonRefs,
   platformOptions,
   searchInputRef,
   searchQuery,
   section,
   selectedIndex,
+  selectedPlatform,
   setSectionAndReset,
   visibleGames,
 }) => {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const heroGame = visibleGames[selectedIndex] ?? visibleGames[0] ?? null;
   return (
-    <LibraryContentColumn
-      heroCoverSrc={getImmersiveCoverSrc(heroGame?.cover_path)}
-      reducedMotion={reducedMotion}
-      header={
-        <LibraryHeader
-          activeCount={activeCount}
-          onExitImmersive={onExitImmersive}
-          onOpenDownloads={onOpenDownloads}
-          onOpenSettings={onOpenSettings}
-          onSearchChange={onSearchChange}
-          searchInputRef={searchInputRef}
-          searchQuery={searchQuery}
-          section={section}
-          setSectionAndReset={setSectionAndReset}
-        />
-      }
-      stage={
-        <LibraryMainStage
-          error={error}
-          columns={columns}
-          getProgress={getProgress}
-          gridRef={gridRef}
-          loading={loading}
-          onSelectGame={onSelectGame}
-          onSelectedIndexChange={onSelectedIndexChange}
-          platformOptions={platformOptions}
-          reducedMotion={reducedMotion}
-          searchQuery={searchQuery}
-          section={section}
-          selectedIndex={selectedIndex}
-          visibleGames={visibleGames}
-        />
-      }
-    />
+    <>
+      <PlatformSpine
+        options={platformOptions}
+        selectedPlatform={selectedPlatform}
+        platformButtonRefs={platformButtonRefs}
+        onSelectedPlatformChange={onSelectedPlatformChange}
+      />
+      <LibraryContentColumn
+        heroCoverSrc={getImmersiveCoverSrc(heroGame?.cover_path)}
+        reducedMotion={reducedMotion}
+        header={
+          <LibraryHeader
+            activeCount={activeCount}
+            onExitImmersive={onExitImmersive}
+            onOpenDownloads={onOpenDownloads}
+            onOpenRommSync={onOpenRommSync}
+            onOpenSettings={onOpenSettings}
+            onSearchChange={onSearchChange}
+            searchInputRef={searchInputRef}
+            searchQuery={searchQuery}
+            section={section}
+            setSectionAndReset={setSectionAndReset}
+          />
+        }
+        stage={
+          <LibraryMainStage
+            error={error}
+            getProgress={getProgress}
+            gridRef={gridRef}
+            loading={loading}
+            onSelectGame={onSelectGame}
+            onSelectedIndexChange={onSelectedIndexChange}
+            platformOptions={platformOptions}
+            reducedMotion={reducedMotion}
+            searchQuery={searchQuery}
+            section={section}
+            selectedIndex={selectedIndex}
+            visibleGames={visibleGames}
+          />
+        }
+      />
+    </>
   );
 };
 
-/** @param {{activeCount: number, columns: number, error: string|null, getProgress: (id: number|string) => DownloadProgress, gridRef: {current: HTMLElement|null}, handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void, loading: boolean, onExitImmersive: () => void, onOpenDownloads?: () => void, onOpenSettings: () => void, onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void, onSelectGame: (game: ImmersiveGame) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectedPlatformChange: (platform: string|null) => void, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, platformOptions: SpinePlatformOption[], rootRef: {current: HTMLElement|null}, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, section: string, selectedIndex: number, selectedPlatform: string|null, setSectionAndReset: (section: string) => void, visibleGames: ImmersiveGame[]}} props Immersive library view properties. */
+/** @param {ImmersiveLibraryViewProps} props Immersive library view properties. */
 const ImmersiveLibraryView = ({
   activeCount,
-  columns,
   error,
   getProgress,
   gridRef,
@@ -317,10 +344,11 @@ const ImmersiveLibraryView = ({
   loading,
   onExitImmersive,
   onOpenDownloads,
+  onOpenRommSync,
   onOpenSettings,
   onPointerDown,
-  onSelectGame,
   onSearchChange,
+  onSelectGame,
   onSelectedIndexChange,
   onSelectedPlatformChange,
   platformButtonRefs,
@@ -348,30 +376,27 @@ const ImmersiveLibraryView = ({
         overflow: "hidden",
       }}
     >
-      <PlatformSpine
-        options={platformOptions}
-        selectedPlatform={selectedPlatform}
-        platformButtonRefs={platformButtonRefs}
-        onSelectedPlatformChange={onSelectedPlatformChange}
-      />
-      <LibraryViewContent
+      <LibraryContent
         activeCount={activeCount}
-        columns={columns}
         error={error}
         getProgress={getProgress}
         gridRef={gridRef}
         loading={loading}
         onExitImmersive={onExitImmersive}
         onOpenDownloads={onOpenDownloads}
+        onOpenRommSync={onOpenRommSync}
         onOpenSettings={onOpenSettings}
-        onSelectGame={onSelectGame}
         onSearchChange={onSearchChange}
+        onSelectGame={onSelectGame}
         onSelectedIndexChange={onSelectedIndexChange}
+        onSelectedPlatformChange={onSelectedPlatformChange}
+        platformButtonRefs={platformButtonRefs}
         platformOptions={platformOptions}
         searchInputRef={searchInputRef}
         searchQuery={searchQuery}
         section={section}
         selectedIndex={selectedIndex}
+        selectedPlatform={selectedPlatform}
         setSectionAndReset={setSectionAndReset}
         visibleGames={visibleGames}
       />

@@ -37,7 +37,7 @@ export const getControllerAction = (event) =>
 export const isTextInputTarget = (target) =>
   target instanceof Element &&
   target.closest(
-    'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
   ) !== null;
 
 /** @param {ControllerAction|null} action @param {string} receiver @param {string} outcome @param {Record<string, unknown>} [details] */

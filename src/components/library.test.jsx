@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MuiTestProvider } from "../test/mui-harness";
@@ -58,7 +64,7 @@ describe("Library desktop controls", () => {
   });
 
   it("shows a result count, clear affordance, shortcut hint, and sort/filter controls", () => {
-    renderLibrary({ games: [games[1]], searchQuery: "mar", total: 1 });
+    renderLibrary({ games: [], searchQuery: "mar", total: 1 });
 
     expect(screen.getByTestId("library-result-count")).toHaveTextContent(
       "1 result"
@@ -96,6 +102,7 @@ describe("Library desktop controls", () => {
     renderLibrary({
       error:
         "This game cannot start because no compatible emulator is installed for PlayStation 2.",
+      games: [],
       launchError: {
         guidance:
           "Open Settings → Emulators to install or select a compatible emulator.",
@@ -108,13 +115,15 @@ describe("Library desktop controls", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Open Settings → Emulators");
     expect(
-      screen.getByRole("button", { name: "Open Settings" })
+      within(alert).getByRole("button", { name: "Open Settings" })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Retry" })
+      within(alert).queryByRole("button", { name: "Retry" })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+    fireEvent.click(
+      within(alert).getByRole("button", { name: "Open Settings" })
+    );
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(onRetryLaunch).not.toHaveBeenCalled();
   });
@@ -129,5 +138,145 @@ describe("Library desktop controls", () => {
     expect(screen.getByTestId("library-result-count")).toHaveTextContent(
       "1 result"
     );
+  });
+});
+
+describe("Library search shortcuts", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("uses unmodified slash only outside text-entry targets", () => {
+    renderLibrary({ searchQuery: "mario" });
+    const search = screen.getByPlaceholderText("Search games...");
+    if (!(search instanceof HTMLInputElement)) {
+      throw new Error("Expected the search field to be an input");
+    }
+    const targets = [
+      document.createElement("input"),
+      document.createElement("textarea"),
+      document.createElement("select"),
+      document.createElement("div"),
+    ];
+    const targetContainer = document.createElement("div");
+    document.body.append(targetContainer);
+    for (const target of targets) {
+      target.tabIndex = 0;
+      if (target instanceof HTMLDivElement) {
+        target.setAttribute("contenteditable", "");
+      }
+      targetContainer.append(target);
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    targetContainer.append(button);
+
+    button.focus();
+    fireEvent.keyDown(button, { key: "/" });
+    expect(document.activeElement).toBe(search);
+    expect(search.selectionStart).toBe(0);
+    expect(search.selectionEnd).toBe("mario".length);
+
+    for (const target of targets) {
+      target.focus();
+      fireEvent.keyDown(target, { key: "/" });
+      expect(document.activeElement).toBe(target);
+    }
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      button.focus();
+      fireEvent.keyDown(button, { key: "/", [modifier]: true });
+      expect(document.activeElement).toBe(button);
+    }
+    targetContainer.remove();
+  });
+
+  it("clears search with Escape only while the search field is focused", () => {
+    const onSearchChange = vi.fn();
+    renderLibrary({ onSearchChange, searchQuery: "mario" });
+    const search = screen.getByPlaceholderText("Search games...");
+    const button = document.createElement("button");
+    button.type = "button";
+    document.body.append(button);
+
+    button.focus();
+    fireEvent.keyDown(button, { key: "Escape" });
+    expect(onSearchChange).not.toHaveBeenCalled();
+
+    search.focus();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(onSearchChange).toHaveBeenCalledWith("");
+    button.remove();
+  });
+});
+
+describe("Library query controls", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("offers the desktop sort modes and independent availability control", () => {
+    const onAvailabilityChange = vi.fn();
+    const onFilterChange = vi.fn();
+    const onSortChange = vi.fn();
+    const onSortDirectionChange = vi.fn();
+    renderLibrary({
+      availability: "all",
+      filterBy: "all",
+      onAvailabilityChange,
+      onFilterChange,
+      onSortChange,
+      onSortDirectionChange,
+      sortBy: "name",
+      sortDescending: false,
+    });
+
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Sort by" }));
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent)
+    ).toStrictEqual([
+      "Name",
+      "Recently played",
+      "Play time",
+      "Most played",
+      "Release year",
+    ]);
+    fireEvent.click(screen.getByRole("option", { name: "Most played" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort descending" }));
+
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Availability" }));
+    fireEvent.click(screen.getByRole("option", { name: "Downloaded" }));
+
+    expect(onSortChange).toHaveBeenCalledWith("play_count");
+    expect(onSortDirectionChange).toHaveBeenCalledWith(true);
+    expect(onAvailabilityChange).toHaveBeenCalledWith("downloaded");
+    expect(onFilterChange).not.toHaveBeenCalled();
+  });
+
+  it("offers one recovery action for search and availability empty results", () => {
+    const onAvailabilityChange = vi.fn();
+    const onFilterChange = vi.fn();
+    const onSearchChange = vi.fn();
+    renderLibrary({
+      availability: "downloaded",
+      filterBy: "favorites",
+      games: [],
+      onAvailabilityChange,
+      onFilterChange,
+      onSearchChange,
+      searchQuery: "missing",
+      total: 0,
+    });
+
+    expect(screen.getByText("No games match this filter")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Try another filter, clear your search, or show all games."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all games" }));
+
+    expect(onSearchChange).toHaveBeenCalledWith("");
+    expect(onAvailabilityChange).toHaveBeenCalledWith("all");
+    expect(onFilterChange).toHaveBeenCalledWith("all");
   });
 });

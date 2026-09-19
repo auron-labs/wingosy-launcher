@@ -3,6 +3,8 @@
 
 /** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {GameDetailsIpc} Game details IPC adapter. */
 export const createGameDetailsTestIpc = (invoke) => {
+  /** @type {(command: "get_romm_retroachievements", args?: Record<string, unknown>) => Promise<import("./game-details-types").GameDetailsAchievementsAchievement[]>} */
+  const invokeRommRetroAchievements = invoke;
   /** @type {GameDetailsIpc["addGameToCollection"]} */
   const addGameToCollection = async (collectionId, gameId) =>
     await invoke("add_game_to_collection", { collectionId, gameId });
@@ -25,31 +27,38 @@ export const createGameDetailsTestIpc = (invoke) => {
   /** @type {GameDetailsIpc["getGameSaves"]} */
   const getGameSaves = async (rommId, serverUrl, token) =>
     await invoke("get_game_saves", { rommId, serverUrl, token });
-  /** @type {GameDetailsIpc["getSwitchGameSaves"]} */
-  const getSwitchGameSaves = async (gameId) =>
-    await invoke("get_switch_game_saves", { gameId });
+  /** @type {GameDetailsIpc["getRommRetroAchievements"]} */
+  const getRommRetroAchievements = async (
+    rommId,
+    serverUrl,
+    token,
+    refreshProgression
+  ) =>
+    await invokeRommRetroAchievements("get_romm_retroachievements", {
+      refreshProgression,
+      romId: rommId,
+      serverUrl,
+      token,
+    });
   /** @type {GameDetailsIpc["getSwitchSavePathInfo"]} */
   const getSwitchSavePathInfo = async (gameId) =>
     await invoke("get_switch_save_path_info", { gameId });
-  /** @type {GameDetailsIpc["setSaveSyncEnabled"]} */
-  const setSaveSyncEnabled = async (enabled) => {
-    const config = await getGameDetailsConfig();
-    config.romm ??= {};
-    config.romm.sync_saves = enabled;
-    await invoke("save_config", { config });
-  };
+  /** @type {GameDetailsIpc["getSwitchSaveRestoreProtection"]} */
+  const getSwitchSaveRestoreProtection = async (gameId) =>
+    await invoke("get_switch_save_restore_protection", { gameId });
   /** @type {GameDetailsIpc["openRomLocation"]} */
   const openRomLocation = async (gameId) =>
     await invoke("open_rom_location", { gameId });
   /** @type {GameDetailsIpc["refreshGameMetadata"]} */
   const refreshGameMetadata = async (gameId, serverUrl, token) =>
     await invoke("refresh_game_metadata", { gameId, serverUrl, token });
+  /** @type {GameDetailsIpc["resumeSwitchSaveNormalSync"]} */
+  const resumeSwitchSaveNormalSync = async (gameId) => {
+    await invoke("resume_switch_save_normal_sync", { gameId });
+  };
   /** @type {GameDetailsIpc["syncSwitchContent"]} */
   const syncSwitchContent = async (gameId) =>
     await invoke("sync_switch_content", { gameId });
-  /** @type {GameDetailsIpc["syncCurrentSwitchSave"]} */
-  const syncCurrentSwitchSave = async (gameId) =>
-    await invoke("sync_current_switch_save", { gameId });
   /** @type {GameDetailsIpc["toggleGameHidden"]} */
   const toggleGameHidden = async (gameId) =>
     await invoke("toggle_game_hidden", { gameId });
@@ -69,13 +78,13 @@ export const createGameDetailsTestIpc = (invoke) => {
     getCollections,
     getGameDetailsConfig,
     getGameSaves,
-    getSwitchGameSaves,
+    getRommRetroAchievements,
     getSwitchSavePathInfo,
+    getSwitchSaveRestoreProtection,
     openRomLocation,
     refreshGameMetadata,
+    resumeSwitchSaveNormalSync,
     syncSwitchContent,
-    syncCurrentSwitchSave,
-    setSaveSyncEnabled,
     toggleGameHidden,
     uploadGameSave,
     uploadSwitchSave,

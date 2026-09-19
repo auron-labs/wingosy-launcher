@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 
 import type {
+  GameDetailsAchievementsAchievement,
   GameDetailsCollection,
   GameDetailsConfig,
   GameDetailsGame,
   GameDetailsSave,
   GameDetailsSwitchPathInfo,
+  GameDetailsSwitchSaveRestoreProtection,
   GameDetailsSwitchSyncResult,
 } from "./game-details-types";
 
@@ -21,12 +23,13 @@ export const getSwitchSavePathInfo = async (gameId: GameDetailsGame["id"]) =>
     gameId,
   });
 
-export const setSaveSyncEnabled = async (enabled: boolean) => {
-  const config = await getGameDetailsConfig();
-  config.romm ??= {};
-  config.romm.sync_saves = enabled;
-  await command<unknown>("save_config", { config });
-};
+export const getSwitchSaveRestoreProtection = async (
+  gameId: GameDetailsGame["id"]
+) =>
+  await command<GameDetailsSwitchSaveRestoreProtection | null>(
+    "get_switch_save_restore_protection",
+    { gameId }
+  );
 
 export const downloadRom = async (
   gameId: GameDetailsGame["id"],
@@ -48,8 +51,21 @@ export const getGameSaves = async (
     token,
   });
 
-export const getSwitchGameSaves = async (gameId: GameDetailsGame["id"]) =>
-  await command<GameDetailsSave[]>("get_switch_game_saves", { gameId });
+export const getRommRetroAchievements = async (
+  rommId: number,
+  serverUrl: string,
+  token: string,
+  refreshProgression: boolean
+) =>
+  await command<GameDetailsAchievementsAchievement[]>(
+    "get_romm_retroachievements",
+    {
+      refreshProgression,
+      romId: rommId,
+      serverUrl,
+      token,
+    }
+  );
 
 export const downloadSwitchSave = async (
   gameId: GameDetailsGame["id"],
@@ -84,10 +100,11 @@ export const uploadSwitchSave = async (
     slot,
   });
 
-export const syncCurrentSwitchSave = async (gameId: GameDetailsGame["id"]) =>
-  await command<GameDetailsSwitchSyncResult>("sync_current_switch_save", {
-    gameId,
-  });
+export const resumeSwitchSaveNormalSync = async (
+  gameId: GameDetailsGame["id"]
+) => {
+  await command<undefined>("resume_switch_save_normal_sync", { gameId });
+};
 
 export const uploadGameSave = async (
   filePath: string,
@@ -135,13 +152,13 @@ export const gameDetailsIpc = {
   getCollections,
   getGameDetailsConfig,
   getGameSaves,
-  getSwitchGameSaves,
+  getRommRetroAchievements,
   getSwitchSavePathInfo,
+  getSwitchSaveRestoreProtection,
   openRomLocation,
   refreshGameMetadata,
+  resumeSwitchSaveNormalSync,
   syncSwitchContent,
-  syncCurrentSwitchSave,
-  setSaveSyncEnabled,
   toggleGameHidden,
   uploadGameSave,
   uploadSwitchSave,

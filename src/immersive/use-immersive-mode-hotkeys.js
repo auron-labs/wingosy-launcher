@@ -48,7 +48,7 @@ const handleEscape = ({ event, view, setView, loadData, handleExit }) => {
     });
     return;
   }
-  if (view === "downloads") {
+  if (view === "downloads" || view === "romm-sync") {
     setView("library");
     logControllerOutcome(getControllerAction(event), "shell", "handled", {
       reason: "return-to-library",

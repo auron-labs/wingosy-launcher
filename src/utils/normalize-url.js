@@ -33,16 +33,17 @@ const normalizeUrl = (input) => {
   }
 
   const [host] = url.split(/[:/]/u);
+  const hostname = host.toLowerCase();
 
   const isLocal =
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "0.0.0.0" ||
-    host.startsWith("192.168.") ||
-    host.startsWith("10.") ||
-    /^172\.(?:1[6-9]|2\d|3[01])\./u.test(host) ||
-    host.endsWith(".local") ||
-    host.endsWith(".lan");
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("10.") ||
+    /^172\.(?:1[6-9]|2\d|3[01])\./u.test(hostname) ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".lan");
 
   const scheme = isLocal ? "http://" : "https://";
   return scheme + url;

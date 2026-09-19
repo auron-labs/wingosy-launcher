@@ -3,7 +3,9 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Row};
 
 use super::Database;
-use crate::models::{Game, GameFilter, GameSort, GameSource, SyncState};
+use crate::models::{
+    Game, GameAvailability, GameFilter, GameMainFilter, GameSort, GameSource, SyncState,
+};
 
 impl Database {
     pub fn insert_game(&self, game: &Game) -> Result<i64> {
@@ -224,11 +226,11 @@ impl Database {
 
         let order = match filter.sort_by {
             GameSort::Name => "name",
-            GameSort::LastPlayed => "last_played_at",
+            GameSort::LastPlayed => "NULLIF(last_played_at, '')",
             GameSort::PlayCount => "play_count",
             GameSort::PlayTime => "play_time_minutes",
             GameSort::ReleaseYear => "release_year",
-            GameSort::RecentlyAdded => "created_at",
+            GameSort::RecentlyAdded => "NULLIF(created_at, '')",
             GameSort::Rating => "user_rating",
         };
 
@@ -237,7 +239,12 @@ impl Database {
         } else {
             "ASC"
         };
-        sql.push_str(&format!(" ORDER BY {} {} NULLS LAST", order, direction));
+        // Keep the final ordering deterministic so an item cannot move between pages
+        // when several games have the same primary sort value.
+        sql.push_str(&format!(
+            " ORDER BY {} {} NULLS LAST, name COLLATE NOCASE ASC, id ASC",
+            order, direction
+        ));
 
         if let Some((limit, offset)) = pagination {
             sql.push_str(" LIMIT ? OFFSET ?");
@@ -276,22 +283,46 @@ impl Database {
     }
 
     fn games_filter_where(filter: &GameFilter) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
-        let mut sql = String::from(" WHERE 1=1");
+        let legacy_favorites = filter.favorites_only;
+        let main_filter = if legacy_favorites {
+            GameMainFilter::Favorites
+        } else {
+            filter.main_filter
+        };
+        // Favorites have historically included hidden entries in this query;
+        // keep that behavior for both the legacy and paged callers.
+        let mut sql = if main_filter == GameMainFilter::Favorites {
+            String::from(" WHERE 1=1")
+        } else {
+            String::from(" WHERE is_hidden = 0")
+        };
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-        if !filter.favorites_only {
-            sql.push_str(" AND is_hidden = 0");
-        }
         if let Some(ref platform_id) = filter.platform_id {
             sql.push_str(" AND platform_id = ?");
             params_vec.push(Box::new(platform_id.clone()));
         }
-        if filter.favorites_only {
-            sql.push_str(" AND is_favorite = 1");
+        match main_filter {
+            GameMainFilter::All => {}
+            GameMainFilter::Favorites => sql.push_str(" AND is_favorite = 1"),
+            GameMainFilter::Recent => sql.push_str(" AND NULLIF(last_played_at, '') IS NOT NULL"),
         }
         if let Some(ref query) = filter.search_query {
             sql.push_str(" AND name LIKE ?");
             params_vec.push(Box::new(format!("%{}%", query)));
+        }
+
+        const DOWNLOADED_PREDICATE: &str = "(NULLIF(TRIM(local_file_path), '') IS NOT NULL OR source <> 'romm' OR sync_state = 'synced')";
+        match filter.availability {
+            GameAvailability::All => {}
+            GameAvailability::Downloaded => {
+                sql.push_str(" AND ");
+                sql.push_str(DOWNLOADED_PREDICATE);
+            }
+            GameAvailability::NotDownloaded => {
+                sql.push_str(" AND NOT ");
+                sql.push_str(DOWNLOADED_PREDICATE);
+            }
         }
 
         (sql, params_vec)
@@ -516,6 +547,17 @@ impl Database {
         Ok(count as i32)
     }
 
+    /// Clear dirty flags for the platform involved in a failed scoped sync.
+    pub fn clear_platform_sync_dirty(&self, platform_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE games SET sync_dirty = 0 WHERE source = 'romm' AND platform_id = ?1",
+            params![platform_id],
+        )
+        .context("Failed to clear platform sync dirty flags")?;
+        Ok(())
+    }
+
     /// Clear dirty flag for a game (called when game is seen during sync)
     pub fn clear_sync_dirty(&self, game_id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
@@ -572,6 +614,30 @@ impl Database {
                 [],
             )
             .context("Failed to delete dirty games")?;
+        Ok(count as i32)
+    }
+
+    /// Delete indexed RomM games that were not seen during a successful full sync.
+    pub fn delete_dirty_games_for_full_sync(&self) -> Result<i32> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn
+            .execute(
+                "DELETE FROM games WHERE sync_dirty = 1 AND source = 'romm' AND romm_id IS NOT NULL",
+                [],
+            )
+            .context("Failed to delete dirty games for full sync")?;
+        Ok(count as i32)
+    }
+
+    /// Delete only RomM games that were not seen during a successful scoped sync.
+    pub fn delete_dirty_games_for_platform(&self, platform_id: &str) -> Result<i32> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn
+            .execute(
+                "DELETE FROM games WHERE sync_dirty = 1 AND source = 'romm' AND romm_id IS NOT NULL AND platform_id = ?1",
+                params![platform_id],
+            )
+            .context("Failed to delete dirty platform games")?;
         Ok(count as i32)
     }
 
@@ -735,6 +801,224 @@ mod tests {
         assert_eq!(last_page_total, 61);
         assert_eq!(last_page.len(), 1);
         assert_eq!(last_page[0].name, "Alpha 60");
+    }
+
+    #[test]
+    fn test_get_games_page_composes_main_filter_availability_and_count() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+
+        let mut local_favorite = create_test_game("Local Favorite");
+        local_favorite.is_favorite = true;
+        local_favorite.last_played_at = Some(chrono::Utc::now());
+        db.insert_game(&local_favorite).unwrap();
+
+        let mut cached_favorite = create_romm_game("Cached Favorite", 201);
+        cached_favorite.is_favorite = true;
+        cached_favorite.local_file_path = Some("/roms/cached.gba".to_string());
+        cached_favorite.sync_state = SyncState::Synced;
+        db.insert_game(&cached_favorite).unwrap();
+
+        let mut remote_favorite = create_romm_game("Remote Favorite", 202);
+        remote_favorite.is_favorite = true;
+        remote_favorite.last_played_at = Some(chrono::Utc::now());
+        db.insert_game(&remote_favorite).unwrap();
+
+        let mut remote_recent = create_romm_game("Remote Recent", 203);
+        remote_recent.last_played_at = Some(chrono::Utc::now());
+        db.insert_game(&remote_recent).unwrap();
+
+        let mut cached_other = create_romm_game("Cached Other", 204);
+        cached_other.sync_state = SyncState::Synced;
+        db.insert_game(&cached_other).unwrap();
+
+        let filter = GameFilter {
+            platform_id: Some("gba".to_string()),
+            main_filter: GameMainFilter::Favorites,
+            availability: GameAvailability::Downloaded,
+            search_query: Some("favorite".to_string()),
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&filter, 1, 0).unwrap();
+
+        assert_eq!(total, 2);
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].name, "Cached Favorite");
+
+        let filter = GameFilter {
+            main_filter: GameMainFilter::Recent,
+            availability: GameAvailability::NotDownloaded,
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&filter, 10, 0).unwrap();
+
+        assert_eq!(total, 2);
+        assert_eq!(
+            games
+                .iter()
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Remote Favorite", "Remote Recent"]
+        );
+    }
+
+    #[test]
+    fn test_legacy_favorites_filter_preserves_hidden_compatibility() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+
+        let mut visible = create_test_game("Visible favorite");
+        visible.is_favorite = true;
+        db.insert_game(&visible).unwrap();
+        let mut hidden = create_test_game("Hidden favorite");
+        hidden.is_favorite = true;
+        hidden.is_hidden = true;
+        db.insert_game(&hidden).unwrap();
+
+        let legacy_filter = GameFilter {
+            favorites_only: true,
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&legacy_filter, 10, 0).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(games.len(), 2);
+
+        let paged_filter = GameFilter {
+            main_filter: GameMainFilter::Favorites,
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&paged_filter, 10, 0).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(games.len(), 2);
+        assert_eq!(games[0].name, "Hidden favorite");
+        assert_eq!(games[1].name, "Visible favorite");
+    }
+
+    #[test]
+    fn test_downloaded_filter_uses_known_local_state_without_filesystem_checks() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+
+        let local_game = create_test_game("Local source");
+        db.insert_game(&local_game).unwrap();
+
+        let mut path_game = create_romm_game("Local path", 301);
+        path_game.local_file_path = Some("/path/that/need/not/exist".to_string());
+        db.insert_game(&path_game).unwrap();
+
+        let mut synced_game = create_romm_game("Synced state", 302);
+        synced_game.sync_state = SyncState::Synced;
+        db.insert_game(&synced_game).unwrap();
+
+        let remote_game = create_romm_game("Remote only", 303);
+        db.insert_game(&remote_game).unwrap();
+
+        let downloaded = GameFilter {
+            availability: GameAvailability::Downloaded,
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&downloaded, 10, 0).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(games.len(), 3);
+
+        let not_downloaded = GameFilter {
+            availability: GameAvailability::NotDownloaded,
+            ..GameFilter::default()
+        };
+        let (games, total) = db.get_games_page(&not_downloaded, 10, 0).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(games[0].name, "Remote only");
+    }
+
+    #[test]
+    fn test_get_games_page_keeps_nulls_last_and_ties_stable_in_both_directions() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+
+        for (name, release_year) in [
+            ("Zeta", Some(2020)),
+            ("Alpha", Some(2020)),
+            ("Older", Some(2010)),
+            ("Missing A", None),
+            ("Missing B", None),
+        ] {
+            let mut game = create_test_game(name);
+            game.release_year = release_year;
+            db.insert_game(&game).unwrap();
+        }
+
+        let tie_db = Database::open_in_memory().unwrap();
+        tie_db
+            .insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+        for (name, play_count) in [("Tie B", 3), ("Tie A", 3), ("Tie A", 3), ("Lower", 1)] {
+            let mut game = create_test_game(name);
+            game.play_count = play_count;
+            tie_db.insert_game(&game).unwrap();
+        }
+
+        let ascending = GameFilter {
+            sort_by: GameSort::ReleaseYear,
+            ..GameFilter::default()
+        };
+        let (first_page, _) = db.get_games_page(&ascending, 2, 0).unwrap();
+        let (second_page, _) = db.get_games_page(&ascending, 2, 2).unwrap();
+        let (last_page, _) = db.get_games_page(&ascending, 2, 4).unwrap();
+        assert_eq!(
+            first_page
+                .iter()
+                .chain(&second_page)
+                .chain(&last_page)
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Older", "Alpha", "Zeta", "Missing A", "Missing B"]
+        );
+
+        let descending = GameFilter {
+            sort_by: GameSort::ReleaseYear,
+            sort_descending: true,
+            ..GameFilter::default()
+        };
+        let (first_page, _) = db.get_games_page(&descending, 2, 0).unwrap();
+        let (second_page, _) = db.get_games_page(&descending, 2, 2).unwrap();
+        let (last_page, _) = db.get_games_page(&descending, 2, 4).unwrap();
+        assert_eq!(
+            first_page
+                .iter()
+                .chain(&second_page)
+                .chain(&last_page)
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Alpha", "Zeta", "Older", "Missing A", "Missing B"]
+        );
+
+        let ties = GameFilter {
+            sort_by: GameSort::PlayCount,
+            sort_descending: true,
+            ..GameFilter::default()
+        };
+        let (first_page, _) = tie_db.get_games_page(&ties, 2, 0).unwrap();
+        let (second_page, _) = tie_db.get_games_page(&ties, 2, 2).unwrap();
+        assert_eq!(
+            first_page
+                .iter()
+                .chain(&second_page)
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Tie A", "Tie A", "Tie B", "Lower"]
+        );
+        let mut tie_ids = first_page
+            .iter()
+            .chain(&second_page)
+            .map(|game| game.id)
+            .collect::<Vec<_>>();
+        tie_ids.sort_unstable();
+        tie_ids.dedup();
+        assert_eq!(tie_ids.len(), 4);
     }
 
     #[test]

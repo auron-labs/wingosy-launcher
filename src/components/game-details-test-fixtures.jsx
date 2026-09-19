@@ -61,7 +61,7 @@ export const remoteOnlyGame = {
 };
 
 /** @param {{game?: GameDetailsGame, onLaunch?: (gameId: number|string) => Promise<{success?: boolean, error?: string|null}>, onBack?: () => void, onToggleFavorite?: (gameId: number|string) => void, onGameUpdate?: (gameId: number|string) => void, onOpenSettings?: () => void, onOpenIntegrations?: () => void, platforms?: Array<[GameDetailsPlatform, number]>, rommToken?: string|null, rommUrl?: string|null}} [options] Details test options. */
-export const renderDetails = ({
+export const createDetailsElement = ({
   game = remoteOnlyGame,
   onLaunch = vi.fn(),
   onBack = vi.fn(),
@@ -72,26 +72,28 @@ export const renderDetails = ({
   platforms = [],
   rommToken = "saved-token",
   rommUrl = "https://romm.example",
-} = {}) =>
-  render(
-    <MuiTestProvider>
-      <RomDownloadsProvider listen={listen}>
-        <GameDetails
-          game={game}
-          platforms={platforms}
-          onBack={onBack}
-          onLaunch={onLaunch}
-          onToggleFavorite={onToggleFavorite}
-          onGameUpdate={onGameUpdate}
-          onOpenSettings={onOpenSettings}
-          onOpenIntegrations={onOpenIntegrations}
-          rommToken={rommToken}
-          rommUrl={rommUrl}
-          dependencies={{ ipc: testIpc, openDialog }}
-        />
-      </RomDownloadsProvider>
-    </MuiTestProvider>
-  );
+} = {}) => (
+  <MuiTestProvider>
+    <RomDownloadsProvider listen={listen}>
+      <GameDetails
+        game={game}
+        platforms={platforms}
+        onBack={onBack}
+        onLaunch={onLaunch}
+        onToggleFavorite={onToggleFavorite}
+        onGameUpdate={onGameUpdate}
+        onOpenSettings={onOpenSettings}
+        onOpenIntegrations={onOpenIntegrations}
+        rommToken={rommToken}
+        rommUrl={rommUrl}
+        dependencies={{ ipc: testIpc, openDialog }}
+      />
+    </RomDownloadsProvider>
+  </MuiTestProvider>
+);
+
+/** @param {Parameters<typeof createDetailsElement>[0]} [options] Details test options. */
+export const renderDetails = (options) => render(createDetailsElement(options));
 
 /** Reset the DOM and dependency doubles between detail tests. */
 export const cleanupGameDetailsTest = () => {

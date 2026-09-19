@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useRomDownloads } from "../rom-downloads-context-value";
 import {
   getBiosTotals,
   orderBiosGroupsByLibraryRelevance,
@@ -74,21 +75,6 @@ const finishBiosOperation = (operation, refresh) => {
 /** @param {unknown} error Error value from an operation. */
 const getErrorMessage = (error) =>
   error instanceof Error ? error.message : String(error);
-
-/**
- * @param {BiosFirmware[]} items Firmware entries to download.
- * @param {BiosInvoke} invokeBios BIOS command boundary.
- * @param {number} index Current firmware index.
- * @returns {Promise<void>} Resolves after the item is downloaded.
- */
-const downloadFirmwareItems = async (items, invokeBios, index = 0) => {
-  if (index >= items.length) {
-    return;
-  }
-  const item = items[index];
-  await invokeBios("download_bios_firmware", { firmwareId: item.id });
-  await downloadFirmwareItems(items, invokeBios, index + 1);
-};
 
 /** @param {{operation: string, action: () => Promise<void>, isMountedRef: {current: boolean}, load: () => Promise<void>, reload: boolean}} options BIOS operation dependencies. */
 const runBiosOperation = async ({
@@ -173,7 +159,11 @@ const createDownloadGroup =
     }
     await runBiosOperation({
       action: async () => {
-        await downloadFirmwareItems(missingItems, invokeBios);
+        await Promise.all(
+          missingItems.map(async (item) => {
+            await invokeBios("download_bios_firmware", { firmwareId: item.id });
+          })
+        );
         updateBiosOperation({
           message: {
             text: `Downloaded ${missingItems.length} ${group.name} firmware file${missingItems.length === 1 ? "" : "s"}.`,
@@ -432,6 +422,7 @@ export const useBiosSettings = ({
   openDirectory = open,
 }) => {
   const state = useBiosState();
+  const { getBiosProgress, getBiosRecentDownload } = useRomDownloads();
   const { isMountedRef, load } = useBiosLoading({ invokeBios, state });
   const { busy, message } = state.operation;
   const {
@@ -462,6 +453,8 @@ export const useBiosSettings = ({
   return {
     biosDirectory,
     busy,
+    getBiosProgress,
+    getBiosRecentDownload,
     ...directoryActions,
     ...downloadActions,
     expanded,

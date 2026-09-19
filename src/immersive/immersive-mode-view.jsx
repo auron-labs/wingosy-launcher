@@ -2,6 +2,7 @@ import Box from "@mui/material/Box";
 import Snackbar from "@mui/material/Snackbar";
 
 import RomDownloadsView from "../components/rom-downloads-view";
+import RommSyncMonitor from "../components/romm-sync-monitor";
 import Settings from "../components/settings";
 import AmbientAudioPlayer from "./ambient-audio-player";
 import ImmersiveGameDetails from "./immersive-game-details";
@@ -15,7 +16,7 @@ import ImmersiveLibrary from "./immersive-library";
 
 /** @typedef {{audio?: typeof AmbientAudioPlayer, details?: typeof ImmersiveGameDetails, downloads?: typeof RomDownloadsView, hintBar?: typeof ImmersiveHintBar, library?: typeof ImmersiveLibrary, settings?: typeof Settings}} ImmersiveModeComponents */
 
-/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, components?: ImmersiveModeComponents, controllerRouteRef?: {current: HTMLDivElement|null}, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void}} ImmersiveModeViewProps */
+/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, rommSyncMonitor: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, components?: ImmersiveModeComponents, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, onRetroAchievementsChange: (enabled: boolean) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void}} ImmersiveModeViewProps */
 
 /** @param {{components: ImmersiveModeComponents, setView: (view: string) => void}} props Downloads view properties. */
 const DownloadsMain = ({ components, setView }) => {
@@ -48,7 +49,30 @@ const DownloadsMain = ({ components, setView }) => {
   );
 };
 
-/** @param {Pick<ImmersiveModeViewProps, "settingsInitialSection"|"rommToken"|"rommUrl"|"onRommConnect"|"onImmersiveModeChange"|"onFullscreenChange"|"onControllerDeadzoneChange"> & {components: ImmersiveModeComponents, loadData: () => Promise<unknown>}} props Settings view properties. */
+/** @param {{monitor: ImmersiveModeViewProps["rommSyncMonitor"], setView: (view: string) => void}} props RomM sync view properties. */
+const RommSyncMain = ({ monitor, setView }) => (
+  <Box
+    sx={{
+      bgcolor: "background.default",
+      flex: 1,
+      minHeight: 0,
+      minWidth: 0,
+      overflowX: "hidden",
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+    }}
+  >
+    <RommSyncMonitor
+      immersive
+      monitor={monitor}
+      onBack={() => {
+        setView("library");
+      }}
+    />
+  </Box>
+);
+
+/** @param {Pick<ImmersiveModeViewProps, "settingsInitialSection"|"rommToken"|"rommUrl"|"onRommConnect"|"onImmersiveModeChange"|"onFullscreenChange"|"onControllerDeadzoneChange"|"onRetroAchievementsChange"|"setView"> & {components: ImmersiveModeComponents, loadData: () => Promise<unknown>}} props Settings view properties. */
 const SettingsMain = ({
   components,
   settingsInitialSection,
@@ -58,6 +82,8 @@ const SettingsMain = ({
   onImmersiveModeChange,
   onFullscreenChange,
   onControllerDeadzoneChange,
+  onRetroAchievementsChange,
+  setView,
   loadData,
 }) => {
   const SettingsView = components.settings ?? Settings;
@@ -84,6 +110,10 @@ const SettingsMain = ({
         onImmersiveModeChange={onImmersiveModeChange}
         onFullscreenChange={onFullscreenChange}
         onControllerDeadzoneChange={onControllerDeadzoneChange}
+        onRetroAchievementsChange={onRetroAchievementsChange}
+        onBack={() => {
+          setView("details");
+        }}
       />
     </Box>
   );
@@ -144,7 +174,7 @@ const DetailsMain = ({
   );
 };
 
-/** @param {Pick<ImmersiveModeViewProps, "games"|"platforms"|"selectedPlatform"|"searchQuery"|"selectedIndex"|"loading"|"error"|"onSelectedPlatformChange"|"onSearchChange"|"onSelectedIndexChange"|"onSelectGame"|"handleExit"|"openSettings"|"setView"|"controllerRouteRef"> & {components: ImmersiveModeComponents}} props Library view properties. */
+/** @param {Pick<ImmersiveModeViewProps, "games"|"platforms"|"selectedPlatform"|"searchQuery"|"selectedIndex"|"loading"|"error"|"onSelectedPlatformChange"|"onSearchChange"|"onSelectedIndexChange"|"onSelectGame"|"handleExit"|"openSettings"|"setView"> & {components: ImmersiveModeComponents}} props Library view properties. */
 const LibraryMain = (props) => {
   const LibraryView = props.components.library ?? ImmersiveLibrary;
   return (
@@ -160,13 +190,15 @@ const LibraryMain = (props) => {
       selectedIndex={props.selectedIndex}
       onSelectedIndexChange={props.onSelectedIndexChange}
       onSelectGame={props.onSelectGame}
-      controllerRouteRef={props.controllerRouteRef}
       onExitImmersive={props.handleExit}
       onOpenSettings={() => {
         props.openSettings();
       }}
       onOpenDownloads={() => {
         props.setView("downloads");
+      }}
+      onOpenRommSync={() => {
+        props.setView("romm-sync");
       }}
     />
   );
@@ -177,6 +209,11 @@ const MainView = (props) => {
   const components = props.components ?? {};
   if (props.view === "downloads") {
     return <DownloadsMain components={components} setView={props.setView} />;
+  }
+  if (props.view === "romm-sync") {
+    return (
+      <RommSyncMain monitor={props.rommSyncMonitor} setView={props.setView} />
+    );
   }
   if (props.view === "settings") {
     return <SettingsMain {...props} components={components} />;

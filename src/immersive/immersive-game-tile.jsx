@@ -368,6 +368,7 @@ const ImmersiveGameTile = ({
 
   return (
     <Box
+      aria-label={game.name}
       component="button"
       type="button"
       onClick={onSelect}

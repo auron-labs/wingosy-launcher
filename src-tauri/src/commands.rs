@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -14,8 +15,8 @@ use crate::database::Database;
 use crate::emulators::detection::detect_installed_emulators;
 use crate::emulators::{EmulatorLauncher, LaunchCommand, LaunchResult};
 use crate::models::{
-    default_emulators, retroarch_cores, Collection, Game, GameFilter, GameSort, GameSource,
-    Platform,
+    default_emulators, retroarch_cores, Collection, Game, GameAvailability, GameFilter,
+    GameMainFilter, GameSort, GameSource, Platform,
 };
 use crate::scanner::RomScanner;
 
@@ -400,21 +401,13 @@ pub async fn get_games_filtered(
 ) -> Result<Vec<Game>, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
 
-    let sort = sort_by
-        .as_deref()
-        .map(|s| match s {
-            "name" => GameSort::Name,
-            "last_played" => GameSort::LastPlayed,
-            "play_count" => GameSort::PlayCount,
-            "play_time" => GameSort::PlayTime,
-            "release_year" => GameSort::ReleaseYear,
-            _ => GameSort::Name,
-        })
-        .unwrap_or(GameSort::Name);
+    let sort = parse_game_sort(sort_by.as_deref());
 
     let filter = GameFilter {
         platform_id,
         genre: None,
+        main_filter: GameMainFilter::All,
+        availability: GameAvailability::All,
         search_query,
         favorites_only,
         sort_by: sort,
@@ -424,6 +417,90 @@ pub async fn get_games_filtered(
     db.get_games_filtered(&filter).map_err(|e| e.to_string())
 }
 
+fn parse_game_sort(value: Option<&str>) -> GameSort {
+    match value.map(str::trim) {
+        Some("last_played") | Some("recent") => GameSort::LastPlayed,
+        Some("play_count") => GameSort::PlayCount,
+        Some("play_time") => GameSort::PlayTime,
+        Some("release_year") => GameSort::ReleaseYear,
+        Some("recently_added") => GameSort::RecentlyAdded,
+        Some("rating") => GameSort::Rating,
+        Some("name") | None | Some(_) => GameSort::Name,
+    }
+}
+
+fn parse_game_main_filter(value: Option<&str>) -> GameMainFilter {
+    match value.map(str::trim) {
+        Some("favorites") => GameMainFilter::Favorites,
+        Some("recent") => GameMainFilter::Recent,
+        Some("all") | None | Some(_) => GameMainFilter::All,
+    }
+}
+
+fn parse_game_availability(value: Option<&str>) -> GameAvailability {
+    match value.map(str::trim) {
+        Some("downloaded") => GameAvailability::Downloaded,
+        Some("not_downloaded") => GameAvailability::NotDownloaded,
+        Some("all") | None | Some(_) => GameAvailability::All,
+    }
+}
+
+fn paged_game_filter(
+    platform_id: Option<String>,
+    search_query: Option<String>,
+    sort_by: Option<String>,
+    sort_descending: Option<bool>,
+    filter_by: Option<String>,
+    availability: Option<String>,
+) -> GameFilter {
+    let sort_by = parse_game_sort(sort_by.as_deref());
+    GameFilter {
+        platform_id,
+        genre: None,
+        main_filter: parse_game_main_filter(filter_by.as_deref()),
+        availability: parse_game_availability(availability.as_deref()),
+        favorites_only: false,
+        search_query,
+        sort_by,
+        sort_descending: sort_descending.unwrap_or_else(|| sort_by.default_descending()),
+    }
+}
+
+fn get_validated_games_page(
+    db: &Database,
+    filter: &GameFilter,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<Game>, i64), String> {
+    if filter.availability == GameAvailability::All {
+        let (games, total) = db
+            .get_games_page(filter, limit, offset)
+            .map_err(|error| error.to_string())?;
+        return Ok((validate_game_paths(games, db), total));
+    }
+
+    // Validate only rows that can enter this page. If a correction changes
+    // membership, query again until the page contains no unseen rows. The set
+    // makes this terminate without rescanning the whole library.
+    let mut validated_game_ids = HashSet::new();
+    loop {
+        let (games, total) = db
+            .get_games_page(filter, limit, offset)
+            .map_err(|error| error.to_string())?;
+        let games_to_validate = games
+            .iter()
+            .filter(|game| validated_game_ids.insert(game.id))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if games_to_validate.is_empty() {
+            return Ok((games, total));
+        }
+
+        validate_game_paths(games_to_validate, db);
+    }
+}
+
 #[derive(Serialize)]
 pub struct GamesPage {
     games: Vec<Game>,
@@ -431,31 +508,31 @@ pub struct GamesPage {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_games_page(
     platform_id: Option<String>,
     search_query: Option<String>,
     page: u32,
     page_size: u32,
+    sort_by: Option<String>,
+    sort_descending: Option<bool>,
+    filter_by: Option<String>,
+    availability: Option<String>,
 ) -> Result<GamesPage, String> {
     let db = Database::open().map_err(|e| e.to_string())?;
-    let filter = GameFilter {
+    let filter = paged_game_filter(
         platform_id,
-        genre: None,
         search_query,
-        favorites_only: false,
-        sort_by: GameSort::Name,
-        sort_descending: false,
-    };
+        sort_by,
+        sort_descending,
+        filter_by,
+        availability,
+    );
     let page_size = page_size.clamp(1, 60);
     let offset = i64::from(page.saturating_sub(1)) * i64::from(page_size);
-    let (games, total) = db
-        .get_games_page(&filter, i64::from(page_size), offset)
-        .map_err(|error| error.to_string())?;
+    let (games, total) = get_validated_games_page(&db, &filter, i64::from(page_size), offset)?;
 
-    Ok(GamesPage {
-        games: validate_game_paths(games, &db),
-        total,
-    })
+    Ok(GamesPage { games, total })
 }
 
 #[tauri::command]
@@ -722,6 +799,12 @@ impl Drop for ActiveGameGuard {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&self.game_id);
     }
+}
+
+fn acquire_game_mutation_guard(game_id: i64) -> Result<ActiveGameGuard, String> {
+    ActiveGameGuard::try_acquire(game_id).ok_or_else(|| {
+        "This game already has an active action; wait for it to finish, then retry".to_string()
+    })
 }
 
 fn launch_progress_event(
@@ -1243,6 +1326,7 @@ async fn run_launch_pipeline(
             downloaded,
             total: prepared.expected_size,
             percent,
+            speed: None,
         };
         previous_stage = emit_launch_progress_with_metrics(
             app.as_ref(),
@@ -1316,11 +1400,12 @@ async fn run_launch_pipeline(
         LaunchStage::BiosPreparation,
         None,
     );
-    if let Err(error) = crate::bios::prepare_bios_for_launch(
+    if let Err(error) = crate::bios::prepare_bios_for_launch_with_events(
         &config,
         &launch_command.emulator_id,
         &game.platform_id,
         Path::new(&launch_command.executable),
+        app.as_ref(),
     )
     .await
     {
@@ -1353,7 +1438,7 @@ async fn run_launch_pipeline(
             .await
             .map(|_| None)
         } else {
-            crate::sync::switch_romm::pre_launch_sync_result(&game, &mut config)
+            crate::sync::switch_romm::pre_launch_sync_result(&game, &mut config, &db)
                 .await
                 .map(save_sync_transfer_message)
         };
@@ -1459,7 +1544,7 @@ async fn run_launch_pipeline(
             .await
             .map(|_| None)
         } else {
-            crate::sync::switch_romm::post_launch_sync_result(&game, &mut config)
+            crate::sync::switch_romm::post_launch_sync_result(&game, &mut config, &db)
                 .await
                 .map(save_sync_transfer_message)
         }
@@ -2190,152 +2275,455 @@ pub struct SyncResult {
     pub total_games: i32,
 }
 
-#[tauri::command]
-pub async fn sync_romm_library(server_url: String, token: String) -> Result<Vec<Game>, String> {
+#[derive(Debug, Serialize)]
+pub struct PlatformSyncOverview {
+    pub romm_platform_id: i32,
+    pub platform_id: String,
+    pub name: String,
+    pub server_games: i32,
+    pub local_games: i32,
+    pub installed_games: i32,
+}
+
+pub(crate) const ROMM_SYNC_BUSY_ERROR: &str =
+    "A RomM library sync is already in progress; wait for it to finish, then retry.";
+const ROMM_SYNC_PAGE_SIZE: i32 = 500;
+const ROMM_FULL_SYNC_PAGE_SIZE: i32 = 1000;
+const ROMM_SYNC_RETRY_COUNT: usize = 3;
+
+static ACTIVE_ROMM_SYNC: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug)]
+struct RommSyncActivityGuard;
+
+impl RommSyncActivityGuard {
+    fn try_acquire() -> Result<Self, String> {
+        ACTIVE_ROMM_SYNC
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map(|_| Self)
+            .map_err(|_| ROMM_SYNC_BUSY_ERROR.to_string())
+    }
+}
+
+impl Drop for RommSyncActivityGuard {
+    fn drop(&mut self) {
+        ACTIVE_ROMM_SYNC.store(false, Ordering::Release);
+    }
+}
+
+fn platform_from_romm(romm_platform: &crate::api::RomMPlatform, server_url: &str) -> Platform {
     use crate::models::map_romm_slug;
 
-    tracing::info!("[RomM] Starting library sync from {}", server_url);
+    let logo_url = romm_platform.url_logo.as_ref().map(|logo| {
+        if logo.starts_with("http") {
+            logo.clone()
+        } else {
+            format!("{}{}", server_url.trim_end_matches('/'), logo)
+        }
+    });
 
+    Platform {
+        id: map_romm_slug(&romm_platform.slug),
+        name: romm_platform
+            .display_name
+            .clone()
+            .unwrap_or_else(|| romm_platform.name.clone()),
+        short_name: Some(romm_platform.name.clone()),
+        extensions: vec![],
+        logo_path: logo_url,
+        sort_order: 0,
+    }
+}
+
+#[tauri::command]
+pub async fn list_romm_sync_platforms(
+    server_url: String,
+    token: String,
+) -> Result<Vec<PlatformSyncOverview>, String> {
     let client = RomMClient::new(&server_url).with_token(token);
-    let db = Database::open().map_err(|e| e.to_string())?;
+    let db = Database::open().map_err(|error| error.to_string())?;
+    let local_games = db.get_all_romm_games().map_err(|error| error.to_string())?;
+    let mut remote_platforms = client
+        .get_platforms()
+        .await
+        .map_err(|error| error.to_string())?;
 
-    let romm_platforms = client.get_platforms().await.map_err(|e| {
-        tracing::error!("[RomM] Failed to fetch platforms: {}", e);
-        e.to_string()
-    })?;
+    remote_platforms.sort_by(|left, right| {
+        let left_name = left.display_name.as_deref().unwrap_or(&left.name);
+        let right_name = right.display_name.as_deref().unwrap_or(&right.name);
+        left_name
+            .to_lowercase()
+            .cmp(&right_name.to_lowercase())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    Ok(remote_platforms
+        .iter()
+        .map(|remote_platform| {
+            let platform = platform_from_romm(remote_platform, &server_url);
+            let matching = local_games
+                .iter()
+                .filter(|game| game.platform_id == platform.id)
+                .collect::<Vec<_>>();
+            PlatformSyncOverview {
+                romm_platform_id: remote_platform.id,
+                platform_id: platform.id,
+                name: platform.name,
+                server_games: remote_platform.rom_count,
+                local_games: matching.len() as i32,
+                installed_games: matching
+                    .iter()
+                    .filter(|game| game.local_file_path.is_some())
+                    .count() as i32,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn sync_romm_platform(
+    app: AppHandle,
+    server_url: String,
+    token: String,
+    romm_platform_id: i32,
+) -> Result<SyncResult, String> {
+    let _sync_activity = RommSyncActivityGuard::try_acquire()?;
+    let client = RomMClient::new(&server_url).with_token(token);
+    let db = Database::open().map_err(|error| error.to_string())?;
+    sync_romm_platform_with_client(Some(&app), &client, &server_url, &db, romm_platform_id).await
+}
+
+#[tauri::command]
+pub async fn get_romm_retroachievements(
+    server_url: String,
+    token: String,
+    rom_id: i32,
+    refresh_progression: Option<bool>,
+) -> Result<Vec<crate::api::RomMAchievement>, String> {
+    RomMClient::new(&server_url)
+        .with_token(token)
+        .get_retroachievements(rom_id, refresh_progression.unwrap_or(false))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn clear_dirty_after_full_sync_failure(db: &Database, error: String) -> Result<Vec<Game>, String> {
+    if let Err(cleanup_error) = db.clear_all_sync_dirty() {
+        tracing::error!(
+            "[RomM] Sync failed and dirty-marker cleanup also failed: {}",
+            cleanup_error
+        );
+        return Err(format!(
+            "{error} (also failed to clear sync markers: {cleanup_error})"
+        ));
+    }
+    Err(error)
+}
+
+fn clear_dirty_after_platform_sync_failure(
+    db: &Database,
+    platform_id: &str,
+    error: String,
+) -> Result<SyncResult, String> {
+    if let Err(cleanup_error) = db.clear_platform_sync_dirty(platform_id) {
+        tracing::error!(
+            "[RomM] Scoped sync failed and platform dirty-marker cleanup also failed: {}",
+            cleanup_error
+        );
+        return Err(format!(
+            "{error} (also failed to clear platform sync markers: {cleanup_error})"
+        ));
+    }
+    Err(error)
+}
+
+async fn get_romm_page_with_retries(
+    client: &RomMClient,
+    platform_id: Option<i32>,
+    limit: i32,
+    offset: i32,
+) -> Result<crate::api::PaginatedResponse<RomMRom>, String> {
+    for retry in 0..ROMM_SYNC_RETRY_COUNT {
+        match client.get_roms(platform_id, limit, offset).await {
+            Ok(response) => return Ok(response),
+            Err(error) if retry + 1 == ROMM_SYNC_RETRY_COUNT => {
+                tracing::error!(
+                    "[RomM] Failed to fetch ROMs after retries (platform_id={:?}, offset={}): {}",
+                    platform_id,
+                    offset,
+                    error
+                );
+                return Err(error.to_string());
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "[RomM] Retry {} - fetch failed (platform_id={:?}, offset={}): {}",
+                    retry + 1,
+                    platform_id,
+                    offset,
+                    error
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
+    }
+
+    unreachable!("ROMM_SYNC_RETRY_COUNT must be greater than zero")
+}
+
+struct AppliedRomPage {
+    games: Vec<Game>,
+    games_added: i32,
+    games_updated: i32,
+}
+
+fn apply_romm_page(
+    db: &Database,
+    server_url: &str,
+    roms: Vec<RomMRom>,
+    fallback_platform_slug: Option<&str>,
+) -> Result<AppliedRomPage, String> {
+    let mut applied = AppliedRomPage {
+        games: Vec::with_capacity(roms.len()),
+        games_added: 0,
+        games_updated: 0,
+    };
+
+    for mut rom in roms {
+        if rom.platform_slug.is_empty() {
+            if let Some(platform_slug) = fallback_platform_slug {
+                rom.platform_slug = platform_slug.to_string();
+            }
+        }
+
+        let is_new = db
+            .get_game_by_romm_id(rom.id)
+            .map_err(|error| error.to_string())?
+            .is_none();
+        let game_id = db
+            .upsert_game(&rom.into_game(server_url))
+            .map_err(|error| error.to_string())?;
+        db.clear_sync_dirty(game_id)
+            .map_err(|error| error.to_string())?;
+        let game = db
+            .get_game(game_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("RomM game {game_id} disappeared after upsert"))?;
+
+        if is_new {
+            applied.games_added += 1;
+        } else {
+            applied.games_updated += 1;
+        }
+        applied.games.push(game);
+    }
+
+    Ok(applied)
+}
+
+async fn fetch_and_apply_romm_page(
+    client: &RomMClient,
+    db: &Database,
+    server_url: &str,
+    remote_platform_id: Option<i32>,
+    page_size: i32,
+    offset: i32,
+    fallback_platform_slug: Option<&str>,
+) -> Result<(usize, i32, AppliedRomPage), String> {
+    let response =
+        get_romm_page_with_retries(client, remote_platform_id, page_size, offset).await?;
+    let fetched_count = response.items.len();
+    let total = response.total;
+    let applied = apply_romm_page(db, server_url, response.items, fallback_platform_slug)?;
+    Ok((fetched_count, total, applied))
+}
+
+pub(crate) async fn sync_romm_platform_with_client(
+    app: Option<&AppHandle>,
+    client: &RomMClient,
+    server_url: &str,
+    db: &Database,
+    romm_platform_id: i32,
+) -> Result<SyncResult, String> {
+    use crate::models::map_romm_slug;
+
+    let remote_platforms = client
+        .get_platforms()
+        .await
+        .map_err(|error| error.to_string())?;
+    let remote_platform = remote_platforms
+        .iter()
+        .find(|platform| platform.id == romm_platform_id)
+        .ok_or_else(|| format!("RomM platform {romm_platform_id} was not found"))?;
+    let platform = platform_from_romm(remote_platform, server_url);
+    let platform_id = map_romm_slug(&remote_platform.slug);
+
+    let mapped_platform_count = remote_platforms
+        .iter()
+        .filter(|candidate| map_romm_slug(&candidate.slug) == platform_id)
+        .count();
+    if mapped_platform_count > 1 {
+        return Err(format!(
+            "Multiple RomM platforms map to local platform '{platform_id}'; use Sync all instead."
+        ));
+    }
+
+    db.insert_platform(&platform)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = db.mark_platform_games_dirty(&platform_id) {
+        return clear_dirty_after_platform_sync_failure(db, &platform_id, error.to_string());
+    }
+
+    let sync_result = async {
+        let mut games_added = 0;
+        let mut games_updated = 0;
+        let mut processed = 0;
+        let mut offset = 0;
+
+        loop {
+            let (fetched_count, total, applied) = fetch_and_apply_romm_page(
+                client,
+                db,
+                server_url,
+                Some(romm_platform_id),
+                ROMM_SYNC_PAGE_SIZE,
+                offset,
+                Some(&remote_platform.slug),
+            )
+            .await?;
+            games_added += applied.games_added;
+            games_updated += applied.games_updated;
+            processed += applied.games.len() as i32;
+
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "romm-platform-sync-progress",
+                    serde_json::json!({
+                        "romm_platform_id": romm_platform_id,
+                        "platform_id": platform_id,
+                        "processed": processed,
+                        "total": total,
+                    }),
+                );
+            }
+
+            if fetched_count < ROMM_SYNC_PAGE_SIZE as usize || processed >= total {
+                break;
+            }
+            offset += ROMM_SYNC_PAGE_SIZE;
+        }
+
+        let games_deleted = db
+            .delete_dirty_games_for_platform(&platform_id)
+            .map_err(|error| error.to_string())?;
+        db.clear_platform_sync_dirty(&platform_id)
+            .map_err(|error| error.to_string())?;
+
+        Ok(SyncResult {
+            games_added,
+            games_updated,
+            games_deleted,
+            total_games: processed,
+        })
+    }
+    .await;
+
+    match sync_result {
+        Ok(result) => Ok(result),
+        Err(error) => clear_dirty_after_platform_sync_failure(db, &platform_id, error),
+    }
+}
+
+pub(crate) async fn sync_romm_library_with_client(
+    client: &RomMClient,
+    server_url: &str,
+    db: &Database,
+) -> Result<Vec<Game>, String> {
+    use crate::models::map_romm_slug;
+
+    let romm_platforms = client
+        .get_platforms()
+        .await
+        .map_err(|error| error.to_string())?;
 
     tracing::info!("[RomM] Found {} platforms", romm_platforms.len());
 
-    // Update platform info (logos, names)
     for romm_platform in &romm_platforms {
         let platform_id = map_romm_slug(&romm_platform.slug);
+        let platform = platform_from_romm(romm_platform, server_url);
 
-        let logo_url = romm_platform.url_logo.as_ref().map(|logo| {
-            if logo.starts_with("http") {
-                logo.clone()
-            } else {
-                format!("{}{}", server_url.trim_end_matches('/'), logo)
-            }
-        });
-
-        let platform = Platform {
-            id: platform_id.clone(),
-            name: romm_platform
-                .display_name
-                .clone()
-                .unwrap_or_else(|| romm_platform.name.clone()),
-            short_name: Some(romm_platform.name.clone()),
-            extensions: vec![],
-            logo_path: logo_url,
-            sort_order: 0,
-        };
-
-        if let Err(e) = db.insert_platform(&platform) {
-            tracing::warn!("[RomM] Failed to update platform {}: {}", platform_id, e);
+        if let Err(error) = db.insert_platform(&platform) {
+            tracing::warn!(
+                "[RomM] Failed to update platform {}: {}",
+                platform_id,
+                error
+            );
         }
     }
 
-    // === ARGOSY-STYLE SYNC PATTERN ===
-    // Step 1: Mark ALL RomM games as dirty before sync
-    // This allows us to detect games that no longer exist on the server
-    let dirty_count = db.mark_romm_games_dirty().map_err(|e| e.to_string())?;
+    let dirty_count = match db.mark_romm_games_dirty() {
+        Ok(count) => count,
+        Err(error) => return clear_dirty_after_full_sync_failure(db, error.to_string()),
+    };
     tracing::info!("[RomM] Marked {} existing RomM games as dirty", dirty_count);
 
-    // Step 2: Fetch ALL ROMs and upsert them (clearing dirty flag as we go)
-    tracing::info!("[RomM] Fetching all ROMs...");
-    let mut all_games = Vec::new();
-    let mut games_added = 0;
-    let mut games_updated = 0;
-    let mut offset = 0;
-    let limit = 1000;
+    let pages_result = async {
+        let mut all_games = Vec::new();
+        let mut games_added = 0;
+        let mut games_updated = 0;
+        let mut offset = 0;
 
-    loop {
-        // Retry logic for unreliable connections
-        let mut retries = 3;
-        let response = loop {
-            match client.get_roms(None, limit, offset).await {
-                Ok(r) => break r,
-                Err(e) => {
-                    retries -= 1;
-                    if retries == 0 {
-                        // On failure, clear dirty flags to avoid accidental deletion
-                        let _ = db.clear_all_sync_dirty();
-                        tracing::error!("[RomM] Failed to fetch ROMs after retries: {}", e);
-                        return Err(e.to_string());
-                    }
-                    tracing::warn!("[RomM] Retry {} - fetch failed: {}", 3 - retries, e);
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                }
+        loop {
+            let (fetched_count, total, applied) = fetch_and_apply_romm_page(
+                client,
+                db,
+                server_url,
+                None,
+                ROMM_FULL_SYNC_PAGE_SIZE,
+                offset,
+                None,
+            )
+            .await?;
+            games_added += applied.games_added;
+            games_updated += applied.games_updated;
+            let should_stop = fetched_count < ROMM_FULL_SYNC_PAGE_SIZE as usize
+                || all_games.len() + applied.games.len() >= total.max(0) as usize;
+            all_games.extend(applied.games);
+
+            if should_stop {
+                return Ok((all_games, games_added, games_updated));
             }
-        };
-
-        let fetched_count = response.items.len();
-        tracing::info!(
-            "[RomM] Fetched {} ROMs (offset={}, total={})",
-            fetched_count,
-            offset,
-            response.total
-        );
-
-        for rom in response.items {
-            let romm_id = rom.id;
-            let game = rom.into_game(&server_url);
-
-            // Check if game exists to track added vs updated
-            let existing = db.get_game_by_romm_id(romm_id).ok().flatten();
-            let is_new = existing.is_none();
-
-            // Upsert the game
-            let game_id = db.upsert_game(&game).map_err(|e| e.to_string())?;
-
-            // Clear the dirty flag for this game (it exists on server)
-            db.clear_sync_dirty(game_id).map_err(|e| e.to_string())?;
-
-            if is_new {
-                games_added += 1;
-            } else {
-                games_updated += 1;
-            }
-
-            // Get the updated game with proper ID
-            if let Ok(Some(updated_game)) = db.get_game(game_id) {
-                all_games.push(updated_game);
-            }
+            offset += ROMM_FULL_SYNC_PAGE_SIZE;
         }
-
-        // Check if we've fetched all ROMs
-        if fetched_count < limit as usize || all_games.len() >= response.total as usize {
-            break;
-        }
-
-        offset += limit;
     }
+    .await;
 
-    // Step 3: Delete games that are still marked dirty (no longer on server)
-    // These are games that existed locally but weren't seen during sync
-    let dirty_games = db.get_dirty_games().map_err(|e| e.to_string())?;
-    let games_to_delete: Vec<_> = dirty_games
-        .iter()
-        .filter(|g| g.romm_id.is_some()) // Only delete RomM-sourced games
-        .collect();
+    let (all_games, games_added, games_updated) = match pages_result {
+        Ok(result) => result,
+        Err(error) => return clear_dirty_after_full_sync_failure(db, error),
+    };
 
-    let mut games_deleted = 0;
-    for game in &games_to_delete {
+    let dirty_games = match db.get_dirty_games() {
+        Ok(games) => games,
+        Err(error) => return clear_dirty_after_full_sync_failure(db, error.to_string()),
+    };
+    for game in dirty_games.iter().filter(|game| game.romm_id.is_some()) {
         tracing::info!(
             "[RomM] Removing orphaned game no longer on server: {} (romm_id={:?}, hidden={})",
             game.name,
             game.romm_id,
             game.is_hidden
         );
-        if let Err(e) = db.delete_game(game.id) {
-            tracing::warn!("[RomM] Failed to delete orphaned game {}: {}", game.id, e);
-        } else {
-            games_deleted += 1;
-        }
     }
 
-    // Step 4: Clear any remaining dirty flags (cleanup)
-    db.clear_all_sync_dirty().map_err(|e| e.to_string())?;
+    let games_deleted = match db.delete_dirty_games_for_full_sync() {
+        Ok(count) => count,
+        Err(error) => return clear_dirty_after_full_sync_failure(db, error.to_string()),
+    };
+
+    if let Err(error) = db.clear_all_sync_dirty() {
+        return clear_dirty_after_full_sync_failure(db, error.to_string());
+    }
 
     tracing::info!(
         "[RomM] Library sync complete: {} added, {} updated, {} deleted, {} total",
@@ -2346,6 +2734,24 @@ pub async fn sync_romm_library(server_url: String, token: String) -> Result<Vec<
     );
 
     Ok(all_games)
+}
+
+pub(crate) async fn sync_romm_library_with_client_guarded(
+    client: &RomMClient,
+    server_url: &str,
+    db: &Database,
+) -> Result<Vec<Game>, String> {
+    let _sync_activity = RommSyncActivityGuard::try_acquire()?;
+    sync_romm_library_with_client(client, server_url, db).await
+}
+
+#[tauri::command]
+pub async fn sync_romm_library(server_url: String, token: String) -> Result<Vec<Game>, String> {
+    tracing::info!("[RomM] Starting library sync from {}", server_url);
+
+    let client = RomMClient::new(&server_url).with_token(token);
+    let db = Database::open().map_err(|e| e.to_string())?;
+    sync_romm_library_with_client_guarded(&client, &server_url, &db).await
 }
 
 #[tauri::command]
@@ -2390,6 +2796,7 @@ pub async fn download_rom(
                 "downloaded": p.downloaded,
                 "total": p.total,
                 "percent": p.percent,
+                "speed": p.speed.map(DownloadProgress::format_speed),
             }),
         );
     })
@@ -2432,11 +2839,7 @@ pub async fn sync_switch_content(
     app: tauri::AppHandle,
     game_id: i64,
 ) -> Result<crate::sync::switch_content::SwitchContentSyncResult, String> {
-    let Some(_active_game) = ActiveGameGuard::try_acquire(game_id) else {
-        return Err(
-            "This game already has an active action; wait for it to finish, then retry".to_string(),
-        );
-    };
+    let _active_game = acquire_game_mutation_guard(game_id)?;
     let config = AppConfig::load().map_err(|error| error.to_string())?;
     let eden = config.emulators.eden.as_deref().ok_or(
         "Eden is not configured; choose the installed Eden executable in Settings, then retry",
@@ -2606,13 +3009,9 @@ pub async fn get_switch_save_path_info(game_id: i64) -> Result<SwitchSavePathInf
         .get_game(game_id)
         .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    let rom_path = game
-        .local_file_path
-        .as_deref()
-        .or(Some(game.file_path.as_str()))
-        .ok_or("No ROM path")?;
-    let (local, title_id) =
-        crate::sync::resolve_local_title_save_path(&config, rom_path).map_err(|e| e.to_string())?;
+    let (local, title_id) = crate::sync::switch_romm::resolve_switch_save_path(&game, &config)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
     let base = crate::sync::switch_save::resolve_eden_save_base(&config);
     Ok(SwitchSavePathInfo {
         title_id,
@@ -2623,17 +3022,30 @@ pub async fn get_switch_save_path_info(game_id: i64) -> Result<SwitchSavePathInf
 }
 
 #[tauri::command]
+pub async fn get_switch_save_restore_protection(
+    game_id: i64,
+) -> Result<Option<crate::database::EdenRestoreProtection>, String> {
+    let db = Database::open().map_err(|e| e.to_string())?;
+    db.get_game(game_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game not found")?;
+    db.get_eden_restore_protection(game_id, crate::sync::switch_save::DEFAULT_SAVE_SLOT)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn upload_switch_save(
     game_id: i64,
     slot: Option<String>,
 ) -> Result<crate::sync::SwitchSaveSyncResult, String> {
+    let _active_game = acquire_game_mutation_guard(game_id)?;
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     let db = Database::open().map_err(|e| e.to_string())?;
     let game = db
         .get_game(game_id)
         .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    crate::sync::upload_switch_save_from_eden(&game, &mut config, slot)
+    crate::sync::upload_switch_save_from_eden(&game, &mut config, slot, &db)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -2659,15 +3071,27 @@ pub async fn download_switch_save(
     slot: Option<String>,
     save_id: Option<i32>,
 ) -> Result<crate::sync::SwitchSaveSyncResult, String> {
+    let _active_game = acquire_game_mutation_guard(game_id)?;
     let mut config = AppConfig::load().map_err(|e| e.to_string())?;
     let db = Database::open().map_err(|e| e.to_string())?;
     let game = db
         .get_game(game_id)
         .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    crate::sync::download_switch_save_to_eden(&game, &mut config, slot, save_id)
+    crate::sync::download_switch_save_to_eden(&game, &mut config, slot, save_id, &db)
         .await
         .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn resume_switch_save_normal_sync(game_id: i64) -> Result<(), String> {
+    let _active_game = acquire_game_mutation_guard(game_id)?;
+    let db = Database::open().map_err(|e| e.to_string())?;
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game not found")?;
+    crate::sync::resume_switch_save_normal_sync(&game, &db).map_err(|e| e.to_string())
 }
 
 // ========== Game Management Commands ==========
@@ -3230,6 +3654,8 @@ pub async fn search_games(query: String) -> Result<Vec<Game>, String> {
     let filter = GameFilter {
         platform_id: None,
         genre: None,
+        main_filter: GameMainFilter::All,
+        availability: GameAvailability::All,
         search_query: Some(query),
         favorites_only: false,
         sort_by: GameSort::Name,
@@ -4627,6 +5053,120 @@ mod tests {
     use super::*;
 
     #[test]
+    fn romm_sync_activity_guard_rejects_overlapping_work_and_releases() {
+        let first = RommSyncActivityGuard::try_acquire().unwrap();
+        let error = RommSyncActivityGuard::try_acquire().unwrap_err();
+        assert_eq!(error, ROMM_SYNC_BUSY_ERROR);
+        drop(first);
+        assert!(RommSyncActivityGuard::try_acquire().is_ok());
+    }
+
+    #[test]
+    fn paged_game_filter_defaults_are_safe_and_sort_aware() {
+        let default_filter = paged_game_filter(None, None, None, None, None, None);
+        assert_eq!(default_filter.sort_by, GameSort::Name);
+        assert!(!default_filter.sort_descending);
+        assert_eq!(default_filter.main_filter, GameMainFilter::All);
+        assert_eq!(default_filter.availability, GameAvailability::All);
+
+        let numeric_filter = paged_game_filter(
+            None,
+            None,
+            Some("play_count".to_string()),
+            None,
+            Some("favorites".to_string()),
+            Some("downloaded".to_string()),
+        );
+        assert_eq!(numeric_filter.sort_by, GameSort::PlayCount);
+        assert!(numeric_filter.sort_descending);
+        assert_eq!(numeric_filter.main_filter, GameMainFilter::Favorites);
+        assert_eq!(numeric_filter.availability, GameAvailability::Downloaded);
+
+        let explicitly_ascending = paged_game_filter(
+            None,
+            None,
+            Some("release_year".to_string()),
+            Some(false),
+            Some("recent".to_string()),
+            Some("not_downloaded".to_string()),
+        );
+        assert!(!explicitly_ascending.sort_descending);
+        assert_eq!(explicitly_ascending.main_filter, GameMainFilter::Recent);
+        assert_eq!(
+            explicitly_ascending.availability,
+            GameAvailability::NotDownloaded
+        );
+
+        let invalid_filter = paged_game_filter(
+            None,
+            None,
+            Some("unsafe_column".to_string()),
+            None,
+            Some("unknown".to_string()),
+            Some("unknown".to_string()),
+        );
+        assert_eq!(invalid_filter.sort_by, GameSort::Name);
+        assert!(!invalid_filter.sort_descending);
+        assert_eq!(invalid_filter.main_filter, GameMainFilter::All);
+        assert_eq!(invalid_filter.availability, GameAvailability::All);
+    }
+
+    #[test]
+    fn availability_page_revalidates_replacement_rows_before_returning() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_platform(&crate::models::Platform::new("gba", "GBA", vec![".gba"]))
+            .unwrap();
+
+        let missing_path = |name: &str, romm_id| {
+            let mut game = Game::new(
+                name.to_string(),
+                "missing.rom".to_string(),
+                "gba".to_string(),
+            );
+            game.source = GameSource::RomM;
+            game.romm_id = Some(romm_id);
+            game.local_file_path = Some(
+                std::env::temp_dir()
+                    .join(format!("wingosy-validation-{romm_id}-missing.rom"))
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            game.sync_state = crate::models::SyncState::Synced;
+            game
+        };
+        let first_id = db
+            .insert_game(&missing_path("A missing path", 901))
+            .unwrap();
+        let second_id = db
+            .insert_game(&missing_path("B missing path", 902))
+            .unwrap();
+        let local_id = db
+            .insert_game(&Game::new(
+                "C local source".to_string(),
+                "local.rom".to_string(),
+                "gba".to_string(),
+            ))
+            .unwrap();
+
+        let filter = GameFilter {
+            availability: GameAvailability::Downloaded,
+            ..GameFilter::default()
+        };
+        let (games, total) = get_validated_games_page(&db, &filter, 1, 0).unwrap();
+
+        assert_eq!(total, 1);
+        assert_eq!(
+            games.iter().map(|game| game.id).collect::<Vec<_>>(),
+            [local_id]
+        );
+        for id in [first_id, second_id] {
+            let game = db.get_game(id).unwrap().unwrap();
+            assert!(game.local_file_path.is_none());
+            assert_eq!(game.sync_state, crate::models::SyncState::RemoteOnly);
+        }
+    }
+
+    #[test]
     fn remote_rom_download_selects_base_game_child_instead_of_archive() {
         let rom: RomMRom = serde_json::from_value(serde_json::json!({
             "id": 141,
@@ -5931,6 +6471,7 @@ mod tests {
                 downloaded: 512,
                 total: Some(1024),
                 percent: Some(50),
+                speed: None,
             }),
         );
         assert_eq!(download.downloaded, Some(512));
@@ -5945,6 +6486,7 @@ mod tests {
                 downloaded: 512,
                 total: None,
                 percent: None,
+                speed: None,
             }),
         );
         assert_eq!(indeterminate.total, None);
@@ -5966,6 +6508,7 @@ mod tests {
                 downloaded: 512,
                 total: None,
                 percent: None,
+                speed: None,
             },
             Some(1024),
         );
@@ -5977,6 +6520,7 @@ mod tests {
                 downloaded: 512,
                 total: Some(2048),
                 percent: Some(25),
+                speed: None,
             },
             Some(1024),
         );
@@ -5988,6 +6532,7 @@ mod tests {
                 downloaded: 512,
                 total: None,
                 percent: None,
+                speed: None,
             },
             None,
         );
@@ -6004,6 +6549,20 @@ mod tests {
 
         let released = ActiveGameGuard::try_acquire(game_id).unwrap();
         drop(released);
+    }
+
+    #[test]
+    fn save_mutation_guard_rejects_an_active_game_and_releases_afterward() {
+        let game_id = 9_876_543_211_i64;
+        let active = ActiveGameGuard::try_acquire(game_id).unwrap();
+
+        assert_eq!(
+            acquire_game_mutation_guard(game_id).err().unwrap(),
+            "This game already has an active action; wait for it to finish, then retry"
+        );
+
+        drop(active);
+        drop(acquire_game_mutation_guard(game_id).unwrap());
     }
 
     // Tests for EmulatorInfo

@@ -51,6 +51,7 @@ const ImmersiveView = ({ runtime, controller }) => (
           void controller.handleImmersiveExit(controller.reloadLibrary);
         }}
         requestedFullscreen={controller.immersiveModeFullscreen}
+        rommSyncMonitor={controller.rommSyncMonitor}
       />
     </AppShell>
   </WithSounds>
@@ -61,10 +62,12 @@ const getDesktopLibraryProps = (controller) => ({
   error: controller.error,
   gameTotal: controller.gameTotal,
   games: controller.games,
+  libraryAvailability: controller.libraryAvailability,
   libraryFilterBy: controller.libraryFilterBy,
   libraryLaunchError: controller.libraryLaunchError,
   librarySortBy: controller.librarySortBy,
   loading: controller.loading,
+  onAvailabilityChange: controller.handleLibraryAvailabilityChange,
   onDismissError: controller.handleDismissError,
   onFilterChange: controller.handleLibraryFilterChange,
   onLaunchGame: controller.handleLaunchGame,
@@ -82,10 +85,12 @@ const getDesktopLibraryProps = (controller) => ({
   onSearchChange: controller.handleSearchChange,
   onSelectGame: controller.handleSelectGame,
   onSortChange: controller.handleLibrarySortChange,
+  onSortDirectionChange: controller.handleLibrarySortDirectionChange,
   onToggleFavorite: controller.handleToggleFavorite,
   page: controller.page,
   scrollRef: controller.libraryScrollRef,
   searchQuery: controller.searchQuery,
+  sortDescending: controller.librarySortDescending,
 });
 
 /** @param {{runtime: AppRuntime, controller: AppController}} props Desktop view properties. */
@@ -98,6 +103,7 @@ const DesktopView = ({ runtime, controller }) => (
         libraryFilterBy={controller.libraryFilterBy}
         view={controller.view}
         rommUrl={controller.rommUrl}
+        rommSyncProps={{ monitor: controller.rommSyncMonitor }}
         onSelectPlatform={controller.handleSelectPlatform}
         onNavigate={controller.handleNavigate}
         libraryProps={getDesktopLibraryProps(controller)}

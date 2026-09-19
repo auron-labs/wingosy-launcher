@@ -1,3 +1,5 @@
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ClearIcon from "@mui/icons-material/Clear";
 import SearchIcon from "@mui/icons-material/Search";
 import Alert from "@mui/material/Alert";
@@ -14,7 +16,11 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
-import { GAME_FILTER_OPTIONS, GAME_SORT_OPTIONS } from "../utils/game-filters";
+import {
+  GAME_AVAILABILITY_OPTIONS,
+  GAME_FILTER_OPTIONS,
+  GAME_SORT_OPTIONS,
+} from "../utils/game-filters";
 import {
   tauriDragRegionProps,
   tauriDragRegionSx,
@@ -116,12 +122,119 @@ export const LibraryHeader = (props) => (
   </Stack>
 );
 
-/** @param {{resultCount: number, sortBy: import("./library").LibrarySortBy, filterBy: import("./library").LibraryFilterBy, handleSortChange: (value: import("./library").LibrarySortBy) => void, handleFilterChange: (value: import("./library").LibraryFilterBy) => void}} props Result count and view controls. */
+/** @param {{sortBy: import("./library").LibrarySortBy, handleSortChange: (value: import("./library").LibrarySortBy) => void}} props Sort control properties. */
+const LibrarySortControl = ({ sortBy, handleSortChange }) => (
+  <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
+    <InputLabel id="library-sort-label">Sort by</InputLabel>
+    <Select
+      labelId="library-sort-label"
+      id="library-sort"
+      value={sortBy}
+      label="Sort by"
+      onChange={(event) => {
+        const option = GAME_SORT_OPTIONS.find(
+          ({ value }) => value === event.target.value
+        );
+        if (option !== undefined) {
+          handleSortChange(option.value);
+        }
+      }}
+    >
+      {GAME_SORT_OPTIONS.map((option) => (
+        <MenuItem key={option.value} value={option.value}>
+          {option.label}
+        </MenuItem>
+      ))}
+    </Select>
+  </FormControl>
+);
+
+/** @param {{sortDescending: boolean, handleSortDirectionChange: (value: boolean) => void}} props Sort direction properties. */
+const LibrarySortDirection = ({
+  sortDescending,
+  handleSortDirectionChange,
+}) => (
+  <IconButton
+    {...tauriNoDragProps()}
+    aria-label={sortDescending ? "Sort ascending" : "Sort descending"}
+    aria-pressed={sortDescending}
+    title={sortDescending ? "Sort ascending" : "Sort descending"}
+    onClick={() => {
+      handleSortDirectionChange(!sortDescending);
+    }}
+    sx={tauriNoDragSx}
+  >
+    {sortDescending ? <ArrowDownwardIcon /> : <ArrowUpwardIcon />}
+  </IconButton>
+);
+
+/** @param {{filterBy: import("./library").LibraryFilterBy, handleFilterChange: (value: import("./library").LibraryFilterBy) => void}} props Primary filter properties. */
+const LibraryFilterControl = ({ filterBy, handleFilterChange }) => (
+  <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
+    <InputLabel id="library-filter-label">Filter</InputLabel>
+    <Select
+      labelId="library-filter-label"
+      id="library-filter"
+      value={filterBy}
+      label="Filter"
+      onChange={(event) => {
+        const option = GAME_FILTER_OPTIONS.find(
+          ({ value }) => value === event.target.value
+        );
+        if (option !== undefined) {
+          handleFilterChange(option.value);
+        }
+      }}
+    >
+      {GAME_FILTER_OPTIONS.map((option) => (
+        <MenuItem key={option.value} value={option.value}>
+          {option.label}
+        </MenuItem>
+      ))}
+    </Select>
+  </FormControl>
+);
+
+/** @param {{availability: import("./library").LibraryAvailability, handleAvailabilityChange: (value: import("./library").LibraryAvailability) => void}} props Availability properties. */
+const LibraryAvailabilityControl = ({
+  availability,
+  handleAvailabilityChange,
+}) => (
+  <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
+    <InputLabel id="library-availability-label">Availability</InputLabel>
+    <Select
+      labelId="library-availability-label"
+      id="library-availability"
+      value={availability}
+      label="Availability"
+      onChange={(event) => {
+        const option = GAME_AVAILABILITY_OPTIONS.find(
+          ({ value }) => value === event.target.value
+        );
+        if (option !== undefined) {
+          handleAvailabilityChange(option.value);
+        }
+      }}
+    >
+      {GAME_AVAILABILITY_OPTIONS.map((option) => (
+        <MenuItem key={option.value} value={option.value}>
+          {option.label}
+        </MenuItem>
+      ))}
+    </Select>
+  </FormControl>
+);
+
+/** @param {{resultCount: number, sortBy: import("./library").LibrarySortBy, sortDescending: boolean, filterBy: import("./library").LibraryFilterBy, availability: import("./library").LibraryAvailability, handleSortChange: (value: import("./library").LibrarySortBy) => void, handleSortDirectionChange: (value: boolean) => void, handleFilterChange: (value: import("./library").LibraryFilterBy) => void, handleAvailabilityChange: (value: import("./library").LibraryAvailability) => void}} props Result count and view controls. */
 export const LibraryFilters = ({
+  availability,
   resultCount,
   sortBy,
+  sortDescending,
   filterBy,
+  handleAvailabilityChange,
   handleSortChange,
+  handleSortDirectionChange,
   handleFilterChange,
 }) => (
   <Stack
@@ -149,52 +262,19 @@ export const LibraryFilters = ({
     </Stack>
 
     <Stack direction={{ sm: "row", xs: "column" }} spacing={1}>
-      <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
-        <InputLabel id="library-sort-label">Sort by</InputLabel>
-        <Select
-          labelId="library-sort-label"
-          id="library-sort"
-          value={sortBy}
-          label="Sort by"
-          onChange={(event) => {
-            const option = GAME_SORT_OPTIONS.find(
-              ({ value }) => value === event.target.value
-            );
-            if (option !== undefined) {
-              handleSortChange(option.value);
-            }
-          }}
-        >
-          {GAME_SORT_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-      <FormControl size="small" sx={{ minWidth: { sm: 180 } }}>
-        <InputLabel id="library-filter-label">Filter</InputLabel>
-        <Select
-          labelId="library-filter-label"
-          id="library-filter"
-          value={filterBy}
-          label="Filter"
-          onChange={(event) => {
-            const option = GAME_FILTER_OPTIONS.find(
-              ({ value }) => value === event.target.value
-            );
-            if (option !== undefined) {
-              handleFilterChange(option.value);
-            }
-          }}
-        >
-          {GAME_FILTER_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <LibrarySortControl handleSortChange={handleSortChange} sortBy={sortBy} />
+      <LibrarySortDirection
+        handleSortDirectionChange={handleSortDirectionChange}
+        sortDescending={sortDescending}
+      />
+      <LibraryFilterControl
+        filterBy={filterBy}
+        handleFilterChange={handleFilterChange}
+      />
+      <LibraryAvailabilityControl
+        availability={availability}
+        handleAvailabilityChange={handleAvailabilityChange}
+      />
     </Stack>
   </Stack>
 );

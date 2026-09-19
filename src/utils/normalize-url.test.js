@@ -19,6 +19,9 @@ describe(normalizeUrl, () => {
     expect(normalizeUrl("https://romm.example/api")).toBe(
       "https://romm.example/api"
     );
+    expect(normalizeUrl("https://romm.example/API/v1")).toBe(
+      "https://romm.example/API/v1"
+    );
   });
 
   it("uses http for localhost and loopback", () => {
@@ -37,6 +40,12 @@ describe(normalizeUrl, () => {
   it("uses http for .local and .lan", () => {
     expect(normalizeUrl("nas.local")).toBe("http://nas.local");
     expect(normalizeUrl("server.lan:8080")).toBe("http://server.lan:8080");
+  });
+
+  it("uses http for local hostnames regardless of case", () => {
+    expect(normalizeUrl("LOCALHOST:3000")).toBe("http://LOCALHOST:3000");
+    expect(normalizeUrl("RomM.LOCAL:8080")).toBe("http://RomM.LOCAL:8080");
+    expect(normalizeUrl("Archive.LaN:9090")).toBe("http://Archive.LaN:9090");
   });
 
   it("uses https for public hostnames", () => {
