@@ -3,7 +3,7 @@
 **What to build:** Add an explicit action in the existing game flow to sync authenticated RomM child files categorized as Switch updates or DLC, then place them in Wingosy-owned title-scoped storage and register them through Eden’s supported external-content behavior. Validate the RomM and Eden contracts within this ticket, preserve unrelated configuration, report progress and actionable outcomes, and make a known-compatible owned item actually appear in Eden after the next launch rather than treating registration alone as success.
 
 **Blocked by:** None — can start immediately
-**Status:** ready-for-human
+**Status:** resolved
 
 ## Acceptance criteria
 
@@ -14,13 +14,13 @@
 - [x] Synced content is stored in Wingosy-owned, title-scoped storage and registration is idempotent.
 - [x] Registration preserves unrelated Eden configuration and never writes while Eden is running.
 - [x] Eden’s supported external-content contract is validated against a real supported build before completion is claimed.
-- [ ] One known-compatible categorized update or DLC is recognized in Eden’s Add-Ons or version view on the next launch.
+- [x] One known-compatible categorized update or DLC is recognized in Eden’s Add-Ons or version view on the next launch.
 - [x] The existing game-flow controls show progress, completion, failure, and retry guidance; success requires no manual copying or Eden configuration.
 
 ## Verification
 
 - [x] Automated metadata/download/registration seam coverage proves classification, complete-file reuse, retry-from-scratch, idempotence, unrelated-config preservation, and refusal to write while Eden runs without duplicating downloader or ZIP tests.
-- [ ] Human check: sync one known owned RomM update or DLC and confirm Eden recognizes it on the next launch.
+- [x] Human check: sync one known owned RomM update or DLC and confirm Eden recognizes it on the next launch.
 
 ## Scope boundaries
 
@@ -29,6 +29,8 @@
 - No Eden NAND mutation, crypto, inventory claim without a supported read path, broad uninstall/version UI, or Eden updater work.
 
 ## Comments
+
+- 2026-09-19: Windows certification completed with the disposable owned Cuphead fixture. Wingosy reused and registered the categorized update (`0 downloaded, 1 reused`), then launched the managed Eden v0.2.1 build. Eden's version view reported `Cuphead (64-bit) | 1.3.7`, confirming the update was recognized on the next launch. This is the same bounded evidence recorded in smoke-test follow-up 12; no keys, firmware, drivers, or unrelated system settings were changed.
 
 - 2026-09-10: Claimed for its two remaining live-verification items. Each item is assigned to a Luna xhigh worker and will receive fresh Luna xhigh verification before closure.
 - 2026-09-10: Workers `eden04_recognition_luna` and `eden04_live_sync_luna`, followed respectively by fresh Luna xhigh verifiers `eden04_recognition_verify_luna` and `eden04_live_verify_luna`, confirmed both items remain blocked. The current Linux host has no Eden/Windows runtime or known owned update/DLC fixture, and Tauri MCP found no app at `127.0.0.1:9223`. Synthetic content tests and configuration registration do not prove Eden recognition. Both live checkboxes remain unchecked. The user explicitly approved retaining blocked live checks while continuing code tickets.
@@ -46,4 +48,6 @@ Wingosy now offers an explicit **Sync Updates & DLC** action for RomM-linked Swi
 
 After transfer, Wingosy atomically adds only its owned path to Eden's supported `Paths\\external_content_dirs` QSettings array under `config/qt-config.ini`, preserving unrelated settings and existing user paths. Registration is deduplicated and fails closed when Eden is running or its process state cannot be verified. The UI reports metadata/download/reuse/registration progress, completion counts, actionable errors, and retry guidance without adding launch-time downloads, a scheduler, NAND mutation, or inventory claims.
 
-Focused verification passed: 10 Rust content-sync tests, 36 desktop/immersive component tests on repeated runs, the production frontend build, Rust formatting, capability restoration/diff, and `git diff --check`. Project-wide frontend typechecking still has unrelated pre-existing JSX inference failures. The remaining minimal human check is to sync one known owned compatible update or DLC on Windows and confirm Eden shows it in Add-Ons or the version view after the next launch.
+Focused verification passed: 10 Rust content-sync tests, 36 desktop/immersive component tests on repeated runs, the production frontend build, Rust formatting, capability restoration/diff, and `git diff --check`. Project-wide frontend typechecking still has unrelated pre-existing JSX inference failures.
+
+Windows certification completed on 2026-09-19: the known owned Cuphead update was synchronized through Wingosy and Eden reported Cuphead version 1.3.7 on the next launch.
