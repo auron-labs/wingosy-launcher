@@ -12,6 +12,7 @@ import {
   GameDetailsLaunchStatus,
   GameDetailsPlayControls,
 } from "./game/game-details-actions-panel";
+import { GameDetailsCloudSave } from "./game/game-details-cloud-save";
 import { GameDetailsControlsHeader } from "./game/game-details-controls-header";
 import { GameDetailsHeader } from "./game/game-details-header";
 import { gameDetailsIpc } from "./game/game-details-ipc";
@@ -115,7 +116,7 @@ const getGameDetailsViewState = (game, platforms, rommToken, rommUrl) => {
   return { canSyncSwitchContent, isSwitch, platform, syncStatus };
 };
 
-/** @param {GameDetailsPanelProps} props Playback controls and status content. */
+/** @param {GameDetailsPanelProps & {onOpenSaveHistory?: () => void}} props Playback controls and status content. */
 const GameDetailsProgressContent = ({
   actions,
   canSyncSwitchContent,
@@ -123,10 +124,13 @@ const GameDetailsProgressContent = ({
   hasLocalFile,
   launchErrorPresentation,
   launchProgress,
+  isSwitch,
+  onOpenSaveHistory = () => {},
   onOpenSettings,
   romDl,
   rommToken,
   rommUrl,
+  saves,
   switchContentProgress,
 }) => (
   <>
@@ -134,6 +138,14 @@ const GameDetailsProgressContent = ({
       canDownload={hasRemoteAccess(game, rommToken, rommUrl)}
       canPlay={actions.canPlay}
       canSyncSwitchContent={canSyncSwitchContent}
+      cloudSaveStatus={
+        isSwitch && hasRemoteAccess(game, rommToken, rommUrl) ? (
+          <GameDetailsCloudSave
+            onOpenHistory={onOpenSaveHistory}
+            saveSyncEnabled={saves.saveSyncEnabled}
+          />
+        ) : null
+      }
       downloading={actions.downloading}
       game={game}
       hasLocalFile={hasLocalFile}
@@ -141,6 +153,7 @@ const GameDetailsProgressContent = ({
       onDownload={actions.handleDownloadRom}
       onLaunch={actions.handleLaunchGame}
       onSyncSwitchContent={actions.handleSyncSwitchContent}
+      saveSyncBusy={saves.switchSyncBusy}
       switchContentSyncing={actions.switchContentSyncing}
     />
     <GameDetailsLaunchStatus
@@ -162,7 +175,7 @@ const GameDetailsProgressContent = ({
   </>
 );
 
-/** @param {GameDetailsPanelProps} props Header controls and playback status. */
+/** @param {GameDetailsPanelProps & {onOpenSaveHistory?: () => void}} props Header controls and playback status. */
 const GameDetailsActionContent = (props) => {
   const {
     actions,
@@ -219,18 +232,23 @@ const GameDetailsActionContent = (props) => {
 
 /** @param {GameDetailsPanelProps} props Overview and save content. */
 const GameDetailsPanelContent = (props) => {
+  const [saveHistoryOpen, setSaveHistoryOpen] = useState(false);
   const {
+    actions,
     game,
     isSwitch,
     onOpenIntegrations,
     retroachievementsEnabled,
-    rommToken,
-    rommUrl,
     saves,
   } = props;
   return (
     <>
-      <GameDetailsActionContent {...props} />
+      <GameDetailsActionContent
+        {...props}
+        onOpenSaveHistory={() => {
+          setSaveHistoryOpen(true);
+        }}
+      />
       <GameDetailsOverview
         game={game}
         onOpenIntegrations={onOpenIntegrations}
@@ -238,24 +256,27 @@ const GameDetailsPanelContent = (props) => {
       />
       <GameDetailsSavesSection
         game={game}
+        historyOpen={saveHistoryOpen}
         isSwitch={isSwitch}
+        launchActive={actions.launchActive}
+        onCloseHistory={() => {
+          setSaveHistoryOpen(false);
+        }}
         onClearStatus={() => {
           saves.setSaveStatus(null);
         }}
+        onCreateBackup={saves.handleCreateSwitchBackup}
         onDownloadSave={saves.handleDownloadSave}
-        onDownloadSwitchSave={saves.handleDownloadSwitchSave}
+        onEnableSaveSync={saves.handleEnableSaveSync}
         onListSaves={saves.handleListSaves}
         onUploadSave={saves.handleUploadSave}
-        onUploadSwitchSave={saves.handleUploadSwitchSave}
-        rommToken={rommToken}
-        rommUrl={rommUrl}
+        onSyncCurrentSave={saves.handleSyncCurrentSwitchSave}
         saveStatus={saves.saveStatus}
+        saveSyncEnabled={saves.saveSyncEnabled}
         saves={saves.saves}
         savesLoaded={saves.savesLoaded}
         savesLoading={saves.savesLoading}
-        setSwitchSlot={saves.setSwitchSlot}
         switchPathInfo={saves.switchPathInfo}
-        switchSlot={saves.switchSlot}
         switchSyncBusy={saves.switchSyncBusy}
       />
     </>
@@ -377,6 +398,14 @@ const useGameDetailsController = (props) => {
   const { canSyncSwitchContent, isSwitch, platform, syncStatus } =
     getGameDetailsViewState(game, platforms, rommToken, rommUrl);
   const [imgError, setImgError] = useState(false);
+  const saves = useGameDetailsSaves({
+    game,
+    ipc,
+    isSwitch,
+    openDialog,
+    rommToken,
+    rommUrl,
+  });
   const actions = useGameDetailsActions({
     canSyncSwitchContent,
     game,
@@ -387,15 +416,8 @@ const useGameDetailsController = (props) => {
       void onGameUpdate?.(gameId);
     },
     onLaunch,
+    onLaunchComplete: saves.handleLaunchSaveSyncResult,
     romDl,
-    rommToken,
-    rommUrl,
-  });
-  const saves = useGameDetailsSaves({
-    game,
-    ipc,
-    isSwitch,
-    openDialog,
     rommToken,
     rommUrl,
   });

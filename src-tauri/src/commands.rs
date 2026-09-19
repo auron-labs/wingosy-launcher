@@ -2529,6 +2529,23 @@ pub async fn get_game_saves(
         .map_err(|e| format!("{e:#}"))
 }
 
+/// List only the device-scoped save records that can be restored to this Switch installation.
+#[tauri::command]
+pub async fn get_switch_game_saves(game_id: i64) -> Result<Vec<crate::api::RomMSave>, String> {
+    let mut config = AppConfig::load().map_err(|e| e.to_string())?;
+    let db = Database::open().map_err(|e| e.to_string())?;
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game not found")?;
+    if game.platform_id != "switch" {
+        return Err("Device-scoped save history is only available for Switch games".to_string());
+    }
+    crate::sync::switch_romm::get_switch_saves_for_device(&game, &mut config)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 pub async fn download_game_save(
     romm_id: i32,
@@ -2617,6 +2634,21 @@ pub async fn upload_switch_save(
         .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
     crate::sync::upload_switch_save_from_eden(&game, &mut config, slot)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn sync_current_switch_save(
+    game_id: i64,
+) -> Result<crate::sync::SwitchSaveSyncResult, String> {
+    let mut config = AppConfig::load().map_err(|e| e.to_string())?;
+    let db = Database::open().map_err(|e| e.to_string())?;
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game not found")?;
+    crate::sync::switch_romm::sync_current_switch_save(&game, &mut config)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -5326,6 +5358,8 @@ mod tests {
             local_path: None,
             romm_save_id: Some(19),
             slot: Some("autosave".to_string()),
+            backup_save_id: None,
+            backup_slot: None,
         };
         assert_eq!(save_sync_transfer_message(Some(no_op)), None);
 
@@ -5335,6 +5369,8 @@ mod tests {
             local_path: Some("save/title".to_string()),
             romm_save_id: Some(19),
             slot: Some("autosave".to_string()),
+            backup_save_id: None,
+            backup_slot: None,
         };
         assert_eq!(
             save_sync_transfer_message(Some(restored)).as_deref(),

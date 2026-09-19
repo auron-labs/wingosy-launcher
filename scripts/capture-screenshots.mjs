@@ -27,6 +27,7 @@ const selectorVisible = (selector) => Array.from(document.querySelectorAll(selec
 const textVisible = (selector, wanted) => Array.from(document.querySelectorAll(selector)).some((element) => isVisible(element) && text(element).includes(wanted));
 const interactiveElements = () => Array.from(document.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], [tabindex]')).filter(isVisible);
 const interactive = (wanted) => interactiveElements().find((element) => { const content = text(element); const accessibleName = normalise(element.getAttribute('aria-label')); return accessibleName === wanted || content === wanted || content.endsWith(' ' + wanted); });
+const dialogByTitle = (wanted) => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => { if (!isVisible(dialog)) return false; const labelId = dialog.getAttribute('aria-labelledby'); return labelId ? text(document.getElementById(labelId)) === wanted : Array.from(dialog.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')).some((heading) => text(heading) === wanted); });
 const screenState = () => { const desktopDetails = textVisible('button', 'Back to Library'); const desktopLibrary = selectorVisible('[data-testid="library-result-count"]'); const settings = selectorVisible('[data-testid="settings-nav-general"]'); const desktop = Boolean(interactive('All Games') || desktopLibrary || desktopDetails); return { desktop, desktopDetails, desktopLibrary, immersiveDetails: selectorVisible('[data-testid="immersive-game-details"]'), immersiveDownloads: textVisible('h1', 'Downloads') && !interactive('All Games'), immersiveLibrary: selectorVisible('[data-testid="immersive-library"]'), immersiveSettings: settings && !desktop, setup: Boolean(interactive('Get Started')), settings }; };
 `;
 
@@ -303,6 +304,32 @@ async function gameCount(selector) {
   return result?.count ?? 0;
 }
 
+async function openSwitchDesktopGame() {
+  const result = await executeScript(
+    `const card = Array.from(document.querySelectorAll('[data-testid="game-card"]')).find((candidate) => Array.from(candidate.querySelectorAll('*')).some((element) => text(element) === 'NS')); const button = card?.querySelector('button[aria-label]'); if (!button) return false; button.click(); return true;`
+  );
+  return result === true;
+}
+
+async function dismissDialog(title) {
+  const closeText = title === "Restore this save?" ? "Cancel" : "Close";
+  const result = await executeScript(
+    `const dialog = dialogByTitle(${JSON.stringify(title)}); const button = dialog ? Array.from(dialog.querySelectorAll('.MuiDialogActions-root button')).find((element) => isVisible(element) && normalise(element.getAttribute('aria-label') || text(element)) === ${JSON.stringify(closeText)}) : null; if (!button || button.disabled) return false; button.click(); return true;`
+  );
+  if (result !== true) throw new Error(`Could not close the ${title} dialog.`);
+  await waitFor(
+    `!dialogByTitle(${JSON.stringify(title)})`,
+    `the ${title} dialog to close`
+  );
+}
+
+async function openRestoreConfirmation() {
+  const result = await executeScript(
+    `const dialog = dialogByTitle('Save history'); const button = dialog ? Array.from(dialog.querySelectorAll('button')).find((element) => isVisible(element) && normalise(element.getAttribute('aria-label') || text(element)).startsWith('Restore')) : null; if (!button || button.disabled) return false; button.click(); return true;`
+  );
+  return result === true;
+}
+
 async function captureSetup(directory, routes) {
   if (!(await getState()).setup) {
     console.log(
@@ -350,6 +377,76 @@ function noGameSkip(routeId, reportSkip) {
   reportSkip(routeId, "the library contains no games");
 }
 
+async function captureCloudSaveViews(directory, routes, reportSkip) {
+  await goToDesktopLibrary();
+  if (!(await openSwitchDesktopGame())) {
+    reportSkip(
+      "cloud-save-history",
+      "no Switch game is visible in the library"
+    );
+    reportSkip(
+      "cloud-save-restore-confirmation",
+      "no Switch game is visible in the library"
+    );
+    return;
+  }
+  let historyCaptured = false;
+  try {
+    await waitFor(
+      "textVisible('button', 'Back to Library')",
+      "Switch game details"
+    );
+    if (
+      !(await executeScript(
+        "return Boolean(interactive('History') && !interactive('History').disabled);"
+      ))
+    ) {
+      reportSkip(
+        "cloud-save-history",
+        "the selected Switch game has no available cloud save history"
+      );
+      reportSkip(
+        "cloud-save-restore-confirmation",
+        "the selected Switch game has no available cloud save history"
+      );
+      return;
+    }
+    await clickText("History");
+    await waitFor(
+      "Boolean(dialogByTitle('Save history')) && !textVisible('[role=\"dialog\"]', 'Loading save history…')",
+      "cloud save history"
+    );
+    await capture("cloud-save-history", directory, routes);
+    historyCaptured = true;
+    if (!(await openRestoreConfirmation())) {
+      reportSkip(
+        "cloud-save-restore-confirmation",
+        "the cloud save history contains no restore candidates"
+      );
+      return;
+    }
+    await waitFor(
+      "Boolean(dialogByTitle('Restore this save?'))",
+      "restore save confirmation"
+    );
+    await capture("cloud-save-restore-confirmation", directory, routes);
+  } catch (error) {
+    const reason = `the cloud save UI was unavailable (${error.message ?? error})`;
+    if (!historyCaptured) reportSkip("cloud-save-history", reason);
+    reportSkip("cloud-save-restore-confirmation", reason);
+  } finally {
+    if (
+      await executeScript(
+        "return Boolean(dialogByTitle('Restore this save?'));"
+      )
+    )
+      await dismissDialog("Restore this save?");
+    if (await executeScript("return Boolean(dialogByTitle('Save history'));"))
+      await dismissDialog("Save history");
+    await goToDesktopLibrary();
+  }
+}
+
 async function captureDesktop(directory, routes, reportSkip) {
   await goToDesktopLibrary();
   await capture("desktop-library", directory, routes);
@@ -366,6 +463,7 @@ async function captureDesktop(directory, routes, reportSkip) {
       "the desktop library after game details"
     );
   } else noGameSkip("desktop-details", reportSkip);
+  await captureCloudSaveViews(directory, routes, reportSkip);
   await clickText("Downloads");
   await waitFor("textVisible('main h1', 'Downloads')", "desktop downloads");
   await capture("desktop-downloads", directory, routes);
@@ -547,7 +645,12 @@ async function captureAll(options) {
   let originalDisplay;
   let operationError;
   const cleanupErrors = [];
-  const directory = path.resolve(process.cwd(), ".scratch", "screenshots", timestamp());
+  const directory = path.resolve(
+    process.cwd(),
+    ".scratch",
+    "screenshots",
+    timestamp()
+  );
   try {
     await runMcp([
       "driver-session",

@@ -5,6 +5,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 const LOCAL_PATH_PATTERN = /^[a-zA-Z]:/u;
 const RETRYABLE_SAVE_ERROR =
   /(?:(?:^|:\s)(?:error sending request|request or response body error|error decoding response body)\b|\bHTTP(?: status [^(]+)?\s*\(?(?:408|429|5\d{2})\b|\breturned\s+(?:408|429|5\d{2})\b)/iu;
+const SAVE_CONFLICT_ERROR =
+  /(?:409 Conflict|newer save since your last sync|save conflict|newer save after this play session)/iu;
 
 /** @param {string|null|undefined} path File path or URL to inspect. */
 export const isLocalPath = (path) =>
@@ -40,14 +42,22 @@ export const getErrorMessage = (error) => {
 
 /**
  * @param {unknown} error Error value from save synchronization.
- * @param {() => Promise<void>} retry Retry callback for transient failures.
+ * @param {(() => Promise<void>)|undefined} [retry] Retry callback for transient failures.
  * @returns {GameDetailsStatus} User-facing save synchronization status.
  */
 export const getSaveSyncErrorStatus = (error, retry) => {
   const message = getErrorMessage(error);
+  if (SAVE_CONFLICT_ERROR.test(message)) {
+    return {
+      conflict: true,
+      message:
+        "The local and cloud saves have both changed. Choose which copy to keep active; Wingosy can preserve the other as a backup.",
+      type: "error",
+    };
+  }
   return {
     message,
-    retry: RETRYABLE_SAVE_ERROR.test(message) ? retry : undefined,
+    retry: retry && RETRYABLE_SAVE_ERROR.test(message) ? retry : undefined,
     type: "error",
   };
 };

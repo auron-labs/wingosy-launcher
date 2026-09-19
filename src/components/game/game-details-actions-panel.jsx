@@ -14,17 +14,20 @@ import { launchStageLabel } from "./game-details-utils";
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
 
-/** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, canSyncSwitchContent: boolean, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
+/** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, saveSyncBusy: boolean, switchContentSyncing: boolean, canSyncSwitchContent: boolean, cloudSaveStatus?: import("react").ReactNode, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
 
-/** @param {{downloading: boolean, launchActive: boolean, onLaunch: () => Promise<void>, switchContentSyncing: boolean}} props Play button properties. */
+/** @param {{downloading: boolean, launchActive: boolean, onLaunch: () => Promise<void>, saveSyncBusy: boolean, switchContentSyncing: boolean}} props Play button properties. */
 const PlayButton = ({
   downloading,
   launchActive,
   onLaunch,
+  saveSyncBusy,
   switchContentSyncing,
 }) => (
   <Button
-    disabled={launchActive || downloading || switchContentSyncing}
+    disabled={
+      launchActive || downloading || saveSyncBusy || switchContentSyncing
+    }
     onClick={() => {
       void onLaunch();
     }}
@@ -117,6 +120,7 @@ export const GameDetailsPlayControls = ({
   canDownload,
   canPlay,
   canSyncSwitchContent,
+  cloudSaveStatus,
   downloading,
   game,
   hasLocalFile,
@@ -124,6 +128,7 @@ export const GameDetailsPlayControls = ({
   onDownload,
   onLaunch,
   onSyncSwitchContent,
+  saveSyncBusy,
   switchContentSyncing,
 }) => (
   <Box
@@ -140,9 +145,11 @@ export const GameDetailsPlayControls = ({
         downloading={downloading}
         launchActive={launchActive}
         onLaunch={onLaunch}
+        saveSyncBusy={saveSyncBusy}
         switchContentSyncing={switchContentSyncing}
       />
     )}
+    {cloudSaveStatus}
     {game.romm_id !== null && game.romm_id !== undefined && !hasLocalFile && (
       <RomDownloadButton
         canDownload={canDownload}

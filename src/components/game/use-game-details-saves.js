@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  createSwitchBackupName,
   downloadGameSaveAction,
   downloadSwitchSaveAction,
   listGameSaves,
   refreshGameSaveList,
+  syncCurrentSwitchSaveAction,
   uploadGameSaveAction,
   uploadSwitchSaveAction,
 } from "./game-details-save-actions";
+import { getSaveSyncErrorStatus } from "./game-details-utils";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
@@ -67,10 +70,30 @@ export const useGameDetailsSaves = ({
   const [savesLoaded, setSavesLoaded] = useState(false);
   const [savesLoading, setSavesLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState(getInitialSaveStatus);
-  const [switchSlot, setSwitchSlot] = useState("autosave");
   const switchPathInfo = useSwitchSavePathInfo(game, isSwitch, ipc);
   const [switchSyncBusy, setSwitchSyncBusy] = useState(false);
+  const [saveSyncEnabled, setSaveSyncEnabledState] = useState(false);
   const saveSyncInFlightRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSyncState = async () => {
+      try {
+        const config = await ipc.getGameDetailsConfig();
+        if (!cancelled) {
+          setSaveSyncEnabledState(config.romm?.sync_saves === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSaveSyncEnabledState(false);
+        }
+      }
+    };
+    void loadSyncState();
+    return () => {
+      cancelled = true;
+    };
+  }, [ipc]);
 
   const baseActionContext = {
     game,
@@ -85,7 +108,6 @@ export const useGameDetailsSaves = ({
     setSavesLoaded,
     setSavesLoading,
     setSwitchSyncBusy,
-    switchSlot,
   };
   /** @param {boolean} [preserveStatus] Keep the current status message. */
   const refreshSaveList = async (preserveStatus = false) => {
@@ -105,6 +127,55 @@ export const useGameDetailsSaves = ({
   const handleUploadSwitchSave = async (retrySlot) => {
     await uploadSwitchSaveAction(actionContext, retrySlot);
   };
+  const handleSyncCurrentSwitchSave = async () => {
+    await syncCurrentSwitchSaveAction(actionContext);
+  };
+  const handleCreateSwitchBackup = async () => {
+    await uploadSwitchSaveAction(actionContext, createSwitchBackupName());
+  };
+  const handleEnableSaveSync = async () => {
+    try {
+      await ipc.setSaveSyncEnabled(true);
+      setSaveSyncEnabledState(true);
+      setSaveStatus({
+        message: "Automatic save sync is enabled for future launches.",
+        type: "success",
+      });
+    } catch (error) {
+      setSaveStatus({
+        message: `Could not enable automatic save sync: ${error instanceof Error ? error.message : String(error)}`,
+        type: "error",
+      });
+    }
+  };
+  /** @param {import("./game-details-types").GameDetailsLaunchResult|null|undefined} result Completed launch result. */
+  const handleLaunchSaveSyncResult = (result) => {
+    if (!isSwitch) return;
+    const syncWarnings = Array.isArray(result?.save_sync_warnings)
+      ? result.save_sync_warnings.filter((warning) =>
+          /^(?:pre|post)-launch save sync:/iu.test(warning)
+        )
+      : [];
+    if (syncWarnings.length > 0) {
+      const warningStatus = getSaveSyncErrorStatus(syncWarnings.join("\n"));
+      setSaveStatus(
+        warningStatus.conflict
+          ? warningStatus
+          : {
+              ...warningStatus,
+              message:
+                "Automatic cloud sync did not finish. Review the cloud copies below, then use Sync current save after resolving the issue.",
+            }
+      );
+      return;
+    }
+    if (
+      Array.isArray(result?.save_sync_messages) &&
+      result.save_sync_messages.length > 0
+    ) {
+      setSaveStatus({ message: "Cloud save sync completed.", type: "success" });
+    }
+  };
   /** @param {string|null|undefined} retrySlot Slot from a retry. */
   const handleDownloadSwitchSave = async (retrySlot) => {
     await downloadSwitchSaveAction(actionContext, retrySlot);
@@ -115,19 +186,22 @@ export const useGameDetailsSaves = ({
   };
 
   return {
+    handleCreateSwitchBackup,
     handleDownloadSave,
     handleDownloadSwitchSave,
+    handleEnableSaveSync,
+    handleLaunchSaveSyncResult,
     handleListSaves,
+    handleSyncCurrentSwitchSave,
     handleUploadSave,
     handleUploadSwitchSave,
+    saveSyncEnabled,
     saveStatus,
     saves,
     savesLoaded,
     savesLoading,
     setSaveStatus,
-    setSwitchSlot,
     switchPathInfo,
-    switchSlot,
     switchSyncBusy,
   };
 };

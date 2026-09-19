@@ -56,6 +56,8 @@ export interface GameDetailsProgress {
 export interface GameDetailsLaunchResult {
   success?: boolean;
   error?: string | { message?: string } | null;
+  save_sync_messages?: string[] | null;
+  save_sync_warnings?: string[] | null;
 }
 
 export interface GameDetailsLaunchErrorPresentation {
@@ -65,6 +67,8 @@ export interface GameDetailsLaunchErrorPresentation {
 }
 
 export interface GameDetailsSwitchSyncResult {
+  backupSaveId?: number | null;
+  backupSlot?: string | null;
   message?: string | null;
   downloaded?: number | null;
   reused?: number | null;
@@ -78,6 +82,9 @@ export interface GameDetailsSwitchPathInfo {
 export interface GameDetailsConfig {
   display?: {
     retroachievements_enabled?: boolean;
+  };
+  romm?: {
+    sync_saves?: boolean;
   };
 }
 
@@ -93,4 +100,5 @@ export interface GameDetailsStatus {
   message: string;
   type: "error" | "info" | "success";
   retry?: () => Promise<void>;
+  conflict?: boolean;
 }

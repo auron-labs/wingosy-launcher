@@ -33,6 +33,7 @@ export interface GameDetailsTestInvoke {
   (
     command:
       | "download_switch_save"
+      | "sync_current_switch_save"
       | "sync_switch_content"
       | "upload_switch_save",
     args?: TestInvokeArgs
@@ -47,6 +48,10 @@ export interface GameDetailsTestInvoke {
     args?: TestInvokeArgs
   ): Promise<GameDetailsSave[]>;
   (
+    command: "get_switch_game_saves",
+    args?: TestInvokeArgs
+  ): Promise<GameDetailsSave[]>;
+  (
     command: "get_switch_save_path_info",
     args?: TestInvokeArgs
   ): Promise<GameDetailsSwitchPathInfo>;
@@ -57,6 +62,7 @@ export interface GameDetailsTestInvoke {
       | "download_rom"
       | "open_rom_location"
       | "refresh_game_metadata"
+      | "save_config"
       | "toggle_game_hidden"
       | "upload_game_save",
     args?: TestInvokeArgs

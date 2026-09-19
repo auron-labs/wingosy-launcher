@@ -22,6 +22,11 @@ pub struct SwitchSaveSyncResult {
     pub local_path: Option<String>,
     pub romm_save_id: Option<i32>,
     pub slot: Option<String>,
+    /// The dated cloud backup created before a user-requested restore.
+    #[serde(rename = "backupSaveId")]
+    pub backup_save_id: Option<i32>,
+    #[serde(rename = "backupSlot")]
+    pub backup_slot: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -195,6 +200,8 @@ where
             local_path: None,
             romm_save_id: save_id,
             slot: Some(slot),
+            backup_save_id: None,
+            backup_slot: None,
         }),
         SyncAction::Unsupported(action) => {
             Err(anyhow::anyhow!("Unsupported sync action: {action}"))
@@ -251,6 +258,27 @@ pub async fn upload_switch_save_from_eden(
         .await
 }
 
+/// List the same device-scoped save records accepted by Switch restore.
+pub async fn get_switch_saves_for_device(
+    game: &Game,
+    config: &mut AppConfig,
+) -> Result<Vec<RomMSave>> {
+    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
+    let client = romm_client(config)?;
+    let device_id = ensure_device_id(config);
+    client.get_saves_for_rom_device(romm_id, &device_id).await
+}
+
+/// Negotiate a user-requested synchronization of the current local save.
+/// Remote-newer and conflict decisions remain errors so the UI can offer a
+/// safe backup or restore choice instead of overwriting either side.
+pub async fn sync_current_switch_save(
+    game: &Game,
+    config: &mut AppConfig,
+) -> Result<SwitchSaveSyncResult> {
+    negotiated_launch_sync(game, config, false).await
+}
+
 async fn upload_switch_save_from_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,
@@ -292,6 +320,8 @@ async fn upload_switch_save_from_eden_with_title_id(
         local_path: Some(title_dir.to_string_lossy().into_owned()),
         romm_save_id: Some(uploaded.id),
         slot: Some(slot_s),
+        backup_save_id: None,
+        backup_slot: None,
     })
 }
 
@@ -305,11 +335,12 @@ pub async fn download_switch_save_to_eden(
     let device_id = ensure_device_id(config);
     let title_id = resolve_sync_title_id(game, &client).await?;
     download_switch_save_to_eden_with_title_id(
-        game, config, slot, save_id, &title_id, &client, &device_id,
+        game, config, slot, save_id, &title_id, &client, &device_id, true,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn download_switch_save_to_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,
@@ -318,6 +349,7 @@ async fn download_switch_save_to_eden_with_title_id(
     title_id: &str,
     client: &RomMClient,
     device_id: &str,
+    preserve_current_to_history: bool,
 ) -> Result<SwitchSaveSyncResult> {
     let romm_id = game.romm_id.context("Game is not linked to RomM")?;
     let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, title_id)?;
@@ -333,9 +365,7 @@ async fn download_switch_save_to_eden_with_title_id(
             .context("Save not found on server")?
     } else {
         let saves = client.get_saves_for_rom_device(romm_id, device_id).await?;
-        let picked = pick_save_for_slot(&saves, &slot_s, Some(&rom_base))
-            .or_else(|| saves.iter().max_by(|a, b| a.updated_at.cmp(&b.updated_at)));
-        picked
+        pick_save_for_slot(&saves, &slot_s, Some(&rom_base))
             .cloned()
             .context(format!("No save found on RomM for slot {slot_s}"))?
     };
@@ -351,30 +381,66 @@ async fn download_switch_save_to_eden_with_title_id(
     let zip_path = cache_dir.join(format!("download_{romm_id}_{}.zip", save.id));
     std::fs::write(&zip_path, bytes)?;
 
+    let (backup_save_id, backup_slot) = if preserve_current_to_history && title_dir.exists() {
+        let backup_slot = dated_backup_slot();
+        let backup = upload_switch_save_from_eden_with_title_id(
+            game,
+            config,
+            Some(backup_slot.clone()),
+            &title_id,
+            client,
+            device_id,
+        )
+        .await
+        .context("Could not preserve the current local save before restore")?;
+        (backup.romm_save_id, Some(backup_slot))
+    } else {
+        (None, None)
+    };
+
     if title_dir.exists() {
         let backup = cache_dir.join(format!(
             "backup_{}_{}.zip",
             title_id,
             chrono::Utc::now().timestamp()
         ));
-        let _ = zip_title_folder(&title_dir, &title_id, &backup);
+        zip_title_folder(&title_dir, &title_id, &backup)
+            .context("Could not create the local restore backup")?;
     }
 
     unzip_into_title_folder(&zip_path, &title_dir)?;
     client.confirm_save_downloaded(save.id, device_id).await?;
     let _ = std::fs::remove_file(&zip_path);
 
+    let mut message = format!(
+        "Restored Switch save {title_id} from RomM (slot: {}, save id: {})",
+        save.slot.as_deref().unwrap_or(&slot_s),
+        save.id
+    );
+    if let Some(backup_slot) = backup_slot.as_deref() {
+        message.push_str(&format!(
+            "; preserved the local save as cloud backup {backup_slot}"
+        ));
+    }
+
     Ok(SwitchSaveSyncResult {
         success: true,
-        message: format!(
-            "Restored Switch save {title_id} from RomM (slot: {}, save id: {})",
-            save.slot.as_deref().unwrap_or(&slot_s),
-            save.id
-        ),
+        message,
         local_path: Some(title_dir.to_string_lossy().into_owned()),
         romm_save_id: Some(save.id),
         slot: save.slot.or(Some(slot_s)),
+        backup_save_id,
+        backup_slot,
     })
+}
+
+fn dated_backup_slot() -> String {
+    format!(
+        "backup-{}",
+        chrono::Utc::now()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            .replace([':', '.'], "-")
+    )
 }
 
 pub async fn pre_launch_sync(game: &Game, config: &mut AppConfig) -> Result<()> {
@@ -477,6 +543,7 @@ async fn negotiated_launch_sync(
                 &title_id,
                 &client,
                 &device_id,
+                false,
             )
             .await
         } else {
@@ -520,6 +587,7 @@ async fn negotiated_launch_sync(
                         &title_id,
                         &transfer_client,
                         &device_id,
+                        false,
                     )
                     .await
                 }
@@ -646,6 +714,44 @@ mod tests {
     }
 
     #[test]
+    fn restore_never_falls_back_to_an_unrelated_newest_save() {
+        let saves = vec![
+            save(1, "manual.zip", Some("manual"), "2026-01-03"),
+            save(2, "Other Game.zip", None, "2026-01-04"),
+        ];
+
+        assert!(pick_save_for_slot(&saves, DEFAULT_SAVE_SLOT, Some("The Game")).is_none());
+    }
+
+    #[test]
+    fn dated_backup_slot_is_a_readable_history_slot() {
+        let slot = dated_backup_slot();
+
+        assert!(slot.starts_with("backup-"));
+        assert!(slot.ends_with('Z'));
+        assert!(!slot.contains(':'));
+        assert!(!slot.contains('.'));
+    }
+
+    #[test]
+    fn restore_result_exposes_backup_identity_without_renaming_existing_fields() {
+        let result = SwitchSaveSyncResult {
+            success: true,
+            message: "Restored".to_string(),
+            local_path: Some("save/title".to_string()),
+            romm_save_id: Some(19),
+            slot: Some(DEFAULT_SAVE_SLOT.to_string()),
+            backup_save_id: Some(20),
+            backup_slot: Some("backup-2026-09-19T07-00-00-000Z".to_string()),
+        };
+
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["romm_save_id"], 19);
+        assert_eq!(value["backupSaveId"], 20);
+        assert_eq!(value["backupSlot"], "backup-2026-09-19T07-00-00-000Z");
+    }
+
+    #[test]
     fn latest_upload_filename_uses_rom_base_name() {
         assert_eq!(upload_filename("autosave", "The Game"), "The Game.zip");
         assert_eq!(upload_filename("argosy-latest", "The Game"), "The Game.zip");
@@ -673,6 +779,8 @@ mod tests {
             local_path: None,
             romm_save_id: None,
             slot: Some(DEFAULT_SAVE_SLOT.to_string()),
+            backup_save_id: None,
+            backup_slot: None,
         }
     }
 

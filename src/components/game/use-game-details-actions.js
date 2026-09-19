@@ -18,7 +18,7 @@ import { useGameDetailsActionState } from "./use-game-details-action-state";
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 
-/** @typedef {{game: GameDetailsGame, ipc?: typeof import("./game-details-ipc").gameDetailsIpc, rommToken: string|null, rommUrl: string|null, canSyncSwitchContent: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, onGameUpdate?: (gameId: number|string) => void, onBack: () => void}} GameDetailsActionsOptions */
+/** @typedef {{game: GameDetailsGame, ipc?: typeof import("./game-details-ipc").gameDetailsIpc, rommToken: string|null, rommUrl: string|null, canSyncSwitchContent: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, onLaunchComplete?: (result: GameDetailsLaunchResult|null|undefined) => void, onGameUpdate?: (gameId: number|string) => void, onBack: () => void}} GameDetailsActionsOptions */
 
 /** @param {GameDetailsActionsOptions} options Hook options. */
 export const useGameDetailsActions = (options) => {

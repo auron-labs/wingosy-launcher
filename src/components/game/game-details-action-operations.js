@@ -7,7 +7,7 @@ import { getErrorMessage } from "./game-details-utils";
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 
-/** @typedef {{game: GameDetailsGame, canSyncSwitchContent: boolean, ipc: typeof import("./game-details-ipc").gameDetailsIpc, launchProgress: GameDetailsProgress|null, onBack: () => void, onGameUpdate?: (gameId: number|string) => void, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, romDl: GameDetailsProgress|null, rommToken: string|null, rommUrl: string|null, launchActive: boolean, downloadActive: boolean, justDownloaded: boolean, downloadInFlightRef: {current: boolean}, launchInFlightRef: {current: boolean}, switchContentInFlightRef: {current: boolean}, setActionStatus: (status: GameDetailsStatus|null) => void, setCollectionDialogOpen: (open: boolean) => void, setCollections: (collections: GameDetailsCollection[]) => void, setDeleteDialogOpen: (open: boolean) => void, setDownloadStatus: (status: GameDetailsStatus|null) => void, setDownloading: (downloading: boolean) => void, setJustDownloaded: (justDownloaded: boolean) => void, setLaunchError: (error: string|null) => void, setLaunching: (launching: boolean) => void, setMenuAnchor: (anchor: HTMLElement|null) => void, setRefreshing: (refreshing: boolean) => void, setSwitchContentSyncing: (syncing: boolean) => void}} GameDetailsActionContext */
+/** @typedef {{game: GameDetailsGame, canSyncSwitchContent: boolean, ipc: typeof import("./game-details-ipc").gameDetailsIpc, launchProgress: GameDetailsProgress|null, onBack: () => void, onGameUpdate?: (gameId: number|string) => void, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, onLaunchComplete?: (result: GameDetailsLaunchResult|null|undefined) => void, romDl: GameDetailsProgress|null, rommToken: string|null, rommUrl: string|null, launchActive: boolean, downloadActive: boolean, justDownloaded: boolean, downloadInFlightRef: {current: boolean}, launchInFlightRef: {current: boolean}, switchContentInFlightRef: {current: boolean}, setActionStatus: (status: GameDetailsStatus|null) => void, setCollectionDialogOpen: (open: boolean) => void, setCollections: (collections: GameDetailsCollection[]) => void, setDeleteDialogOpen: (open: boolean) => void, setDownloadStatus: (status: GameDetailsStatus|null) => void, setDownloading: (downloading: boolean) => void, setJustDownloaded: (justDownloaded: boolean) => void, setLaunchError: (error: string|null) => void, setLaunching: (launching: boolean) => void, setMenuAnchor: (anchor: HTMLElement|null) => void, setRefreshing: (refreshing: boolean) => void, setSwitchContentSyncing: (syncing: boolean) => void}} GameDetailsActionContext */
 
 /** @param {GameDetailsActionContext} context Action dependencies. */
 export const launchGameAction = async (context) => {
@@ -23,6 +23,7 @@ export const launchGameAction = async (context) => {
   context.setLaunchError(null);
   try {
     const result = await context.onLaunch(context.game.id);
+    context.onLaunchComplete?.(result);
     if (result?.success === false) {
       context.setLaunchError(getErrorMessage(result.error));
     }

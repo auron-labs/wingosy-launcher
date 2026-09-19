@@ -294,6 +294,64 @@ describe("GameDetails launch retry", () => {
   });
 });
 
+describe("GameDetails cloud saves", () => {
+  afterEach(cleanupGameDetailsTest);
+
+  it("reports launch save-sync warnings without treating controller warnings as cloud errors", async () => {
+    const onLaunch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        save_sync_warnings: ["Eden controller profile is unavailable"],
+        success: true,
+      })
+      .mockResolvedValueOnce({
+        save_sync_warnings: ["Post-launch save sync: RomM is offline"],
+        error: "The game exited unexpectedly",
+        success: false,
+      });
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_switch_game_saves") return [];
+      if (command === "get_switch_save_path_info") return null;
+      return { display: {} };
+    });
+    renderDetails({ game: switchRemoteGame, onLaunch });
+
+    const play = screen.getByRole("button", { name: "Play" });
+    fireEvent.click(play);
+    await waitFor(() => {
+      expect(play).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const firstHistory = await screen.findByRole("dialog", {
+      name: "Save history",
+    });
+    await within(firstHistory).findByText("No cloud saves yet.");
+    expect(firstHistory).not.toHaveTextContent(
+      "Automatic cloud sync did not finish"
+    );
+    fireEvent.click(
+      within(firstHistory).getByRole("button", { name: "Close" })
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Save history" })
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(play);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const history = await screen.findByRole("dialog", { name: "Save history" });
+    await expect(
+      within(history).findByText(
+        "Automatic cloud sync did not finish. Review the cloud copies below, then use Sync current save after resolving the issue."
+      )
+    ).resolves.toBeInTheDocument();
+    expect(history).not.toHaveTextContent(
+      "Post-launch save sync: RomM is offline"
+    );
+  });
+});
+
 describe("GameDetails emulator guidance", () => {
   afterEach(cleanupGameDetailsTest);
 

@@ -21,6 +21,13 @@ export const getSwitchSavePathInfo = async (gameId: GameDetailsGame["id"]) =>
     gameId,
   });
 
+export const setSaveSyncEnabled = async (enabled: boolean) => {
+  const config = await getGameDetailsConfig();
+  config.romm ??= {};
+  config.romm.sync_saves = enabled;
+  await command<unknown>("save_config", { config });
+};
+
 export const downloadRom = async (
   gameId: GameDetailsGame["id"],
   serverUrl: string,
@@ -40,6 +47,9 @@ export const getGameSaves = async (
     serverUrl,
     token,
   });
+
+export const getSwitchGameSaves = async (gameId: GameDetailsGame["id"]) =>
+  await command<GameDetailsSave[]>("get_switch_game_saves", { gameId });
 
 export const downloadSwitchSave = async (
   gameId: GameDetailsGame["id"],
@@ -72,6 +82,11 @@ export const uploadSwitchSave = async (
   await command<GameDetailsSwitchSyncResult>("upload_switch_save", {
     gameId,
     slot,
+  });
+
+export const syncCurrentSwitchSave = async (gameId: GameDetailsGame["id"]) =>
+  await command<GameDetailsSwitchSyncResult>("sync_current_switch_save", {
+    gameId,
   });
 
 export const uploadGameSave = async (
@@ -120,10 +135,13 @@ export const gameDetailsIpc = {
   getCollections,
   getGameDetailsConfig,
   getGameSaves,
+  getSwitchGameSaves,
   getSwitchSavePathInfo,
   openRomLocation,
   refreshGameMetadata,
   syncSwitchContent,
+  syncCurrentSwitchSave,
+  setSaveSyncEnabled,
   toggleGameHidden,
   uploadGameSave,
   uploadSwitchSave,
