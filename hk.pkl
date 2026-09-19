@@ -1,6 +1,5 @@
 amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.pkl"
 import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
-// Using a coding agent? See https://hk.jdx.dev/agents
 
 exclude = List("src-tauri/gen/**", "src/data/consoleIconSet.json")
 
@@ -27,10 +26,7 @@ local linters = new Mapping<String, Step> {
     ["check_executables_have_shebangs"] = Builtins.check_executables_have_shebangs
     ["check_merge_conflict"] = Builtins.check_merge_conflict
     ["check_symlinks"] = Builtins.check_symlinks
-    ["contextlint"] = Builtins.contextlint
     ["detect_private_key"] = Builtins.detect_private_key
-    ["jq"] = Builtins.jq
-    ["mise"] = Builtins.mise
     ["newlines"] = Builtins.newlines
     ["frontend_lint"] = new Step {
         check = "bun run lint:frontend"
@@ -48,10 +44,7 @@ local linters = new Mapping<String, Step> {
     ["pkl"] = Builtins.pkl
     ["shellcheck"] = Builtins.shellcheck
     ["shfmt"] = Builtins.shfmt
-    ["tombi"] = Builtins.tombi
     ["tombi_format"] = Builtins.tombi_format
-    ["yamlfmt"] = Builtins.yamlfmt
-    ["yamllint"] = Builtins.yamllint
     ["zizmor"] = Builtins.zizmor
 }
 

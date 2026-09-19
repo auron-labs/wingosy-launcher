@@ -1,20 +1,18 @@
 # Local Issue State
 
-Generated: 2026-09-18T04:32:12Z
+Generated: 2026-09-19T08:19:39Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 5 active, 32 resolved
+Tickets: 3 active, 34 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [eden-integration](eden-integration/spec.md) | [03-reliable-eden-save-sync](eden-integration/issues/03-reliable-eden-save-sync.md) | — | — | ready-for-human | None — can start immediately |
-| [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | ready-for-human | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [05-reach-vigem-target-readiness](smoke-test-followups/issues/05-reach-vigem-target-readiness.md) | — | — | ready-for-human | None — can start immediately. |
-| [smoke-test-followups](smoke-test-followups/map.md) | [12-certify-eden-content-loading](smoke-test-followups/issues/12-certify-eden-content-loading.md) | — | — | ready-for-human | None — can start immediately. |
 
 ## Resolved Tickets
 
@@ -22,6 +20,7 @@ Tickets: 5 active, 32 resolved
 | --- | --- | --- | --- | --- | --- |
 | [eden-integration](eden-integration/spec.md) | [01-follow-wingosy-fullscreen](eden-integration/issues/01-follow-wingosy-fullscreen.md) | — | — | resolved | None — can start immediately |
 | [eden-integration](eden-integration/spec.md) | [02-configure-controller-for-eden](eden-integration/issues/02-configure-controller-for-eden.md) | — | — | resolved | None — can start immediately |
+| [eden-integration](eden-integration/spec.md) | [04-sync-switch-updates-dlc](eden-integration/issues/04-sync-switch-updates-dlc.md) | — | — | resolved | None — can start immediately |
 | [immersive-input](immersive-input/spec.md) | [01-route-library-and-shell-controller-actions](immersive-input/issues/01-route-library-and-shell-controller-actions.md) | — | — | resolved | None — can start immediately. |
 | [immersive-input](immersive-input/spec.md) | [02-route-details-and-overlay-controller-actions](immersive-input/issues/02-route-details-and-overlay-controller-actions.md) | — | — | resolved | 01 — Route Library and shell controller actions through the Immersive app seam. |
 | [immersive-library-discovery](immersive-library-discovery) | [01-filter-immersive-library-by-platform](immersive-library-discovery/issues/01-filter-immersive-library-by-platform.md) | — | — | resolved | None — can start immediately. |
@@ -35,6 +34,7 @@ Tickets: 5 active, 32 resolved
 | [smoke-test-followups](smoke-test-followups/map.md) | [09-fix-emulators-settings-markup](smoke-test-followups/issues/09-fix-emulators-settings-markup.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [10-keep-bios-downloads-alive](smoke-test-followups/issues/10-keep-bios-downloads-alive.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [11-distribute-bios-and-firmware](smoke-test-followups/issues/11-distribute-bios-and-firmware.md) | — | — | resolved | 10 — Keep BIOS downloads alive across navigation. |
+| [smoke-test-followups](smoke-test-followups/map.md) | [12-certify-eden-content-loading](smoke-test-followups/issues/12-certify-eden-content-loading.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [01-design-system-typography-buttons-states](ui-audit/issues/01-design-system-typography-buttons-states.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [02-layout-width-scrollbars](ui-audit/issues/02-layout-width-scrollbars.md) | — | — | resolved | None — can start immediately. |
 | [ui-audit](ui-audit) | [03-desktop-library-grid](ui-audit/issues/03-desktop-library-grid.md) | — | — | resolved | 01 — Design-system pass: typography, buttons, and interaction states. |

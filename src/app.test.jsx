@@ -139,3 +139,52 @@ describe("Favorites navigation", () => {
     );
   });
 });
+
+describe("Launch save-sync notifications", () => {
+  afterEach(() => {
+    cleanup();
+    invoke.mockReset();
+  });
+
+  it("presents duplicated Switch transfer results as one safe success message", async () => {
+    const transfer =
+      "Uploaded Switch save for 0100A5C00D162000 to RomM (slot: autosave)";
+    const restored =
+      "Restored Switch save 0100A5C00D162000 from RomM (slot: backup-2026-09-19, save id: 9001)";
+    invoke.mockImplementation((command) => {
+      if (command === "is_first_run") return false;
+      if (command === "get_platforms_with_games") return platforms;
+      if (command === "get_config") return {};
+      if (command === "check_for_app_update") {
+        return { is_update_available: false };
+      }
+      if (command === "get_games_page") {
+        return { games, total: games.length };
+      }
+      if (command === "get_games_filtered") return games;
+      if (command === "prepare_and_launch_game") {
+        return {
+          save_sync_messages: [transfer, restored, transfer],
+          success: true,
+        };
+      }
+      return null;
+    });
+
+    render(
+      <MuiTestProvider>
+        <App runtime={runtime} />
+      </MuiTestProvider>
+    );
+
+    await screen.findByRole("button", { name: "Play Starred Quest" });
+    fireEvent.click(screen.getByRole("button", { name: "Play Starred Quest" }));
+
+    await expect(
+      screen.findByText("Cloud save sync completed.")
+    ).resolves.toBeInTheDocument();
+    expect(screen.getAllByText("Cloud save sync completed.")).toHaveLength(1);
+    expect(screen.queryByText(transfer)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0100A5C00D162000/u)).not.toBeInTheDocument();
+  });
+});

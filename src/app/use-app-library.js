@@ -14,10 +14,29 @@ import { useLibraryNavigation } from "./use-app-library-navigation";
 /** @typedef {{success?: boolean, error?: string|{message?: string}, dry_run?: boolean, save_sync_messages?: unknown[], save_sync_warnings?: string[]}} LaunchResult */
 
 const GAMES_PER_PAGE = 60;
+const SWITCH_SAVE_TRANSFER_MESSAGE =
+  /^(?:Uploaded Switch save for .+ to RomM|Restored Switch save .+ from RomM) \(slot: .+\)$/iu;
 
 /** @param {unknown} error - Error value from an IPC boundary. */
 const getErrorMessage = (error) =>
   error instanceof Error ? error.message : String(error);
+
+/** @param {unknown} messages Launch save-sync messages. @returns {string[]} Safe, distinct success notifications. */
+const getSaveSyncMessages = (messages) => {
+  if (!Array.isArray(messages)) return [];
+  const distinctMessages = new Set();
+  for (const value of messages) {
+    if (typeof value !== "string") continue;
+    const message = value.trim();
+    if (message === "") continue;
+    distinctMessages.add(
+      SWITCH_SAVE_TRANSFER_MESSAGE.test(message)
+        ? "Cloud save sync completed."
+        : message
+    );
+  }
+  return [...distinctMessages];
+};
 
 /** @param {{platformId: string|null, query: string, requestedPage: number, requestedSortBy: AppSortBy, requestedFilterBy: AppFilterBy, runtime: AppRuntime}} options - Library query dependencies. */
 const fetchGames = async ({
@@ -247,9 +266,7 @@ const useLibraryLaunchAction = ({
         const result = await runtime.invoke("prepare_and_launch_game", {
           gameId,
         });
-        const messages = Array.isArray(result.save_sync_messages)
-          ? result.save_sync_messages.filter((message) => message.trim() !== "")
-          : [];
+        const messages = getSaveSyncMessages(result.save_sync_messages);
         setSaveSyncMessages(messages);
         updateLaunchStatus({
           gameId,
