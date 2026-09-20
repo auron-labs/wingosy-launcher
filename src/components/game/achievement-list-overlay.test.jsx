@@ -64,4 +64,39 @@ describe("AchievementListOverlay empty state", () => {
     expect(screen.queryByText(/0\/0/u)).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
   });
+
+  it("shows points, completion, badge state, and hardcore unlocks", () => {
+    renderOverlay({
+      achievements: [
+        {
+          badge_url: "https://example.test/earned.png",
+          id: 1,
+          points: 10,
+          title: "Earned achievement",
+          unlocked: true,
+          unlocked_hardcore: true,
+        },
+        {
+          badge_url_lock: "https://example.test/locked.png",
+          id: 2,
+          points: 20,
+          title: "Locked achievement",
+          unlocked: false,
+        },
+      ],
+      retroAchievementsEnabled: true,
+    });
+
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      /1\/2 \(50%\).*10\/30 points/u
+    );
+    expect(
+      screen.getByRole("progressbar", { name: "Achievement completion" })
+    ).toHaveAttribute("aria-valuenow", "50");
+    expect(screen.getByText("LOCKED (1)")).toBeInTheDocument();
+    expect(screen.getByText("Hardcore unlock")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /Earned achievement \(unlocked\)/u })
+    ).toHaveAttribute("src", "https://example.test/earned.png");
+  });
 });

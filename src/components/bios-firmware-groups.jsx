@@ -6,12 +6,17 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
+import LinearProgress from "@mui/material/LinearProgress";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 
+import { formatDownloadLabel } from "../rom-downloads-format";
+
 /** @typedef {import("./bios-types").BiosFirmware} BiosFirmware */
 /** @typedef {import("./bios-types").BiosGroup} BiosGroup */
+/** @typedef {import("../rom-downloads-context-value").DownloadProgress} DownloadProgress */
+/** @typedef {import("../rom-downloads-context-value").RecentDownload} RecentDownload */
 
 /** @param {number} bytes Byte count to format. */
 const formatBytes = (bytes) => {
@@ -34,6 +39,8 @@ const formatBytes = (bytes) => {
  * @property {string|null} busy - Current BIOS operation identifier.
  * @property {(group: BiosGroup) => Promise<void>} downloadGroup - Download one group.
  * @property {(id: number, fileName: string) => Promise<void>} downloadOne - Download one file.
+ * @property {(firmwareId: number|string, platformSlug: string) => DownloadProgress|null} getBiosProgress - Active BIOS transfer lookup.
+ * @property {(firmwareId: number|string, platformSlug: string) => RecentDownload|null} getBiosRecentDownload - Recent BIOS transfer lookup.
  * @property {() => void} onToggle - Toggle group expansion.
  */
 
@@ -42,6 +49,8 @@ const formatBytes = (bytes) => {
  * @property {string|null} busy - Current BIOS operation identifier.
  * @property {BiosFirmware} item - Firmware item to display.
  * @property {(id: number, fileName: string) => Promise<void>} onDownload - Download one file.
+ * @property {(firmwareId: number|string, platformSlug: string) => DownloadProgress|null} getBiosProgress - Active BIOS transfer lookup.
+ * @property {(firmwareId: number|string, platformSlug: string) => RecentDownload|null} getBiosRecentDownload - Recent BIOS transfer lookup.
  */
 
 /** @param {BiosFirmware} item Firmware item. @returns {string} Secondary item text. */
@@ -55,38 +64,112 @@ const getFirmwareSecondary = (item) => {
   return formatBytes(item.file_size_bytes);
 };
 
-/** @param {BiosFirmwareItemProps} props - Firmware item and download action. */
-const BiosFirmwareItem = ({ busy, item, onDownload }) => (
-  <ListItem
-    secondaryAction={
-      <Button
-        size="small"
-        startIcon={
-          busy === `file:${item.id}` ? (
-            <CircularProgress size={14} />
-          ) : (
-            <DownloadIcon />
-          )
-        }
-        disabled={Boolean(busy) || item.missing_from_fs}
-        onClick={() => {
-          void onDownload(item.id, item.file_name);
-        }}
-      >
-        {item.is_downloaded ? "Redownload" : "Download"}
-      </Button>
+/** @param {{progress: DownloadProgress|null, recent: RecentDownload|null, item: BiosFirmware}} options Firmware transfer state. @returns {string} Visible transfer status. */
+const getFirmwareTransferStatus = ({ progress, recent, item }) => {
+  if (progress !== null) {
+    if (progress.stage === "queued") {
+      return "Queued";
     }
-  >
-    <ListItemText
-      primary={item.file_name}
-      secondary={getFirmwareSecondary(item)}
-      slotProps={{
-        primary: { sx: { fontFamily: "monospace" }, variant: "body2" },
-        secondary: { sx: { overflowWrap: "anywhere", pr: 12 } },
-      }}
-    />
-  </ListItem>
-);
+    const speed =
+      progress.speed === null || progress.speed === undefined
+        ? ""
+        : ` · ${progress.speed}`;
+    return `${formatDownloadLabel(progress)}${speed}`;
+  }
+  if (recent?.kind === "complete") {
+    return recent.path === null ||
+      recent.path === undefined ||
+      recent.path === ""
+      ? "Finished"
+      : `Saved · ${recent.path}`;
+  }
+  if (recent?.kind === "error") {
+    return recent.message === null ||
+      recent.message === undefined ||
+      recent.message === ""
+      ? "Download failed"
+      : `Download failed · ${recent.message}`;
+  }
+  return getFirmwareSecondary(item);
+};
+
+/** @param {{queued: boolean, downloading: boolean, failed: boolean, isDownloaded: boolean}} options Firmware action state. @returns {string} Firmware action label. */
+const getFirmwareActionLabel = ({
+  queued,
+  downloading,
+  failed,
+  isDownloaded,
+}) => {
+  if (queued) {
+    return "Queued";
+  }
+  if (downloading) {
+    return "Downloading…";
+  }
+  if (failed) {
+    return "Retry";
+  }
+  return isDownloaded ? "Redownload" : "Download";
+};
+
+/** @param {BiosFirmwareItemProps} props - Firmware item and download action. */
+const BiosFirmwareItem = ({
+  busy,
+  getBiosProgress,
+  getBiosRecentDownload,
+  item,
+  onDownload,
+}) => {
+  const progress = getBiosProgress(item.id, item.platform_slug);
+  const recent = getBiosRecentDownload(item.id, item.platform_slug);
+  const downloading = progress !== null;
+  const queued = progress?.stage === "queued";
+  const failed = recent?.kind === "error";
+  return (
+    <ListItem
+      secondaryAction={
+        <Button
+          size="small"
+          startIcon={
+            downloading || busy === `file:${item.id}` ? (
+              <CircularProgress size={14} />
+            ) : (
+              <DownloadIcon />
+            )
+          }
+          disabled={Boolean(busy) || item.missing_from_fs || downloading}
+          onClick={() => {
+            void onDownload(item.id, item.file_name);
+          }}
+        >
+          {getFirmwareActionLabel({
+            downloading,
+            failed,
+            isDownloaded: item.is_downloaded,
+            queued,
+          })}
+        </Button>
+      }
+    >
+      <ListItemText
+        primary={item.file_name}
+        secondary={getFirmwareTransferStatus({ item, progress, recent })}
+        slotProps={{
+          primary: { sx: { fontFamily: "monospace" }, variant: "body2" },
+          secondary: { sx: { overflowWrap: "anywhere", pr: 12 } },
+        }}
+      />
+      {downloading && !queued && (
+        <LinearProgress
+          sx={{ bottom: 0, height: 3, left: 0, position: "absolute", right: 0 }}
+          {...(progress.percent === null || progress.percent === undefined
+            ? {}
+            : { value: progress.percent, variant: "determinate" })}
+        />
+      )}
+    </ListItem>
+  );
+};
 
 /** @param {BiosGroup} group Firmware group. @param {number} downloaded Downloaded count. @param {number} unavailable Unavailable count. @returns {string} Group summary. */
 const getGroupCount = (group, downloaded, unavailable) => {
@@ -147,13 +230,22 @@ const BiosGroupActions = ({
   </Box>
 );
 
-/** @param {{busy: string|null, downloadOne: (id: number, fileName: string) => Promise<void>, expanded: boolean, group: BiosGroup}} props Group file properties. */
-const BiosGroupFiles = ({ busy, downloadOne, expanded, group }) => (
+/** @param {{busy: string|null, downloadOne: (id: number, fileName: string) => Promise<void>, expanded: boolean, getBiosProgress: (firmwareId: number|string, platformSlug: string) => DownloadProgress|null, getBiosRecentDownload: (firmwareId: number|string, platformSlug: string) => RecentDownload|null, group: BiosGroup}} props Group file properties. */
+const BiosGroupFiles = ({
+  busy,
+  downloadOne,
+  expanded,
+  getBiosProgress,
+  getBiosRecentDownload,
+  group,
+}) => (
   <Collapse in={expanded} unmountOnExit>
     <List disablePadding sx={{ pb: 1, pl: 3 }}>
       {group.items.map((item) => (
         <BiosFirmwareItem
           busy={busy}
+          getBiosProgress={getBiosProgress}
+          getBiosRecentDownload={getBiosRecentDownload}
           item={item}
           key={item.id}
           onDownload={downloadOne}
@@ -169,6 +261,8 @@ const BiosGroupRow = ({
   downloadGroup,
   downloadOne,
   expanded,
+  getBiosProgress,
+  getBiosRecentDownload,
   group,
   libraryRelevant,
   onToggle,
@@ -233,6 +327,8 @@ const BiosGroupRow = ({
         busy={busy}
         downloadOne={downloadOne}
         expanded={expanded}
+        getBiosProgress={getBiosProgress}
+        getBiosRecentDownload={getBiosRecentDownload}
         group={group}
       />
     </Box>
@@ -248,6 +344,8 @@ const BiosGroupRow = ({
  * @property {import("react").Dispatch<import("react").SetStateAction<Record<string, boolean>>>} setExpanded - Update expanded groups.
  * @property {(group: BiosGroup) => Promise<void>} downloadGroup - Download one group.
  * @property {(id: number, fileName: string) => Promise<void>} downloadOne - Download one file.
+ * @property {(firmwareId: number|string, platformSlug: string) => DownloadProgress|null} getBiosProgress - Active BIOS transfer lookup.
+ * @property {(firmwareId: number|string, platformSlug: string) => RecentDownload|null} getBiosRecentDownload - Recent BIOS transfer lookup.
  */
 
 /** @param {BiosFirmwareGroupsProps} props - Firmware groups and interaction state. */
@@ -256,6 +354,8 @@ export const BiosFirmwareGroups = ({
   downloadGroup,
   downloadOne,
   expanded,
+  getBiosProgress,
+  getBiosRecentDownload,
   groups,
   libraryPlatformIds,
   setExpanded,
@@ -267,6 +367,8 @@ export const BiosFirmwareGroups = ({
         downloadGroup={downloadGroup}
         downloadOne={downloadOne}
         expanded={expanded[group.slug]}
+        getBiosProgress={getBiosProgress}
+        getBiosRecentDownload={getBiosRecentDownload}
         group={group}
         key={group.slug}
         libraryRelevant={libraryPlatformIds.has(group.slug)}

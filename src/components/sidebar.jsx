@@ -3,6 +3,7 @@ import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import HomeIcon from "@mui/icons-material/Home";
 import SettingsIcon from "@mui/icons-material/Settings";
+import SyncIcon from "@mui/icons-material/Sync";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
@@ -213,6 +214,19 @@ const SidebarMainLinks = ({
         </Badge>
       </ListItemIcon>
       <ListItemText primary="Downloads" />
+    </ListItemButton>
+    <ListItemButton
+      selected={currentView === "romm-sync"}
+      onClick={() => {
+        onSelectPlatform(null);
+        onNavigate("romm-sync");
+      }}
+      sx={{ borderRadius: 2, mb: 0.5 }}
+    >
+      <ListItemIcon sx={{ color: "text.secondary", minWidth: 40 }}>
+        <SyncIcon />
+      </ListItemIcon>
+      <ListItemText primary="RomM Sync" />
     </ListItemButton>
   </List>
 );

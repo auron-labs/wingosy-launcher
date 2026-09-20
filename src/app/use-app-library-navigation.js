@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 
 /** @typedef {import("../components/game/game-details-types").GameDetailsGame} AppGame */
-/** @typedef {"name"|"recent"|"play_time"} AppSortBy */
-/** @typedef {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} AppFilterBy */
+/** @typedef {"name"|"recent"|"play_time"|"play_count"|"release_year"} AppSortBy */
+/** @typedef {"all"|"favorites"|"recent"} AppFilterBy */
+/** @typedef {"all"|"downloaded"|"not_downloaded"} AppAvailability */
 
 /** @returns {string|null} Initial selected platform. */
 const initialSelectedPlatform = () => null;
@@ -16,13 +17,22 @@ const initialSort = () => "name";
 /** @returns {AppFilterBy} Initial filter mode. */
 const initialFilter = () => "all";
 
+/** @returns {AppAvailability} Initial availability filter. */
+const initialAvailability = () => "all";
+
 /** @returns {HTMLDivElement|null} Initial library scroll container. */
 const initialLibraryScroll = () => null;
 
 /** @param {ReturnType<typeof useLibraryNavigationState>} state Navigation state. */
 const useLibraryQueryActions = (state) => {
-  const { setLibraryFilterBy, setLibrarySortBy, setPage, setSearchQuery } =
-    state;
+  const {
+    setLibraryAvailability,
+    setLibraryFilterBy,
+    setLibrarySortBy,
+    setLibrarySortDescending,
+    setPage,
+    setSearchQuery,
+  } = state;
   const handleSearchChange = useCallback(
     /** @param {string} query Updated search text. */
     (query) => {
@@ -36,8 +46,17 @@ const useLibraryQueryActions = (state) => {
     (sortBy) => {
       setPage(1);
       setLibrarySortBy(sortBy);
+      setLibrarySortDescending(sortBy !== "name");
     },
-    [setLibrarySortBy, setPage]
+    [setLibrarySortBy, setLibrarySortDescending, setPage]
+  );
+  const handleLibrarySortDirectionChange = useCallback(
+    /** @param {boolean} descending Whether the sort is descending. */
+    (descending) => {
+      setPage(1);
+      setLibrarySortDescending(descending);
+    },
+    [setLibrarySortDescending, setPage]
   );
   const handleLibraryFilterChange = useCallback(
     /** @param {AppFilterBy} filterBy Updated filter mode. */
@@ -47,10 +66,20 @@ const useLibraryQueryActions = (state) => {
     },
     [setLibraryFilterBy, setPage]
   );
+  const handleLibraryAvailabilityChange = useCallback(
+    /** @param {AppAvailability} availability Updated availability filter. */
+    (availability) => {
+      setPage(1);
+      setLibraryAvailability(availability);
+    },
+    [setLibraryAvailability, setPage]
+  );
 
   return {
+    handleLibraryAvailabilityChange,
     handleLibraryFilterChange,
     handleLibrarySortChange,
+    handleLibrarySortDirectionChange,
     handleSearchChange,
   };
 };
@@ -90,7 +119,7 @@ const useLibraryViewActions = (state) => {
     /** @param {number} nextPage Requested page. */
     (nextPage) => {
       setPage(nextPage);
-      libraryScrollRef.current?.scrollTo({ top: 0 });
+      libraryScrollRef.current?.scrollTo?.({ top: 0 });
     },
     [libraryScrollRef, setPage]
   );
@@ -141,19 +170,26 @@ const useLibraryNavigationState = () => {
     useState("general");
   const [searchQuery, setSearchQuery] = useState("");
   const [librarySortBy, setLibrarySortBy] = useState(initialSort);
+  const [librarySortDescending, setLibrarySortDescending] = useState(false);
   const [libraryFilterBy, setLibraryFilterBy] = useState(initialFilter);
+  const [libraryAvailability, setLibraryAvailability] =
+    useState(initialAvailability);
   const libraryScrollRef = useRef(initialLibraryScroll());
 
   return {
+    libraryAvailability,
     libraryFilterBy,
     libraryScrollRef,
     librarySortBy,
+    librarySortDescending,
     page,
     searchQuery,
     selectedGame,
     selectedPlatform,
+    setLibraryAvailability,
     setLibraryFilterBy,
     setLibrarySortBy,
+    setLibrarySortDescending,
     setPage,
     setSearchQuery,
     setSelectedGame,

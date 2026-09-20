@@ -12,6 +12,7 @@ import { formatLastPlayed, getMediaSrc } from "./game-details-utils";
 import GameScreenshotsSection from "./game-screenshots-section";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
+/** @typedef {ReturnType<typeof import("./use-game-details-achievements").useGameDetailsAchievements>} GameDetailsAchievementsState */
 
 /** @typedef {{Icon: typeof AccessTimeIcon, label: string, value: string|number}} GameStatProps */
 
@@ -159,10 +160,11 @@ const GameCredits = ({ game }) => {
   );
 };
 
-/** @typedef {{game: GameDetailsGame, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} GameDetailsOverviewProps */
+/** @typedef {{game: GameDetailsGame, achievementsState: GameDetailsAchievementsState, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null}} GameDetailsOverviewProps */
 
 /** @param {GameDetailsOverviewProps} props Component properties. */
 export const GameDetailsOverview = ({
+  achievementsState,
   game,
   onOpenIntegrations,
   retroachievementsEnabled,
@@ -191,9 +193,19 @@ export const GameDetailsOverview = ({
         playTime={playTime}
       />
       <GameAchievementsSection
+        achievements={achievementsState.achievements}
+        error={achievementsState.error}
         gameName={game.name}
+        loading={achievementsState.loading}
+        onRefresh={
+          achievementsState.canRefresh
+            ? achievementsState.refreshAchievements
+            : null
+        }
         onOpenIntegrations={onOpenIntegrations}
+        previousResult={achievementsState.previousResult}
         retroAchievementsEnabled={retroachievementsEnabled}
+        refreshing={achievementsState.refreshing}
       />
       <GameCredits game={game} />
       <GameDescription summary={game.summary} />

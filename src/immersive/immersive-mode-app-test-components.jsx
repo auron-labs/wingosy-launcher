@@ -52,7 +52,7 @@ const TestLibraryMenu = () => {
   );
 };
 
-/** @typedef {{loading: boolean, error: string|null, games: import("./immersive-types").ImmersiveGame[], platforms?: import("./immersive-types").PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: (platform: string|null) => void, searchQuery?: string, onSearchChange?: (query: string) => void, selectedIndex: number, onSelectedIndexChange: (index: number, game?: import("./immersive-types").ImmersiveGame) => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onExitImmersive: () => void|Promise<void>, onOpenSettings: () => void, onOpenDownloads?: () => void, controllerRouteRef?: {current: HTMLDivElement|null}}} TestLibraryProps */
+/** @typedef {{loading: boolean, error: string|null, games: import("./immersive-types").ImmersiveGame[], platforms?: import("./immersive-types").PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: (platform: string|null) => void, searchQuery?: string, onSearchChange?: (query: string) => void, selectedIndex: number, onSelectedIndexChange: (index: number, game?: import("./immersive-types").ImmersiveGame) => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onExitImmersive: () => void|Promise<void>, onOpenSettings: () => void, onOpenDownloads?: () => void, onOpenRommSync?: () => void, controllerRouteRef?: {current: HTMLDivElement|null}}} TestLibraryProps */
 
 /** @param {{games: import("./immersive-types").ImmersiveGame[], gameCount: number, onOpenSettings: () => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void, onSelectedIndexChange: (index: number) => void, rootRef: React.RefObject<HTMLDivElement|null>, selectedIndex: number}} options Test library keyboard options. */
 const useLibraryKeyboard = ({
@@ -121,6 +121,31 @@ const useLibraryKeyboard = ({
   ]);
 };
 
+/** @param {{games: import("./immersive-types").ImmersiveGame[], selectedIndex: number, onSelectedIndexChange: (index: number, game?: import("./immersive-types").ImmersiveGame) => void, onSelectGame: (game: import("./immersive-types").ImmersiveGame) => void}} props Game list properties. */
+const TestGameList = ({
+  games,
+  onSelectGame,
+  onSelectedIndexChange,
+  selectedIndex,
+}) => (
+  <>
+    {games.map((game, index) => (
+      <button
+        type="button"
+        key={game.id}
+        data-testid={`game-${game.id}`}
+        data-focused={String(index === selectedIndex)}
+        onClick={() => {
+          onSelectedIndexChange(index);
+          onSelectGame(game);
+        }}
+      >
+        {game.name}
+      </button>
+    ))}
+  </>
+);
+
 /** @param {TestLibraryProps} props Test library properties. */
 export const TestLibrary = ({
   error,
@@ -130,6 +155,7 @@ export const TestLibrary = ({
   onSelectedIndexChange,
   onSelectedPlatformChange,
   onOpenSettings,
+  onOpenRommSync,
   controllerRouteRef,
   platforms = emptyPlatforms,
   searchQuery = "",
@@ -184,21 +210,16 @@ export const TestLibrary = ({
         </button>
       ) : null}
       <TestLibraryMenu />
+      <button type="button" onClick={() => onOpenRommSync?.()}>
+        RomM Sync
+      </button>
       <span data-testid="selected-index">{selectedIndex}</span>
-      {games.map((game, index) => (
-        <button
-          type="button"
-          key={game.id}
-          data-testid={`game-${game.id}`}
-          data-focused={String(index === selectedIndex)}
-          onClick={() => {
-            onSelectedIndexChange(index);
-            onSelectGame(game);
-          }}
-        >
-          {game.name}
-        </button>
-      ))}
+      <TestGameList
+        games={games}
+        onSelectGame={onSelectGame}
+        onSelectedIndexChange={onSelectedIndexChange}
+        selectedIndex={selectedIndex}
+      />
     </div>
   );
 };
@@ -260,7 +281,13 @@ const TestDetailsDialog = ({ onClose }) => (
 );
 
 /** @param {TestDetailsProps} props Test details properties. */
-export const TestDetails = ({ game, onBack, onLaunch }) => {
+export const TestDetails = ({
+  game,
+  onBack,
+  onLaunch,
+  onOpenSettings,
+  retroachievementsEnabled = false,
+}) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [favorited, setFavorited] = useState(false);
@@ -270,6 +297,9 @@ export const TestDetails = ({ game, onBack, onLaunch }) => {
   return (
     <div ref={detailsRootRef} data-testid="immersive-details">
       <span data-testid="details-game">{game.name}</span>
+      <span data-testid="details-retroachievements">
+        {String(retroachievementsEnabled)}
+      </span>
       <button
         type="button"
         autoFocus
@@ -293,6 +323,9 @@ export const TestDetails = ({ game, onBack, onLaunch }) => {
       </button>
       <button type="button" onClick={onBack}>
         Back
+      </button>
+      <button type="button" onClick={onOpenSettings}>
+        Open settings
       </button>
       <button
         type="button"
@@ -334,5 +367,20 @@ export const TestAudioPlayer = () => null;
 export const TestHintBar = ({ visible = false }) => (
   <span data-testid="immersive-hints">{String(visible)}</span>
 );
-export const TestSettings = () => <span data-testid="immersive-settings" />;
+/** @param {{onBack?: () => void, onRetroAchievementsChange?: ((enabled: boolean) => void)|null} & Record<string, unknown>} props Test settings properties. */
+export const TestSettings = ({ onBack, onRetroAchievementsChange }) => (
+  <div data-testid="immersive-settings">
+    <button
+      type="button"
+      onClick={() => {
+        onRetroAchievementsChange?.(true);
+      }}
+    >
+      Save RetroAchievements
+    </button>
+    <button type="button" onClick={onBack}>
+      Back to details
+    </button>
+  </div>
+);
 export const TestDownloads = () => <span data-testid="immersive-downloads" />;

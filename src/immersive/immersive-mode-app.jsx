@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { debugLog } from "../utils/debug-log";
 import {
@@ -17,6 +17,23 @@ import { useImmersiveModeFavorite } from "./use-immersive-mode-favorite";
 import { useImmersiveModeHotkeys } from "./use-immersive-mode-hotkeys";
 import { useImmersiveModeLaunch } from "./use-immersive-mode-launch";
 import { useImmersiveModeLibrary } from "./use-immersive-mode-library";
+
+const noOpAsync = async () => {
+  await Promise.resolve();
+};
+
+/** @type {ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>} */
+const EMPTY_ROMM_SYNC_MONITOR = {
+  activeOperation: null,
+  error: null,
+  loadOverview: noOpAsync,
+  loading: false,
+  platformStatuses: {},
+  platforms: [],
+  syncAll: noOpAsync,
+  syncAllStatus: { error: null, state: "idle", totalGames: null },
+  syncPlatform: noOpAsync,
+};
 
 /** @returns {string} Default immersive view. */
 const getInitialView = () => "library";
@@ -206,6 +223,28 @@ const usePlatformDisplayNames = ({ platforms }) =>
     return names;
   }, [platforms]);
 
+/** @param {{library: ReturnType<typeof useImmersiveModeLibrary>, monitor: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>}} options Sync refresh dependencies. */
+const useImmersiveSyncRefresh = ({ library, monitor }) => {
+  /** @type {{current: import("../components/use-romm-sync-monitor").ActiveSyncOperation}} */
+  const previousOperationRef = useRef(null);
+  const { activeOperation, platformStatuses, syncAllStatus } = monitor;
+  const { loadData } = library;
+  useEffect(() => {
+    const finished =
+      previousOperationRef.current !== null && activeOperation === null;
+    previousOperationRef.current = activeOperation;
+    if (!finished) {
+      return;
+    }
+    const scopedSyncSucceeded = Object.values(platformStatuses).some(
+      (status) => status.state === "success"
+    );
+    if (syncAllStatus.state === "success" || scopedSyncSucceeded) {
+      void loadData();
+    }
+  }, [activeOperation, loadData, platformStatuses, syncAllStatus.state]);
+};
+
 /** @param {{display: ReturnType<typeof useImmersiveModeDisplay>, library: ReturnType<typeof useImmersiveModeLibrary>, navigation: ReturnType<typeof useImmersiveModeNavigation>}} options App callback dependencies. */
 const useImmersiveModeAppCallbacks = ({ display, library, navigation }) => {
   const platformDisplayNameById = usePlatformDisplayNames({
@@ -214,6 +253,10 @@ const useImmersiveModeAppCallbacks = ({ display, library, navigation }) => {
   /** @param {number} value Controller deadzone. */
   const handleControllerDeadzoneChange = (value) => {
     display.setControllerDeadzone(value);
+  };
+  /** @param {boolean} enabled RetroAchievements state. */
+  const handleRetroAchievementsChange = (enabled) => {
+    display.setRetroachievementsEnabled(enabled);
   };
   /** @param {boolean} enabled Fullscreen state. */
   const handleFullscreenChange = (enabled) => {
@@ -229,30 +272,32 @@ const useImmersiveModeAppCallbacks = ({ display, library, navigation }) => {
     handleControllerDeadzoneChange,
     handleFullscreenChange,
     handleImmersiveModeChange,
+    handleRetroAchievementsChange,
     platformDisplayNameById,
   };
 };
 
-/** @param {{onExit?: () => void|Promise<void>, rommToken?: string|null, rommUrl?: string|null, onRommConnect?: (url: string, token: string) => void, requestedFullscreen?: boolean, dependencies?: {components?: import("./immersive-mode-view").ImmersiveModeComponents, getConfig?: typeof import("./immersive-mode-ipc").getImmersiveConfig, libraryIpc?: import("./use-immersive-mode-library").ImmersiveLibraryIpc, prepareLaunch?: typeof import("./immersive-mode-ipc").prepareAndLaunchGame, saveConfig?: typeof import("./immersive-mode-ipc").saveImmersiveConfig, toggleGameFavorite?: typeof import("./immersive-mode-ipc").toggleFavorite}}} props App properties. */
-const useImmersiveModeAppController = ({
-  onExit,
-  rommToken,
-  rommUrl,
-  onRommConnect,
-  requestedFullscreen = false,
-  dependencies = {},
-}) => {
+/** @param {{onExit?: () => void|Promise<void>, rommToken?: string|null, rommUrl?: string|null, rommSyncMonitor?: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, onRommConnect?: (url: string, token: string) => void, requestedFullscreen?: boolean, dependencies?: {components?: import("./immersive-mode-view").ImmersiveModeComponents, getConfig?: typeof import("./immersive-mode-ipc").getImmersiveConfig, libraryIpc?: import("./use-immersive-mode-library").ImmersiveLibraryIpc, prepareLaunch?: typeof import("./immersive-mode-ipc").prepareAndLaunchGame, saveConfig?: typeof import("./immersive-mode-ipc").saveImmersiveConfig, toggleGameFavorite?: typeof import("./immersive-mode-ipc").toggleFavorite}}} props App properties. */
+const useImmersiveModeAppServices = (props) => {
+  const { dependencies = {} } = props;
   const display = useImmersiveModeDisplay({
     getConfig: dependencies.getConfig,
-    requestedFullscreen,
+    requestedFullscreen: props.requestedFullscreen ?? false,
     saveConfig: dependencies.saveConfig,
   });
-  const navigation = useImmersiveModeNavigation({ display, onExit });
+  const navigation = useImmersiveModeNavigation({
+    display,
+    onExit: props.onExit,
+  });
   const library = useImmersiveModeLibrary({
     ipc: dependencies.libraryIpc,
     onConfigLoaded: display.applyConfig,
     setView: navigation.setView,
     view: navigation.view,
+  });
+  useImmersiveSyncRefresh({
+    library,
+    monitor: props.rommSyncMonitor ?? EMPTY_ROMM_SYNC_MONITOR,
   });
   const commands = useImmersiveModeCommands({
     display,
@@ -275,7 +320,6 @@ const useImmersiveModeAppController = ({
     library,
     navigation,
   });
-
   return {
     ...commands,
     audioConfig: display.audioConfig,
@@ -288,7 +332,8 @@ const useImmersiveModeAppController = ({
     onControllerDeadzoneChange: callbacks.handleControllerDeadzoneChange,
     onFullscreenChange: callbacks.handleFullscreenChange,
     onImmersiveModeChange: callbacks.handleImmersiveModeChange,
-    onRommConnect,
+    onRetroAchievementsChange: callbacks.handleRetroAchievementsChange,
+    onRommConnect: props.onRommConnect,
     onSearchChange: library.handleSearchChange,
     onSelectGame: library.handleSelectGame,
     onSelectedIndexChange: library.handleSelectedIndexChange,
@@ -297,8 +342,9 @@ const useImmersiveModeAppController = ({
     platformDisplayNameById: callbacks.platformDisplayNameById,
     platforms: library.platforms,
     retroachievementsEnabled: display.retroachievementsEnabled,
-    rommToken,
-    rommUrl,
+    rommSyncMonitor: props.rommSyncMonitor ?? EMPTY_ROMM_SYNC_MONITOR,
+    rommToken: props.rommToken,
+    rommUrl: props.rommUrl,
     saveSyncMessages: navigation.saveSyncMessages,
     searchQuery: library.searchQuery,
     selectedGame: library.selectedGame,
@@ -314,9 +360,9 @@ const useImmersiveModeAppController = ({
   };
 };
 
-/** @param {Parameters<typeof useImmersiveModeAppController>[0]} props App properties. */
+/** @param {Parameters<typeof useImmersiveModeAppServices>[0]} props App properties. */
 const ImmersiveModeApp = (props) => (
-  <ImmersiveModeView {...useImmersiveModeAppController(props)} />
+  <ImmersiveModeView {...useImmersiveModeAppServices(props)} />
 );
 
 export default ImmersiveModeApp;

@@ -16,7 +16,7 @@ import { useRomDownloads } from "../rom-downloads-context-value";
 import { formatDownloadLabel } from "../rom-downloads-format";
 import { tauriDragRegionProps, tauriDragRegionSx } from "../utils/is-tauri";
 
-/** @typedef {{gameId?: number|string, gameName?: string, percent?: number|null, kind?: "complete"|"error", path?: string, message?: string, at?: number, downloaded?: number|null, total?: number|null, stage?: string}} DownloadRow */
+/** @typedef {{transferId?: string, transferKind?: "rom"|"bios", gameId?: number|string, gameName?: string, firmwareId?: number|string, platformName?: string, fileName?: string, percent?: number|null, speed?: string|null, kind?: "complete"|"error", path?: string|null, message?: string|null, at?: number, downloaded?: number|null, total?: number|null, stage?: string}} DownloadRow */
 
 /** @param {{event: import("react").MouseEvent, action: (() => void)|null}} options Navigation options. */
 const handleNavigation = ({ event, action }) => {
@@ -75,6 +75,47 @@ const DownloadsEmptyState = ({ onOpenGameDetails, onOpenCloudLibrary }) => (
   </Paper>
 );
 
+/** @param {DownloadRow} row Download row. @returns {string} Visible transfer title. */
+const getDownloadTitle = (row) =>
+  row.transferKind === "bios"
+    ? (row.platformName ?? "BIOS firmware")
+    : (row.gameName ?? "ROM");
+
+/** @param {DownloadRow} row Download row. @returns {string} BIOS file label, if applicable. */
+const getBiosFileLabel = (row) =>
+  row.transferKind === "bios" && row.fileName !== undefined
+    ? `${row.fileName} · `
+    : "";
+
+/** @param {DownloadRow} row Download row. @returns {string} Visible transfer state. */
+const getActiveDownloadStatus = (row) => {
+  if (row.transferKind === "bios" && row.stage === "queued") {
+    return "Queued";
+  }
+  const speed =
+    row.speed === null || row.speed === undefined || row.speed === ""
+      ? ""
+      : ` · ${row.speed}`;
+  return `${formatDownloadLabel(row)}${speed}`;
+};
+
+/** @param {{row: DownloadRow}} props Download row. */
+const ActiveDownloadProgress = ({ row }) => {
+  if (row.transferKind === "bios" && row.stage === "queued") {
+    return null;
+  }
+  if (row.percent === null || row.percent === undefined) {
+    return <LinearProgress sx={{ borderRadius: 1, height: 8 }} />;
+  }
+  return (
+    <LinearProgress
+      variant="determinate"
+      value={row.percent}
+      sx={{ borderRadius: 1, height: 8 }}
+    />
+  );
+};
+
 /** @param {{activeDownloads: DownloadRow[]}} props Active downloads. */
 const ActiveDownloads = ({ activeDownloads }) => {
   if (activeDownloads.length === 0) {
@@ -84,29 +125,22 @@ const ActiveDownloads = ({ activeDownloads }) => {
     <Stack spacing={2} sx={{ mb: 4, mt: 1 }}>
       {activeDownloads.map((row) => (
         <Paper
-          key={row.gameId}
+          key={row.transferId}
           variant="outlined"
           sx={{ borderRadius: 2, p: 2 }}
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
-            {row.gameName}
+            {getDownloadTitle(row)}
           </Typography>
           <Typography
             variant="caption"
             color="text.secondary"
             sx={{ display: "block", mb: 1 }}
           >
-            {formatDownloadLabel(row)}
+            {getBiosFileLabel(row)}
+            {getActiveDownloadStatus(row)}
           </Typography>
-          {row.percent === null || row.percent === undefined ? (
-            <LinearProgress sx={{ borderRadius: 1, height: 8 }} />
-          ) : (
-            <LinearProgress
-              variant="determinate"
-              value={row.percent}
-              sx={{ borderRadius: 1, height: 8 }}
-            />
-          )}
+          <ActiveDownloadProgress row={row} />
         </Paper>
       ))}
     </Stack>
@@ -115,18 +149,25 @@ const ActiveDownloads = ({ activeDownloads }) => {
 
 /** @param {DownloadRow} item Recent download. @returns {string} Recent download text. */
 const getRecentDownloadLabel = (item) => {
+  const fileLabel = getBiosFileLabel(item);
   if (item.kind === "complete") {
-    return item.path === undefined || item.path === ""
-      ? "Finished"
-      : `Saved · ${item.path}`;
+    return item.path === null || item.path === undefined || item.path === ""
+      ? `${fileLabel}Finished`
+      : `${fileLabel}Saved · ${item.path}`;
   }
-  return item.message === undefined || item.message === ""
-    ? "Download failed"
-    : item.message;
+  return item.message === null ||
+    item.message === undefined ||
+    item.message === ""
+    ? `${fileLabel}Download failed`
+    : `${fileLabel}${item.message}`;
 };
 
-/** @param {{recentDownloads: DownloadRow[], clearRecentDownloads: (() => void)|null|undefined}} props Recent downloads. */
-const RecentDownloads = ({ recentDownloads, clearRecentDownloads }) => (
+/** @param {{recentDownloads: DownloadRow[], clearRecentDownloads: (() => void)|null|undefined, retryBiosDownload: ((firmwareId: number|string) => Promise<unknown>)|null|undefined}} props Recent downloads. */
+const RecentDownloads = ({
+  recentDownloads,
+  clearRecentDownloads,
+  retryBiosDownload,
+}) => (
   <>
     <Stack
       direction="row"
@@ -160,15 +201,30 @@ const RecentDownloads = ({ recentDownloads, clearRecentDownloads }) => (
       <List dense sx={{ mt: 1 }}>
         {recentDownloads.map((item, index) => (
           <ListItem
-            key={`${item.kind}-${item.gameId}-${item.at}-${index}`}
+            key={`${item.transferId}-${item.kind}-${item.at}-${index}`}
             sx={{ px: 0 }}
+            secondaryAction={
+              item.transferKind === "bios" && item.kind === "error" ? (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    if (item.firmwareId !== undefined) {
+                      void retryBiosDownload?.(item.firmwareId);
+                    }
+                  }}
+                >
+                  Retry
+                </Button>
+              ) : undefined
+            }
           >
             <ListItemText
-              primary={item.gameName}
+              primary={getDownloadTitle(item)}
               secondary={getRecentDownloadLabel(item)}
               slotProps={{
                 secondary: {
                   color: item.kind === "error" ? "error" : "text.secondary",
+                  sx: { pr: item.transferKind === "bios" ? 9 : 0 },
                 },
               }}
             />
@@ -179,7 +235,7 @@ const RecentDownloads = ({ recentDownloads, clearRecentDownloads }) => (
   </>
 );
 
-/** @param {{onBack?: (() => void)|null, immersive?: boolean, onOpenGameDetails?: (() => void)|null, onOpenCloudLibrary?: (() => void)|null, downloads?: Pick<ReturnType<typeof useRomDownloads>, "activeDownloads"|"recentDownloads"|"clearRecentDownloads">}} props Downloads view properties. */
+/** @param {{onBack?: (() => void)|null, immersive?: boolean, onOpenGameDetails?: (() => void)|null, onOpenCloudLibrary?: (() => void)|null, downloads?: Pick<ReturnType<typeof useRomDownloads>, "activeDownloads"|"recentDownloads"|"clearRecentDownloads"|"retryBiosDownload">}} props Downloads view properties. */
 const RomDownloadsView = ({
   downloads: providedDownloads,
   onBack = null,
@@ -188,8 +244,12 @@ const RomDownloadsView = ({
   onOpenCloudLibrary = null,
 }) => {
   const contextDownloads = useRomDownloads();
-  const { activeDownloads, recentDownloads, clearRecentDownloads } =
-    providedDownloads ?? contextDownloads;
+  const {
+    activeDownloads,
+    recentDownloads,
+    clearRecentDownloads,
+    retryBiosDownload,
+  } = providedDownloads ?? contextDownloads;
   return (
     <Box sx={{ maxWidth: 1400, mx: "auto", p: 3, width: "100%" }}>
       <Stack direction="row" spacing={2} sx={{ alignItems: "center", mb: 3 }}>
@@ -213,7 +273,7 @@ const RomDownloadsView = ({
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Active RomM ROM transfers and recent results.
+            Active ROM and BIOS transfers and recent results.
           </Typography>
         </Box>
       </Stack>
@@ -236,6 +296,7 @@ const RomDownloadsView = ({
       <RecentDownloads
         clearRecentDownloads={clearRecentDownloads}
         recentDownloads={recentDownloads}
+        retryBiosDownload={retryBiosDownload}
       />
     </Box>
   );

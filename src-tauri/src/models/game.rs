@@ -118,9 +118,13 @@ impl std::fmt::Display for GameSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GameFilter {
     pub platform_id: Option<String>,
     pub genre: Option<String>,
+    pub main_filter: GameMainFilter,
+    pub availability: GameAvailability,
+    /// Legacy favorite-only flag retained for existing non-paged callers.
     pub favorites_only: bool,
     pub search_query: Option<String>,
     pub sort_by: GameSort,
@@ -132,6 +136,8 @@ impl Default for GameFilter {
         Self {
             platform_id: None,
             genre: None,
+            main_filter: GameMainFilter::All,
+            availability: GameAvailability::All,
             favorites_only: false,
             search_query: None,
             sort_by: GameSort::Name,
@@ -140,8 +146,28 @@ impl Default for GameFilter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GameMainFilter {
+    #[default]
+    All,
+    Favorites,
+    Recent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GameAvailability {
+    #[default]
+    All,
+    Downloaded,
+    NotDownloaded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum GameSort {
+    #[default]
     Name,
     LastPlayed,
     PlayCount,
@@ -149,6 +175,12 @@ pub enum GameSort {
     ReleaseYear,
     RecentlyAdded,
     Rating,
+}
+
+impl GameSort {
+    pub fn default_descending(self) -> bool {
+        !matches!(self, Self::Name)
+    }
 }
 
 #[cfg(test)]
@@ -234,6 +266,8 @@ mod tests {
 
         assert!(filter.platform_id.is_none());
         assert!(filter.genre.is_none());
+        assert_eq!(filter.main_filter, GameMainFilter::All);
+        assert_eq!(filter.availability, GameAvailability::All);
         assert!(!filter.favorites_only);
         assert!(filter.search_query.is_none());
         assert_eq!(filter.sort_by, GameSort::Name);

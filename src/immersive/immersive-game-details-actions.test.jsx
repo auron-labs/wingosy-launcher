@@ -140,6 +140,52 @@ describe("ImmersiveGameDetails Switch content action", () => {
   });
 });
 
+describe("ImmersiveGameDetails protected Eden saves", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("resumes normal sync and refreshes the protected revision", async () => {
+    /** @type {import("../components/game/game-details-types").GameDetailsSwitchSaveRestoreProtection|null} */
+    let protection = {
+      selected_revision: {
+        file_name: "restored-switch-save.zip",
+        id: 9001,
+        slot: "before-final-boss",
+        updated_at: "2026-09-18T10:00:00Z",
+      },
+    };
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_switch_save_restore_protection") {
+        return await Promise.resolve(protection);
+      }
+      if (command === "resume_switch_save_normal_sync") {
+        protection = null;
+        await Promise.resolve();
+      }
+      return await Promise.resolve({ display: {} });
+    });
+    renderDetails(undefined, switchRemoteGame);
+
+    await expect(
+      screen.findByText("Protected Eden revision")
+    ).resolves.toBeInTheDocument();
+    expect(screen.getByText(/restored-switch-save\.zip/u)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume normal sync" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("resume_switch_save_normal_sync", {
+        gameId: switchRemoteGame.id,
+      });
+      expect(
+        screen.queryByText("Protected Eden revision")
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("Normal Eden save sync resumed.")
+    ).toBeInTheDocument();
+  });
+});
+
 const installProgressListener = () => {
   window.__TAURI_INTERNALS__ = {};
   listen.mockImplementation(async (event, handler) => {

@@ -46,6 +46,7 @@ const createContentProps = ({
   const { actions } = controller;
   const onSaveScroll = createSaveSectionHandler({ controller });
   return {
+    achievementState: controller.achievementState,
     actionStatus: actions.actionStatus,
     canDownload: controller.canDownload,
     canPlay: controller.canPlay,
@@ -61,10 +62,14 @@ const createContentProps = ({
     handleSyncSwitchContent: actions.handleSyncSwitchContent,
     hasLocalFile: controller.hasLocalFile,
     hasRomm: controller.hasRomm,
+    isSwitch: game.platform_id === "switch",
     launchActive: actions.launchActive,
     menuAnchor: actions.menuAnchor,
     onAddToCollection: actions.handleAddToCollection,
     onBack,
+    onClearSaveStatus: () => {
+      controller.saves.setSaveStatus(null);
+    },
     onDelete: () => {
       actions.setMenuAnchor(null);
       actions.setDeleteDialogOpen(true);
@@ -73,6 +78,8 @@ const createContentProps = ({
     onOpenIntegrations,
     onOpenLocation: actions.handleOpenLocation,
     onRefreshMetadata: actions.handleRefreshMetadata,
+    onResumeSwitchSaveNormalSync:
+      controller.saves.handleResumeSwitchSaveNormalSync,
     onSaveScroll,
     onToggleFavorite,
     platformLabel,
@@ -81,6 +88,7 @@ const createContentProps = ({
     retroachievementsEnabled,
     romDl: controller.romDl,
     rommConfigured: controller.rommConfigured,
+    saveStatus: controller.saves.saveStatus,
     savesSectionRef: controller.savesSectionRef,
     screenshots: game.screenshot_paths ?? [],
     setActionStatus: actions.setActionStatus,
@@ -89,6 +97,8 @@ const createContentProps = ({
     setMenuAnchor: actions.setMenuAnchor,
     switchContentProgress: controller.switchContentProgress,
     switchContentSyncing: actions.switchContentSyncing,
+    switchRestoreProtection: controller.saves.switchRestoreProtection,
+    switchSyncBusy: controller.saves.switchSyncBusy,
   };
 };
 

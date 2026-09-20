@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
@@ -58,6 +59,7 @@ impl DownloadManager {
             .context("Failed to create destination file")?;
 
         let mut downloaded: u64 = 0;
+        let mut rate_estimator = DownloadRateEstimator::new();
         let mut stream = response.bytes_stream();
 
         while let Some(chunk) = stream.next().await {
@@ -68,11 +70,12 @@ impl DownloadManager {
 
             downloaded += chunk.len() as u64;
 
-            let progress = DownloadProgress {
+            let progress = DownloadProgress::from_transfer(
                 downloaded,
-                total: total_size,
-                percent: total_size.map(|t| (downloaded as f64 / t as f64 * 100.0) as u8),
-            };
+                total_size,
+                &mut rate_estimator,
+                Instant::now(),
+            );
 
             progress_callback(progress);
         }
@@ -195,9 +198,37 @@ pub struct DownloadProgress {
     pub downloaded: u64,
     pub total: Option<u64>,
     pub percent: Option<u8>,
+    pub speed: Option<u64>,
 }
 
 impl DownloadProgress {
+    pub fn from_transfer(
+        downloaded: u64,
+        total: Option<u64>,
+        rate_estimator: &mut DownloadRateEstimator,
+        observed_at: Instant,
+    ) -> Self {
+        Self {
+            downloaded,
+            total,
+            percent: total.and_then(|total| {
+                (total > 0).then(|| (downloaded as f64 / total as f64 * 100.0).min(100.0) as u8)
+            }),
+            speed: rate_estimator.observe(downloaded, observed_at),
+        }
+    }
+
+    pub fn terminal(downloaded: u64, total: Option<u64>) -> Self {
+        Self {
+            downloaded,
+            total,
+            percent: total.and_then(|total| {
+                (total > 0).then(|| (downloaded as f64 / total as f64 * 100.0).min(100.0) as u8)
+            }),
+            speed: None,
+        }
+    }
+
     pub fn format_size(bytes: u64) -> String {
         const KB: u64 = 1024;
         const MB: u64 = KB * 1024;
@@ -214,6 +245,10 @@ impl DownloadProgress {
         }
     }
 
+    pub fn format_speed(bytes_per_second: u64) -> String {
+        format!("{}/s", Self::format_size(bytes_per_second))
+    }
+
     pub fn status_text(&self) -> String {
         let downloaded_str = Self::format_size(self.downloaded);
 
@@ -225,6 +260,35 @@ impl DownloadProgress {
             }
             None => downloaded_str,
         }
+    }
+}
+
+pub struct DownloadRateEstimator {
+    last_sample: Option<(u64, Instant)>,
+}
+
+impl DownloadRateEstimator {
+    pub fn new() -> Self {
+        Self { last_sample: None }
+    }
+
+    fn observe(&mut self, downloaded: u64, observed_at: Instant) -> Option<u64> {
+        let Some((previous_downloaded, previous_observed_at)) = self.last_sample else {
+            self.last_sample = Some((downloaded, observed_at));
+            return None;
+        };
+        self.last_sample = Some((downloaded, observed_at));
+
+        let transferred = downloaded.checked_sub(previous_downloaded)?;
+        let elapsed = observed_at.saturating_duration_since(previous_observed_at);
+        if elapsed.is_zero() || transferred == 0 {
+            return None;
+        }
+
+        const NANOS_PER_SECOND: u128 = 1_000_000_000;
+        let elapsed_nanos = elapsed.as_nanos();
+        let rate = (transferred as u128 * NANOS_PER_SECOND + elapsed_nanos - 1) / elapsed_nanos;
+        Some(rate.min(u64::MAX as u128) as u64)
     }
 }
 
@@ -253,6 +317,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -481,6 +546,7 @@ mod tests {
             downloaded: 512 * 1024,
             total: Some(1024 * 1024),
             percent: Some(50),
+            speed: None,
         };
 
         let status = progress.status_text();
@@ -495,10 +561,50 @@ mod tests {
             downloaded: 512 * 1024,
             total: None,
             percent: None,
+            speed: None,
         };
 
         let status = progress.status_text();
         assert_eq!(status, "512.00 KB");
+    }
+
+    #[test]
+    fn last_sample_rate_skips_the_first_observation() {
+        let start = Instant::now();
+        let mut rate = DownloadRateEstimator::new();
+
+        assert_eq!(rate.observe(1024, start + Duration::from_secs(1)), None);
+        assert_eq!(
+            rate.observe(3072, start + Duration::from_secs(3)),
+            Some(1024)
+        );
+        assert_eq!(DownloadProgress::format_speed(1024), "1.00 KB/s");
+    }
+
+    #[test]
+    fn last_sample_rate_excludes_an_idle_observation() {
+        let start = Instant::now();
+        let mut rate = DownloadRateEstimator::new();
+
+        assert_eq!(rate.observe(0, start + Duration::from_secs(2)), None);
+        assert_eq!(
+            rate.observe(1024, start + Duration::from_secs(3)),
+            Some(1024)
+        );
+    }
+
+    #[test]
+    fn transfer_progress_is_determinate_only_when_a_total_is_available() {
+        let start = Instant::now();
+        let mut rate = DownloadRateEstimator::new();
+        let known = DownloadProgress::from_transfer(512, Some(1024), &mut rate, start);
+        let unknown =
+            DownloadProgress::from_transfer(1024, None, &mut rate, start + Duration::from_secs(1));
+
+        assert_eq!(known.percent, Some(50));
+        assert_eq!(unknown.total, None);
+        assert_eq!(unknown.percent, None);
+        assert_eq!(unknown.speed, Some(512));
     }
 
     #[test]

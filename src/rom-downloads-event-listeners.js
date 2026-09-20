@@ -1,13 +1,15 @@
 import { listen } from "@tauri-apps/api/event";
 
-/** @typedef {{gameId?: number|string, gameName?: string, downloaded?: number|null, total?: number|null, percent?: number|null, stage?: string, error?: string|null, active?: boolean, file_index?: number|null, total_files?: number|null}} DownloadProgress */
-/** @typedef {{kind: "complete", gameId: number|string, gameName: string, path: string, at: number}|{kind: "error", gameId: number|string, gameName: string, message: string, at: number}} RecentDownload */
-/** @typedef {Record<string|number, DownloadProgress>} ProgressMap */
-/** @typedef {{game_id: number|string, game_name?: string|null, downloaded?: number, total?: number|null, percent?: number|null}} RomDownloadProgressEvent */
+/** @typedef {{transferId?: string, transferKind?: "rom"|"bios", gameId?: number|string, gameName?: string, firmwareId?: number|string, platformSlug?: string, platformName?: string, fileName?: string, downloaded?: number|null, total?: number|null, percent?: number|null, speed?: string|null, stage?: string, error?: string|null, active?: boolean, file_index?: number|null, total_files?: number|null}} DownloadProgress */
+/** @typedef {{kind: "complete", transferId: string, transferKind: "rom", gameId: number|string, gameName: string, path: string, at: number}|{kind: "error", transferId: string, transferKind: "rom", gameId: number|string, gameName: string, message: string, at: number}|{kind: "complete", transferId: string, transferKind: "bios", firmwareId: number|string, platformSlug: string, platformName: string, fileName: string, path?: string|null, at: number}|{kind: "error", transferId: string, transferKind: "bios", firmwareId: number|string, platformSlug: string, platformName: string, fileName: string, message?: string|null, at: number}} RecentDownload */
+/** @typedef {Record<string, DownloadProgress>} ProgressMap */
+/** @typedef {{game_id: number|string, game_name?: string|null, downloaded?: number, total?: number|null, percent?: number|null, speed?: string|null}} RomDownloadProgressEvent */
 /** @typedef {{game_id: number|string, game_name?: string|null, path: string}} RomDownloadCompleteEvent */
 /** @typedef {{game_id: number|string, game_name?: string|null, message: string}} RomDownloadErrorEvent */
 /** @typedef {{game_id?: number|string, game_name?: string|null, downloaded?: number, total?: number|null, percent?: number|null, stage?: string, error?: string|null}} LaunchProgressEvent */
 /** @typedef {{game_id?: number|string, downloaded?: number, total?: number|null, percent?: number|null, stage?: string, error?: string|null}} SwitchContentProgressEvent */
+/** @typedef {{transfer_id: string, firmware_id: number|string, platform_slug: string, platform_name: string, file_name: string, downloaded?: number|null, total?: number|null, percent?: number|null, speed?: string|null, path?: string|null, message?: string|null}} BiosDownloadEvent */
+/** @typedef {DownloadProgress & {transferId: string, transferKind: "bios"}} BiosProgress */
 /** @typedef {(update: (previous: ProgressMap) => ProgressMap) => void} ProgressUpdater */
 /** @typedef {(update: (previous: RecentDownload[]) => RecentDownload[]) => void} RecentDownloadsUpdater */
 
@@ -26,10 +28,17 @@ const getGameName = (gameId, providedName, currentName) => {
   return `Game #${gameId}`;
 };
 
-/** @param {ProgressMap} progress Progress map. @param {number|string} gameId Game identifier to remove. */
-const withoutGame = (progress, gameId) =>
+/** @param {number|string} gameId Game identifier. @returns {string} Namespaced ROM transfer identifier. */
+export const getRomTransferId = (gameId) => `rom:${gameId}`;
+
+/** @param {number|string} firmwareId Firmware identifier. @param {string} platformSlug Firmware platform slug. @returns {string} Namespaced BIOS transfer identifier. */
+export const getBiosTransferId = (firmwareId, platformSlug) =>
+  `bios:${platformSlug}:${firmwareId}`;
+
+/** @param {ProgressMap} progress Progress map. @param {string} transferId Transfer identifier to remove. */
+const withoutTransfer = (progress, transferId) =>
   Object.fromEntries(
-    Object.entries(progress).filter(([key]) => key !== String(gameId))
+    Object.entries(progress).filter(([key]) => key !== transferId)
   );
 
 /** @param {ProgressUpdater} setActiveByGameId Active download updater. */
@@ -38,14 +47,18 @@ const createDownloadStartedHandler =
   /** @param {{payload: RomDownloadProgressEvent}} event Download-start event. */
   (event) => {
     const { game_id, game_name } = event.payload;
+    const transferId = getRomTransferId(game_id);
     setActiveByGameId((previous) => ({
       ...previous,
-      [game_id]: {
+      [transferId]: {
         downloaded: 0,
         gameId: game_id,
         gameName: getGameName(game_id, game_name),
         percent: null,
+        speed: null,
         total: null,
+        transferId,
+        transferKind: "rom",
       },
     }));
   };
@@ -55,24 +68,29 @@ const createDownloadProgressHandler =
   (setActiveByGameId) =>
   /** @param {{payload: RomDownloadProgressEvent}} event Download-progress event. */
   (event) => {
-    const { game_id, game_name, downloaded, total, percent } = event.payload;
+    const { game_id, game_name, downloaded, total, percent, speed } =
+      event.payload;
+    const transferId = getRomTransferId(game_id);
     setActiveByGameId((previous) => {
-      const current = previous[game_id];
+      const current = previous[transferId];
       if (current === undefined) {
         return {
           ...previous,
-          [game_id]: {
+          [transferId]: {
             downloaded,
             gameId: game_id,
             gameName: getGameName(game_id, game_name),
             percent,
+            speed,
             total,
+            transferId,
+            transferKind: "rom",
           },
         };
       }
       return {
         ...previous,
-        [game_id]: { ...current, downloaded, percent, total },
+        [transferId]: { ...current, downloaded, percent, speed, total },
       };
     });
   };
@@ -83,25 +101,37 @@ const createDownloadCompleteHandler =
   /** @param {{payload: RomDownloadCompleteEvent}} event Download-complete event. */
   (event) => {
     const { game_id, game_name, path } = event.payload;
+    const transferId = getRomTransferId(game_id);
     const gameName = getGameName(
       game_id,
       game_name,
-      activeRef.current[game_id]?.gameName
+      activeRef.current[transferId]?.gameName
     );
-    setActiveByGameId((previous) => withoutGame(previous, game_id));
+    setActiveByGameId((previous) => withoutTransfer(previous, transferId));
     /** @type {"complete"} */
     const completeKind = "complete";
-    setRecentDownloads((recent) =>
-      [
-        { at: Date.now(), gameId: game_id, gameName, kind: completeKind, path },
+    setRecentDownloads((recent) => {
+      /** @type {RecentDownload} */
+      const item = {
+        at: Date.now(),
+        gameId: game_id,
+        gameName,
+        kind: completeKind,
+        path,
+        transferId,
+        transferKind: "rom",
+      };
+      return [
+        item,
         ...recent.filter(
-          (item) =>
-            item.kind !== "complete" ||
-            item.gameId !== game_id ||
-            item.path !== path
+          (recentItem) =>
+            recentItem.transferId !== transferId ||
+            recentItem.kind !== "complete" ||
+            !("path" in recentItem) ||
+            recentItem.path !== path
         ),
-      ].slice(0, 25)
-    );
+      ].slice(0, 25);
+    });
   };
 
 /** @param {ProgressUpdater} setActiveByGameId Active download updater. @param {RecentDownloadsUpdater} setRecentDownloads Recent download updater. @param {{current: ProgressMap}} activeRef Active download ref. */
@@ -110,25 +140,37 @@ const createDownloadErrorHandler =
   /** @param {{payload: RomDownloadErrorEvent}} event Download-error event. */
   (event) => {
     const { game_id, game_name, message } = event.payload;
+    const transferId = getRomTransferId(game_id);
     const gameName = getGameName(
       game_id,
       game_name,
-      activeRef.current[game_id]?.gameName
+      activeRef.current[transferId]?.gameName
     );
-    setActiveByGameId((previous) => withoutGame(previous, game_id));
+    setActiveByGameId((previous) => withoutTransfer(previous, transferId));
     /** @type {"error"} */
     const errorKind = "error";
-    setRecentDownloads((recent) =>
-      [
-        { at: Date.now(), gameId: game_id, gameName, kind: errorKind, message },
+    setRecentDownloads((recent) => {
+      /** @type {RecentDownload} */
+      const item = {
+        at: Date.now(),
+        gameId: game_id,
+        gameName,
+        kind: errorKind,
+        message,
+        transferId,
+        transferKind: "rom",
+      };
+      return [
+        item,
         ...recent.filter(
-          (item) =>
-            item.kind !== "error" ||
-            item.gameId !== game_id ||
-            item.message !== message
+          (recentItem) =>
+            recentItem.transferId !== transferId ||
+            recentItem.kind !== "error" ||
+            !("message" in recentItem) ||
+            recentItem.message !== message
         ),
-      ].slice(0, 25)
-    );
+      ].slice(0, 25);
+    });
   };
 
 /** @param {ProgressUpdater} setLaunchProgressByGameId Launch progress updater. */
@@ -184,8 +226,114 @@ const createSwitchProgressClearHandler =
       return;
     }
     setSwitchContentProgressByGameId((previous) =>
-      withoutGame(previous, gameId)
+      withoutTransfer(previous, String(gameId))
     );
+  };
+
+/** @param {BiosDownloadEvent} event BIOS event payload. @param {"active"|"queued"} stage Current queue state. @returns {BiosProgress} Active BIOS transfer state. */
+const toBiosProgress = (event, stage) => ({
+  downloaded: stage === "queued" ? null : (event.downloaded ?? 0),
+  fileName: event.file_name,
+  firmwareId: event.firmware_id,
+  percent: stage === "queued" ? null : (event.percent ?? null),
+  platformName: event.platform_name,
+  platformSlug: event.platform_slug,
+  speed: stage === "queued" ? null : (event.speed ?? null),
+  stage,
+  total: stage === "queued" ? null : (event.total ?? null),
+  transferId: event.transfer_id,
+  transferKind: "bios",
+});
+
+/** @param {RecentDownload[]} recent Recent transfer history. @param {string} transferId BIOS transfer identifier. @returns {RecentDownload[]} History without this BIOS transfer. */
+const withoutBiosHistory = (recent, transferId) =>
+  recent.filter((item) => item.transferId !== transferId);
+
+/** @param {ProgressUpdater} setActiveByGameId Active download updater. @param {RecentDownloadsUpdater} setRecentDownloads Recent download updater. */
+const createBiosDownloadStartedHandler =
+  (setActiveByGameId, setRecentDownloads) =>
+  /** @param {{payload: BiosDownloadEvent}} event BIOS download-start event. */
+  (event) => {
+    const progress = toBiosProgress(event.payload, "active");
+    setActiveByGameId((previous) => ({
+      ...previous,
+      [progress.transferId]: progress,
+    }));
+    setRecentDownloads((recent) =>
+      withoutBiosHistory(recent, progress.transferId)
+    );
+  };
+
+/** @param {ProgressUpdater} setActiveByGameId Active download updater. @param {RecentDownloadsUpdater} setRecentDownloads Recent download updater. */
+const createBiosDownloadQueuedHandler =
+  (setActiveByGameId, setRecentDownloads) =>
+  /** @param {{payload: BiosDownloadEvent}} event BIOS download-queued event. */
+  (event) => {
+    const progress = toBiosProgress(event.payload, "queued");
+    setActiveByGameId((previous) => ({
+      ...previous,
+      [progress.transferId]: progress,
+    }));
+    setRecentDownloads((recent) =>
+      withoutBiosHistory(recent, progress.transferId)
+    );
+  };
+
+/** @param {ProgressUpdater} setActiveByGameId Active download updater. */
+const createBiosDownloadProgressHandler =
+  (setActiveByGameId) =>
+  /** @param {{payload: BiosDownloadEvent}} event BIOS download-progress event. */
+  (event) => {
+    const progress = toBiosProgress(event.payload, "active");
+    setActiveByGameId((previous) => ({
+      ...previous,
+      [progress.transferId]: {
+        ...previous[progress.transferId],
+        ...progress,
+      },
+    }));
+  };
+
+/** @param {ProgressUpdater} setActiveByGameId Active download updater. @param {RecentDownloadsUpdater} setRecentDownloads Recent download updater. @param {"complete"|"error"} kind Terminal result kind. */
+const createBiosDownloadTerminalHandler =
+  (setActiveByGameId, setRecentDownloads, kind) =>
+  /** @param {{payload: BiosDownloadEvent}} event BIOS terminal event. */
+  (event) => {
+    const { payload } = event;
+    setActiveByGameId((previous) =>
+      withoutTransfer(previous, payload.transfer_id)
+    );
+    setRecentDownloads((recent) => {
+      /** @type {RecentDownload} */
+      const item =
+        kind === "complete"
+          ? {
+              at: Date.now(),
+              fileName: payload.file_name,
+              firmwareId: payload.firmware_id,
+              kind,
+              path: payload.path ?? null,
+              platformName: payload.platform_name,
+              platformSlug: payload.platform_slug,
+              transferId: payload.transfer_id,
+              transferKind: "bios",
+            }
+          : {
+              at: Date.now(),
+              fileName: payload.file_name,
+              firmwareId: payload.firmware_id,
+              kind,
+              message: payload.message ?? null,
+              platformName: payload.platform_name,
+              platformSlug: payload.platform_slug,
+              transferId: payload.transfer_id,
+              transferKind: "bios",
+            };
+      return [item, ...withoutBiosHistory(recent, payload.transfer_id)].slice(
+        0,
+        25
+      );
+    });
   };
 
 /** @param {{setActiveByGameId: ProgressUpdater, setRecentDownloads: RecentDownloadsUpdater, setLaunchProgressByGameId: ProgressUpdater, setSwitchContentProgressByGameId: ProgressUpdater, activeRef: {current: ProgressMap}}} dependencies Event handler dependencies. */
@@ -196,6 +344,25 @@ export const createRomDownloadEventHandlers = ({
   setSwitchContentProgressByGameId,
   activeRef,
 }) => ({
+  biosDownloadComplete: createBiosDownloadTerminalHandler(
+    setActiveByGameId,
+    setRecentDownloads,
+    "complete"
+  ),
+  biosDownloadError: createBiosDownloadTerminalHandler(
+    setActiveByGameId,
+    setRecentDownloads,
+    "error"
+  ),
+  biosDownloadProgress: createBiosDownloadProgressHandler(setActiveByGameId),
+  biosDownloadQueued: createBiosDownloadQueuedHandler(
+    setActiveByGameId,
+    setRecentDownloads
+  ),
+  biosDownloadStarted: createBiosDownloadStartedHandler(
+    setActiveByGameId,
+    setRecentDownloads
+  ),
   downloadComplete: createDownloadCompleteHandler(
     setActiveByGameId,
     setRecentDownloads,
@@ -238,61 +405,37 @@ const registerRomDownloadListeners = async (
   unlisteners,
   listenFunction
 ) => {
-  await listenSafely(
-    "rom-download-started",
-    handlers.downloadStarted,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "rom-download-progress",
-    handlers.downloadProgress,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "rom-download-complete",
-    handlers.downloadComplete,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "rom-download-error",
-    handlers.downloadError,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "game-launch-progress",
-    handlers.launchProgress,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "switch-content-sync-progress",
-    handlers.switchProgress,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "switch-content-sync-complete",
-    handlers.switchProgressClear,
-    isCancelled,
-    unlisteners,
-    listenFunction
-  );
-  await listenSafely(
-    "switch-content-sync-error",
-    handlers.switchProgressClear,
-    isCancelled,
-    unlisteners,
-    listenFunction
+  const registrations = [
+    { event: "bios-download-queued", handler: handlers.biosDownloadQueued },
+    { event: "bios-download-started", handler: handlers.biosDownloadStarted },
+    { event: "bios-download-progress", handler: handlers.biosDownloadProgress },
+    { event: "bios-download-complete", handler: handlers.biosDownloadComplete },
+    { event: "bios-download-error", handler: handlers.biosDownloadError },
+    { event: "rom-download-started", handler: handlers.downloadStarted },
+    { event: "rom-download-progress", handler: handlers.downloadProgress },
+    { event: "rom-download-complete", handler: handlers.downloadComplete },
+    { event: "rom-download-error", handler: handlers.downloadError },
+    { event: "game-launch-progress", handler: handlers.launchProgress },
+    { event: "switch-content-sync-progress", handler: handlers.switchProgress },
+    {
+      event: "switch-content-sync-complete",
+      handler: handlers.switchProgressClear,
+    },
+    {
+      event: "switch-content-sync-error",
+      handler: handlers.switchProgressClear,
+    },
+  ];
+  await Promise.all(
+    registrations.map(async ({ event, handler }) => {
+      await listenSafely(
+        event,
+        handler,
+        isCancelled,
+        unlisteners,
+        listenFunction
+      );
+    })
   );
 };
 

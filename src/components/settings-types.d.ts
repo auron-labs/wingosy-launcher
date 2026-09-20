@@ -24,6 +24,7 @@ export interface SettingsConfig {
     theme_mode?: string;
     controller_deadzone?: number;
     ui_sounds_enabled?: boolean;
+    retroachievements_enabled?: boolean;
     accent_hue?: number | null;
   };
   audio?: {
@@ -262,6 +263,7 @@ export interface SettingsPanelProps {
     immersiveModeEnabled: boolean,
     fullscreenEnabled: boolean
   ) => Promise<void>;
+  persistRetroAchievements: (enabled: boolean) => Promise<void>;
   persistUiSounds: (enabled: boolean) => Promise<void> | void;
   persistUiSoundsVolume: (value: SettingsSliderValue) => Promise<void> | void;
   persistUpdatePreference: SettingsHandler;
@@ -290,6 +292,7 @@ export interface SettingsPanelProps {
   setUpdateMessage: SettingsHandler;
   onFullscreenChange: SettingsHandler | null;
   onImmersiveModeChange: SettingsHandler | null;
+  onRetroAchievementsChange: ((enabled: boolean) => void) | null;
   onLibraryChange: (() => void | Promise<void>) | null | undefined;
   argosySoundEntries: { id: SettingsSoundId; label: string }[];
   accentHue: number | null;

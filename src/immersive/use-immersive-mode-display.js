@@ -119,6 +119,7 @@ export const useImmersiveModeDisplay = ({
     persistDisplay,
     retroachievementsEnabled,
     setControllerDeadzone,
+    setRetroachievementsEnabled,
     ...fullscreen,
   };
 };

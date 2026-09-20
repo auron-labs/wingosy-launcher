@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
 
+import { useRommSyncMonitor } from "../components/use-romm-sync-monitor";
 import { useAppLibrary } from "./use-app-library";
 import { useAppStartup } from "./use-app-startup";
 
 /** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
 
-/** @typedef {ReturnType<typeof useAppStartup> & ReturnType<typeof useAppLibrary> & {error: string|null, handleCloseMessages: () => void, handleCloseUpdate: () => void, handleInstallUpdate: () => void, handleOpenRelease: () => void, handleRetryLaunch: () => Promise<unknown>|null, runtime: AppRuntime}} AppController */
+/** @typedef {ReturnType<typeof useAppStartup> & ReturnType<typeof useAppLibrary> & {error: string|null, handleCloseMessages: () => void, handleCloseUpdate: () => void, handleInstallUpdate: () => void, handleOpenRelease: () => void, handleRetryLaunch: () => Promise<unknown>|null, rommSyncMonitor: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, runtime: AppRuntime}} AppController */
 
 /** @returns {string|null} Initial application error. */
 const initialError = () => null;
@@ -27,6 +28,12 @@ export const useAppController = ({ runtime }) => {
     libraryLaunchError,
     reloadLibrary: handleReloadLibrary,
   } = library;
+  const rommSyncMonitor = useRommSyncMonitor({
+    refreshLibrary: handleReloadLibrary,
+    rommToken: startup.rommToken,
+    rommUrl: startup.rommUrl,
+    runtime,
+  });
   const launchErrorGameId = libraryLaunchError?.gameId;
   const exitImmersive = startup.handleImmersiveExit;
   const handleRetryLaunch = useCallback(async () => {
@@ -46,6 +53,7 @@ export const useAppController = ({ runtime }) => {
     error,
     handleImmersiveExit,
     handleRetryLaunch,
+    rommSyncMonitor,
     runtime,
   };
 };

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::config::AppConfig;
@@ -13,6 +13,10 @@ impl Database {
     pub fn open() -> Result<Self> {
         let db_path = Self::database_path()?;
 
+        Self::open_path(&db_path)
+    }
+
+    fn open_path(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).context("Failed to create database directory")?;
         }
@@ -26,6 +30,11 @@ impl Database {
         db.initialize()?;
 
         Ok(db)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_at(db_path: &Path) -> Result<Self> {
+        Self::open_path(db_path)
     }
 
     pub fn open_in_memory() -> Result<Self> {
@@ -136,6 +145,24 @@ impl Database {
                 last_error TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS eden_restore_protections (
+                game_id INTEGER NOT NULL,
+                save_set TEXT NOT NULL,
+                revision_id INTEGER NOT NULL,
+                revision_rom_id INTEGER NOT NULL,
+                revision_file_name TEXT NOT NULL,
+                revision_file_size_bytes INTEGER NOT NULL,
+                revision_emulator TEXT,
+                revision_created_at TEXT NOT NULL,
+                revision_updated_at TEXT NOT NULL,
+                revision_slot TEXT,
+                baseline_fingerprint TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (game_id, save_set),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
             );
 

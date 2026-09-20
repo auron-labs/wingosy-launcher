@@ -1,4 +1,10 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -61,6 +67,7 @@ describe("ImmersiveGameDetails repeated launch input", () => {
     const launch = createDeferred();
     const onLaunch = vi.fn(async () => await launch.promise);
     renderDetails(onLaunch, launchableGame);
+    const details = screen.getByTestId("immersive-game-details");
 
     dispatchControllerKey("Enter");
     dispatchControllerKey("Enter");
@@ -69,7 +76,9 @@ describe("ImmersiveGameDetails repeated launch input", () => {
     expect(onLaunch).toHaveBeenCalledOnce();
     resolveDeferred(launch, { success: true });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled();
+      expect(
+        within(details).getByText("Play", { selector: "button" })
+      ).toBeEnabled();
     });
   });
 });

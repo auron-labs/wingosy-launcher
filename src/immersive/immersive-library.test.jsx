@@ -96,12 +96,22 @@ const searchPlatforms = [
   [{ id: "snes", name: "Super Nintendo" }, 1],
 ];
 
+const expectHorizontalShelf = () => {
+  expect(screen.getByTestId("immersive-grid")).toHaveStyle({
+    display: "flex",
+    overflowX: "auto",
+    overflowY: "visible",
+  });
+};
+
+/** @param {number} width Viewport width. @param {number} columns Controller row width. */
 const navigateTest = (width, columns) => {
   setViewportWidth(width);
-  const { onSelectedIndexChange } = renderLibrary(makeGames(20), {
+  const { onSelectedIndexChange } = renderLibrary(makeGames(columns + 1), {
     initialIndex: 0,
   });
   const root = screen.getByTestId("immersive-library");
+  expectHorizontalShelf();
 
   keyDown(root, "ArrowRight");
   expect(onSelectedIndexChange).toHaveBeenLastCalledWith(1);
@@ -118,26 +128,18 @@ const navigateTest = (width, columns) => {
   onSelectedIndexChange.mockClear();
   keyDown(root, "ArrowUp");
   expect(onSelectedIndexChange).toHaveBeenLastCalledWith(0);
+  return root;
 };
 
-describe("ImmersiveLibrary responsive grid", () => {
+describe("ImmersiveLibrary horizontal cover shelf", () => {
   afterEach(cleanupLibraryTest);
 
-  it.each([
-    [1280, 6],
-    [1200, 6],
-    [1199, 4],
-    [900, 4],
-    [899, 3],
-    [600, 3],
-    [599, 2],
-    [320, 2],
-  ])("uses %i columns at width %ipx", (width, expected) => {
-    setViewportWidth(width);
-    renderLibrary();
-    const grid = screen.getByTestId("immersive-grid");
-    expect(grid).toHaveStyle({
-      gridTemplateColumns: `repeat(${expected}, minmax(0, 1fr))`,
+  it("keeps fixed-width covers in a horizontal scrolling shelf", () => {
+    renderLibrary(makeGames(1));
+    expect(screen.getByTestId("immersive-grid")).toHaveStyle({
+      display: "flex",
+      overflowX: "auto",
+      overflowY: "visible",
     });
   });
 });
@@ -145,36 +147,20 @@ describe("ImmersiveLibrary responsive grid", () => {
 describe("ImmersiveLibrary keyboard navigation", () => {
   afterEach(cleanupLibraryTest);
 
-  it("navigates with 6 columns on wide screens", () => {
-    navigateTest(1280, 6);
-    expect(screen.getByTestId("immersive-library")).toHaveAttribute(
-      "tabindex",
-      "0"
-    );
+  it("keeps the shelf horizontal and navigates six-item rows at the wide breakpoint", () => {
+    expect(navigateTest(1200, 6)).toHaveAttribute("tabindex", "0");
   });
 
-  it("navigates with 4 columns on medium screens", () => {
-    navigateTest(1000, 4);
-    expect(screen.getByTestId("immersive-library")).toHaveAttribute(
-      "tabindex",
-      "0"
-    );
+  it("keeps the shelf horizontal and navigates four-item rows below the wide breakpoint", () => {
+    expect(navigateTest(1199, 4)).toHaveAttribute("tabindex", "0");
   });
 
-  it("navigates with 3 columns on small screens", () => {
-    navigateTest(800, 3);
-    expect(screen.getByTestId("immersive-library")).toHaveAttribute(
-      "tabindex",
-      "0"
-    );
+  it("keeps the shelf horizontal and navigates three-item rows below the medium breakpoint", () => {
+    expect(navigateTest(899, 3)).toHaveAttribute("tabindex", "0");
   });
 
-  it("navigates with 2 columns on narrow screens", () => {
-    navigateTest(500, 2);
-    expect(screen.getByTestId("immersive-library")).toHaveAttribute(
-      "tabindex",
-      "0"
-    );
+  it("keeps the shelf horizontal and navigates two-item rows below the small breakpoint", () => {
+    expect(navigateTest(599, 2)).toHaveAttribute("tabindex", "0");
   });
 
   it("handles partial final rows", () => {

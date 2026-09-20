@@ -1,5 +1,5 @@
 //! Argosy-compatible Switch (Eden) save sync via RomM device-aware API.
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::future::Future;
 use std::path::PathBuf;
@@ -7,10 +7,12 @@ use std::path::PathBuf;
 use crate::api::RomMClient;
 use crate::api::RomMSave;
 use crate::config::AppConfig;
+use crate::database::{Database, EdenRestoreProtection};
 use crate::models::Game;
 
 use super::switch_save::{
-    extract_title_ids_from_path, resolve_local_title_save_path_for_title_id,
+    extract_title_ids_from_path, fingerprint_title_folder,
+    resolve_local_title_save_path_for_title_id, restore_title_folder_from_zip,
     unzip_into_title_folder, zip_title_folder, ARGOSY_LATEST_SAVE_NAME, DEFAULT_SAVE_SLOT,
     EDEN_EMULATOR_ID,
 };
@@ -22,11 +24,6 @@ pub struct SwitchSaveSyncResult {
     pub local_path: Option<String>,
     pub romm_save_id: Option<i32>,
     pub slot: Option<String>,
-    /// The dated cloud backup created before a user-requested restore.
-    #[serde(rename = "backupSaveId")]
-    pub backup_save_id: Option<i32>,
-    #[serde(rename = "backupSlot")]
-    pub backup_slot: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,6 +66,17 @@ fn romm_client(config: &AppConfig) -> Result<RomMClient> {
         .or_else(|| config.romm.auth_token.clone())
         .context("RomM not connected")?;
     Ok(RomMClient::new(url).with_token(token))
+}
+
+/// Resolve the local Eden save folder from the same metadata-first identity
+/// source used by Switch save transfers.
+pub async fn resolve_switch_save_path(
+    game: &Game,
+    config: &AppConfig,
+) -> Result<(PathBuf, String)> {
+    let client = romm_client(config)?;
+    let title_id = resolve_sync_title_id(game, &client).await?;
+    resolve_local_title_save_path_for_title_id(config, &title_id)
 }
 
 fn slot_name(slot: Option<&str>) -> &str {
@@ -200,8 +208,6 @@ where
             local_path: None,
             romm_save_id: save_id,
             slot: Some(slot),
-            backup_save_id: None,
-            backup_slot: None,
         }),
         SyncAction::Unsupported(action) => {
             Err(anyhow::anyhow!("Unsupported sync action: {action}"))
@@ -250,33 +256,26 @@ pub async fn upload_switch_save_from_eden(
     game: &Game,
     config: &mut AppConfig,
     slot: Option<String>,
+    db: &Database,
 ) -> Result<SwitchSaveSyncResult> {
     let client = romm_client(config)?;
     let device_id = ensure_device_id(config);
     let title_id = resolve_sync_title_id(game, &client).await?;
-    upload_switch_save_from_eden_with_title_id(game, config, slot, &title_id, &client, &device_id)
-        .await
-}
+    let result = upload_switch_save_from_eden_with_title_id(
+        game,
+        config,
+        slot,
+        &title_id,
+        &client,
+        &device_id,
+        Some(db),
+    )
+    .await?;
 
-/// List the same device-scoped save records accepted by Switch restore.
-pub async fn get_switch_saves_for_device(
-    game: &Game,
-    config: &mut AppConfig,
-) -> Result<Vec<RomMSave>> {
-    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
-    let client = romm_client(config)?;
-    let device_id = ensure_device_id(config);
-    client.get_saves_for_rom_device(romm_id, &device_id).await
-}
-
-/// Negotiate a user-requested synchronization of the current local save.
-/// Remote-newer and conflict decisions remain errors so the UI can offer a
-/// safe backup or restore choice instead of overwriting either side.
-pub async fn sync_current_switch_save(
-    game: &Game,
-    config: &mut AppConfig,
-) -> Result<SwitchSaveSyncResult> {
-    negotiated_launch_sync(game, config, false).await
+    // An explicit upload supersedes the protected local save set even when
+    // the user selected a named RomM slot rather than the autosave channel.
+    db.clear_eden_restore_protection(game.id, DEFAULT_SAVE_SLOT)?;
+    Ok(result)
 }
 
 async fn upload_switch_save_from_eden_with_title_id(
@@ -286,6 +285,7 @@ async fn upload_switch_save_from_eden_with_title_id(
     title_id: &str,
     client: &RomMClient,
     device_id: &str,
+    protection_db: Option<&Database>,
 ) -> Result<SwitchSaveSyncResult> {
     let romm_id = game.romm_id.context("Game is not linked to RomM")?;
     let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, title_id)?;
@@ -314,15 +314,25 @@ async fn upload_switch_save_from_eden_with_title_id(
 
     let _ = std::fs::remove_file(&zip_path);
 
+    if is_latest_slot_name(&slot_s) {
+        if let Some(db) = protection_db {
+            db.clear_eden_restore_protection(game.id, DEFAULT_SAVE_SLOT)?;
+        }
+    }
+
     Ok(SwitchSaveSyncResult {
         success: true,
         message: format!("Uploaded Switch save for {title_id} to RomM (slot: {slot_s})"),
         local_path: Some(title_dir.to_string_lossy().into_owned()),
         romm_save_id: Some(uploaded.id),
         slot: Some(slot_s),
-        backup_save_id: None,
-        backup_slot: None,
     })
+}
+
+/// Explicitly resumes ordinary automatic synchronization for this game's Eden
+/// autosave set. A failed database update leaves its restore protection intact.
+pub fn resume_switch_save_normal_sync(game: &Game, db: &Database) -> Result<()> {
+    db.clear_eden_restore_protection(game.id, DEFAULT_SAVE_SLOT)
 }
 
 pub async fn download_switch_save_to_eden(
@@ -330,17 +340,42 @@ pub async fn download_switch_save_to_eden(
     config: &mut AppConfig,
     slot: Option<String>,
     save_id: Option<i32>,
+    db: &Database,
 ) -> Result<SwitchSaveSyncResult> {
     let client = romm_client(config)?;
     let device_id = ensure_device_id(config);
     let title_id = resolve_sync_title_id(game, &client).await?;
-    download_switch_save_to_eden_with_title_id(
-        game, config, slot, save_id, &title_id, &client, &device_id, true,
+    restore_switch_save_to_eden_with_title_id(
+        game, config, slot, save_id, &title_id, &client, &device_id, db,
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Restore a server revision selected explicitly by the user. The restored
+/// local autosave set is durably protected before RomM is acknowledged.
+pub(crate) async fn restore_switch_save_to_eden_with_title_id(
+    game: &Game,
+    config: &mut AppConfig,
+    slot: Option<String>,
+    save_id: Option<i32>,
+    title_id: &str,
+    client: &RomMClient,
+    device_id: &str,
+    db: &Database,
+) -> Result<SwitchSaveSyncResult> {
+    download_switch_save_to_eden_with_title_id(
+        game,
+        config,
+        slot,
+        save_id,
+        title_id,
+        client,
+        device_id,
+        Some(db),
+    )
+    .await
+}
+
 async fn download_switch_save_to_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,
@@ -349,7 +384,7 @@ async fn download_switch_save_to_eden_with_title_id(
     title_id: &str,
     client: &RomMClient,
     device_id: &str,
-    preserve_current_to_history: bool,
+    protection_db: Option<&Database>,
 ) -> Result<SwitchSaveSyncResult> {
     let romm_id = game.romm_id.context("Game is not linked to RomM")?;
     let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, title_id)?;
@@ -365,7 +400,9 @@ async fn download_switch_save_to_eden_with_title_id(
             .context("Save not found on server")?
     } else {
         let saves = client.get_saves_for_rom_device(romm_id, device_id).await?;
-        pick_save_for_slot(&saves, &slot_s, Some(&rom_base))
+        let picked = pick_save_for_slot(&saves, &slot_s, Some(&rom_base))
+            .or_else(|| saves.iter().max_by(|a, b| a.updated_at.cmp(&b.updated_at)));
+        picked
             .cloned()
             .context(format!("No save found on RomM for slot {slot_s}"))?
     };
@@ -381,75 +418,171 @@ async fn download_switch_save_to_eden_with_title_id(
     let zip_path = cache_dir.join(format!("download_{romm_id}_{}.zip", save.id));
     std::fs::write(&zip_path, bytes)?;
 
-    let (backup_save_id, backup_slot) = if preserve_current_to_history && title_dir.exists() {
-        let backup_slot = dated_backup_slot();
-        let backup = upload_switch_save_from_eden_with_title_id(
-            game,
-            config,
-            Some(backup_slot.clone()),
-            &title_id,
-            client,
-            device_id,
-        )
-        .await
-        .context("Could not preserve the current local save before restore")?;
-        (backup.romm_save_id, Some(backup_slot))
+    if let Some(db) = protection_db {
+        protect_explicit_restore(db, game, &save, &title_dir, &zip_path)?;
     } else {
-        (None, None)
-    };
-
-    if title_dir.exists() {
-        let backup = cache_dir.join(format!(
-            "backup_{}_{}.zip",
-            title_id,
-            chrono::Utc::now().timestamp()
-        ));
-        zip_title_folder(&title_dir, &title_id, &backup)
-            .context("Could not create the local restore backup")?;
+        unzip_into_title_folder(&zip_path, &title_dir)?;
     }
-
-    unzip_into_title_folder(&zip_path, &title_dir)?;
     client.confirm_save_downloaded(save.id, device_id).await?;
     let _ = std::fs::remove_file(&zip_path);
 
-    let mut message = format!(
-        "Restored Switch save {title_id} from RomM (slot: {}, save id: {})",
-        save.slot.as_deref().unwrap_or(&slot_s),
-        save.id
-    );
-    if let Some(backup_slot) = backup_slot.as_deref() {
-        message.push_str(&format!(
-            "; preserved the local save as cloud backup {backup_slot}"
-        ));
-    }
-
     Ok(SwitchSaveSyncResult {
         success: true,
-        message,
+        message: format!(
+            "Restored Switch save {title_id} from RomM (slot: {}, save id: {})",
+            save.slot.as_deref().unwrap_or(&slot_s),
+            save.id
+        ),
         local_path: Some(title_dir.to_string_lossy().into_owned()),
         romm_save_id: Some(save.id),
         slot: save.slot.or(Some(slot_s)),
-        backup_save_id,
-        backup_slot,
     })
 }
 
-fn dated_backup_slot() -> String {
-    format!(
-        "backup-{}",
-        chrono::Utc::now()
-            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-            .replace([':', '.'], "-")
-    )
+fn protect_explicit_restore(
+    db: &Database,
+    game: &Game,
+    save: &RomMSave,
+    title_dir: &std::path::Path,
+    zip_path: &std::path::Path,
+) -> Result<()> {
+    let previous_protection = db.get_eden_restore_protection(game.id, DEFAULT_SAVE_SLOT)?;
+    if is_current_protected_revision(previous_protection.as_ref(), save, title_dir) {
+        return Ok(());
+    }
+
+    let mut replacement = restore_title_folder_from_zip(zip_path, title_dir)?;
+    let baseline_fingerprint = fingerprint_title_folder(title_dir)?;
+    let protection = EdenRestoreProtection {
+        game_id: game.id,
+        save_set: DEFAULT_SAVE_SLOT.to_string(),
+        selected_revision: save.clone(),
+        baseline_fingerprint,
+    };
+
+    if let Err(persistence_error) = db.set_eden_restore_protection(&protection) {
+        let rollback_error = replacement.rollback().err();
+        let protection_rollback_error =
+            restore_previous_protection(db, game.id, previous_protection.as_ref()).err();
+        return Err(restore_persistence_error(
+            persistence_error,
+            rollback_error,
+            protection_rollback_error,
+        ));
+    }
+
+    replacement.commit();
+    Ok(())
 }
 
-pub async fn pre_launch_sync(game: &Game, config: &mut AppConfig) -> Result<()> {
-    pre_launch_sync_result(game, config).await.map(|_| ())
+fn is_current_protected_revision(
+    protection: Option<&EdenRestoreProtection>,
+    save: &RomMSave,
+    title_dir: &std::path::Path,
+) -> bool {
+    let Some(protection) = protection else {
+        return false;
+    };
+    if protection.selected_revision.id != save.id {
+        return false;
+    }
+
+    fingerprint_title_folder(title_dir)
+        .map(|fingerprint| fingerprint == protection.baseline_fingerprint)
+        .unwrap_or(false)
+}
+
+fn restore_previous_protection(
+    db: &Database,
+    game_id: i64,
+    previous_protection: Option<&EdenRestoreProtection>,
+) -> Result<()> {
+    let current_protection = db.get_eden_restore_protection(game_id, DEFAULT_SAVE_SLOT)?;
+    if protections_match(current_protection.as_ref(), previous_protection) {
+        return Ok(());
+    }
+
+    if let Some(previous_protection) = previous_protection {
+        db.set_eden_restore_protection(previous_protection)
+    } else {
+        // No old protection means the failed write must not leave a partial new
+        // record behind.
+        db.clear_eden_restore_protection(game_id, DEFAULT_SAVE_SLOT)
+    }
+}
+
+fn protections_match(
+    current: Option<&EdenRestoreProtection>,
+    previous: Option<&EdenRestoreProtection>,
+) -> bool {
+    match (current, previous) {
+        (None, None) => true,
+        (Some(current), Some(previous)) => {
+            current.game_id == previous.game_id
+                && current.save_set == previous.save_set
+                && current.selected_revision.id == previous.selected_revision.id
+                && current.selected_revision.rom_id == previous.selected_revision.rom_id
+                && current.selected_revision.file_name == previous.selected_revision.file_name
+                && current.selected_revision.file_size_bytes
+                    == previous.selected_revision.file_size_bytes
+                && current.selected_revision.emulator == previous.selected_revision.emulator
+                && current.selected_revision.created_at == previous.selected_revision.created_at
+                && current.selected_revision.updated_at == previous.selected_revision.updated_at
+                && current.selected_revision.slot == previous.selected_revision.slot
+                && current.baseline_fingerprint == previous.baseline_fingerprint
+        }
+        _ => false,
+    }
+}
+
+fn restore_persistence_error(
+    persistence_error: anyhow::Error,
+    rollback_error: Option<anyhow::Error>,
+    protection_rollback_error: Option<anyhow::Error>,
+) -> anyhow::Error {
+    let mut message = format!("Failed to persist Eden restore protection: {persistence_error}");
+    if let Some(error) = rollback_error {
+        message.push_str(&format!(
+            "; failed to restore the prior local save: {error}"
+        ));
+    }
+    if let Some(error) = protection_rollback_error {
+        message.push_str(&format!("; failed to restore prior protection: {error}"));
+    }
+    anyhow!(message)
+}
+
+enum RestoreProtectionSyncState {
+    Unprotected,
+    Unchanged,
+    Changed,
+}
+
+fn restore_protection_sync_state(
+    db: &Database,
+    game: &Game,
+    title_dir: &std::path::Path,
+) -> Result<RestoreProtectionSyncState> {
+    let Some(protection) = db.get_eden_restore_protection(game.id, DEFAULT_SAVE_SLOT)? else {
+        return Ok(RestoreProtectionSyncState::Unprotected);
+    };
+
+    let fingerprint = fingerprint_title_folder(title_dir)?;
+    if fingerprint == protection.baseline_fingerprint {
+        Ok(RestoreProtectionSyncState::Unchanged)
+    } else {
+        Ok(RestoreProtectionSyncState::Changed)
+    }
+}
+
+pub async fn pre_launch_sync(game: &Game, config: &mut AppConfig, db: &Database) -> Result<()> {
+    pre_launch_sync_result(game, config, db).await.map(|_| ())
 }
 
 pub(crate) async fn pre_launch_sync_result(
     game: &Game,
     config: &mut AppConfig,
+    db: &Database,
 ) -> Result<Option<SwitchSaveSyncResult>> {
     if !config.romm.sync_saves {
         return Ok(None);
@@ -457,7 +590,9 @@ pub(crate) async fn pre_launch_sync_result(
     if game.platform_id != "switch" {
         return Ok(None);
     }
-    let result = negotiated_launch_sync(game, config, true).await.map(Some);
+    let result = negotiated_launch_sync(game, config, true, db)
+        .await
+        .map(Some);
     match &result {
         Ok(Some(r)) => tracing::info!("[SaveSync] Pre-launch: {}", r.message),
         Err(e) => {
@@ -468,13 +603,14 @@ pub(crate) async fn pre_launch_sync_result(
     result
 }
 
-pub async fn post_launch_sync(game: &Game, config: &mut AppConfig) -> Result<()> {
-    post_launch_sync_result(game, config).await.map(|_| ())
+pub async fn post_launch_sync(game: &Game, config: &mut AppConfig, db: &Database) -> Result<()> {
+    post_launch_sync_result(game, config, db).await.map(|_| ())
 }
 
 pub(crate) async fn post_launch_sync_result(
     game: &Game,
     config: &mut AppConfig,
+    db: &Database,
 ) -> Result<Option<SwitchSaveSyncResult>> {
     if !config.romm.sync_saves {
         return Ok(None);
@@ -482,7 +618,9 @@ pub(crate) async fn post_launch_sync_result(
     if game.platform_id != "switch" {
         return Ok(None);
     }
-    let result = negotiated_launch_sync(game, config, false).await.map(Some);
+    let result = negotiated_launch_sync(game, config, false, db)
+        .await
+        .map(Some);
     match &result {
         Ok(Some(r)) => tracing::info!("[SaveSync] Post-launch: {}", r.message),
         Err(e) => {
@@ -497,6 +635,7 @@ async fn negotiated_launch_sync(
     game: &Game,
     config: &mut AppConfig,
     allow_download: bool,
+    db: &Database,
 ) -> Result<SwitchSaveSyncResult> {
     let romm_id = game.romm_id.context("Game is not linked to RomM")?;
     let slot = slot_name(None).to_string();
@@ -506,6 +645,30 @@ async fn negotiated_launch_sync(
 
     let title_id = resolve_sync_title_id(game, &client).await?;
     let (title_dir, title_id) = resolve_local_title_save_path_for_title_id(config, &title_id)?;
+    match restore_protection_sync_state(db, game, &title_dir)? {
+        RestoreProtectionSyncState::Unchanged => {
+            return Ok(SwitchSaveSyncResult {
+                success: true,
+                message: "Switch save remains at the explicitly restored revision".to_string(),
+                local_path: None,
+                romm_save_id: None,
+                slot: Some(slot),
+            });
+        }
+        RestoreProtectionSyncState::Changed => {
+            return upload_switch_save_from_eden_with_title_id(
+                game,
+                config,
+                Some(slot),
+                &title_id,
+                &client,
+                &device_id,
+                Some(db),
+            )
+            .await;
+        }
+        RestoreProtectionSyncState::Unprotected => {}
+    }
     let client_saves = if title_dir.exists() {
         let cache_dir = AppConfig::data_dir()
             .map(|dir| dir.join("save_sync_cache"))
@@ -543,7 +706,7 @@ async fn negotiated_launch_sync(
                 &title_id,
                 &client,
                 &device_id,
-                false,
+                None,
             )
             .await
         } else {
@@ -554,6 +717,7 @@ async fn negotiated_launch_sync(
                 &title_id,
                 &client,
                 &device_id,
+                None,
             )
             .await
         };
@@ -575,6 +739,7 @@ async fn negotiated_launch_sync(
                         &title_id,
                         &transfer_client,
                         &device_id,
+                        None,
                     )
                     .await
                 }
@@ -587,7 +752,7 @@ async fn negotiated_launch_sync(
                         &title_id,
                         &transfer_client,
                         &device_id,
-                        false,
+                        None,
                     )
                     .await
                 }
@@ -714,44 +879,6 @@ mod tests {
     }
 
     #[test]
-    fn restore_never_falls_back_to_an_unrelated_newest_save() {
-        let saves = vec![
-            save(1, "manual.zip", Some("manual"), "2026-01-03"),
-            save(2, "Other Game.zip", None, "2026-01-04"),
-        ];
-
-        assert!(pick_save_for_slot(&saves, DEFAULT_SAVE_SLOT, Some("The Game")).is_none());
-    }
-
-    #[test]
-    fn dated_backup_slot_is_a_readable_history_slot() {
-        let slot = dated_backup_slot();
-
-        assert!(slot.starts_with("backup-"));
-        assert!(slot.ends_with('Z'));
-        assert!(!slot.contains(':'));
-        assert!(!slot.contains('.'));
-    }
-
-    #[test]
-    fn restore_result_exposes_backup_identity_without_renaming_existing_fields() {
-        let result = SwitchSaveSyncResult {
-            success: true,
-            message: "Restored".to_string(),
-            local_path: Some("save/title".to_string()),
-            romm_save_id: Some(19),
-            slot: Some(DEFAULT_SAVE_SLOT.to_string()),
-            backup_save_id: Some(20),
-            backup_slot: Some("backup-2026-09-19T07-00-00-000Z".to_string()),
-        };
-
-        let value = serde_json::to_value(result).unwrap();
-        assert_eq!(value["romm_save_id"], 19);
-        assert_eq!(value["backupSaveId"], 20);
-        assert_eq!(value["backupSlot"], "backup-2026-09-19T07-00-00-000Z");
-    }
-
-    #[test]
     fn latest_upload_filename_uses_rom_base_name() {
         assert_eq!(upload_filename("autosave", "The Game"), "The Game.zip");
         assert_eq!(upload_filename("argosy-latest", "The Game"), "The Game.zip");
@@ -779,8 +906,6 @@ mod tests {
             local_path: None,
             romm_save_id: None,
             slot: Some(DEFAULT_SAVE_SLOT.to_string()),
-            backup_save_id: None,
-            backup_slot: None,
         }
     }
 

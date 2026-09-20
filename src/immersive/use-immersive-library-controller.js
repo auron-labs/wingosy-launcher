@@ -29,11 +29,12 @@ import { toSpinePlatformOptions } from "./immersive-shell-utils";
  * @property {() => void|Promise<void>} onExitImmersive Leaves immersive mode.
  * @property {() => void} onOpenSettings Opens settings.
  * @property {() => void} [onOpenDownloads] Opens downloads.
+ * @property {() => void} [onOpenRommSync] Opens the RomM sync monitor.
  * @property {{current: HTMLDivElement|null}} [controllerRouteRef] App-owned controller route target.
  */
 
 /** @typedef {{loading: boolean, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, controllerRouteRef?: {current: HTMLDivElement|null}}} LibraryDataOptions */
-/** @typedef {{colors: Record<string, string>, section: string, setSectionAndReset: (section: string) => void, platformOptions: {id: string|null, label: string}[], selectedPlatform: string|null, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, onSelectedPlatformChange: (platform: string|null) => void, activeCount: number, onOpenDownloads?: () => void, onOpenSettings: () => void, onExitImmersive: () => void, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, onSearchChange: (query: string) => void, error: string|null, loading: boolean, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, columns: number, selectedIndex: number, getProgress: (id: number|string) => object|null, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, scrollRef: {current: HTMLElement|null}, rootRef: {current: HTMLElement|null}, handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void, onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void}} LibraryController */
+/** @typedef {{colors: Record<string, string>, section: string, setSectionAndReset: (section: string) => void, platformOptions: {id: string|null, label: string}[], selectedPlatform: string|null, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, onSelectedPlatformChange: (platform: string|null) => void, activeCount: number, onOpenDownloads?: () => void, onOpenRommSync?: () => void, onOpenSettings: () => void, onExitImmersive: () => void, searchInputRef: {current: HTMLInputElement|null}, searchQuery: string, onSearchChange: (query: string) => void, error: string|null, loading: boolean, visibleGames: ImmersiveGame[], gridRef: {current: HTMLElement|null}, columns: number, selectedIndex: number, getProgress: (id: number|string) => object|null, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, scrollRef: {current: HTMLElement|null}, rootRef: {current: HTMLElement|null}, handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void, onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void}} LibraryController */
 
 /** @type {PlatformEntry[]} */
 const EMPTY_PLATFORMS = [];
@@ -367,6 +368,7 @@ export const useImmersiveLibraryController = ({
   onExitImmersive,
   onOpenSettings,
   onOpenDownloads,
+  onOpenRommSync,
   controllerRouteRef,
 }) => {
   const { colors } = useAppTheme();
@@ -403,6 +405,7 @@ export const useImmersiveLibraryController = ({
       void onExitImmersive();
     },
     onOpenDownloads,
+    onOpenRommSync,
     onOpenSettings,
     onPointerDown: interactions.onPointerDown,
     onSearchChange,

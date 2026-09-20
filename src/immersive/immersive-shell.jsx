@@ -43,19 +43,27 @@ export const FocusBrackets = ({ active = true, color = "#a5b4fc" }) => {
     width: "3px",
   };
   const corners = [
-    { horizontal: {}, placement: { left: 0, top: 0 }, vertical: {} },
     {
       horizontal: {},
+      id: "top-left",
+      placement: { left: 0, top: 0 },
+      vertical: {},
+    },
+    {
+      horizontal: {},
+      id: "top-right",
       placement: { right: 0, top: 0 },
       vertical: { left: "auto", right: "0" },
     },
     {
       horizontal: { bottom: "0", top: "auto" },
+      id: "bottom-left",
       placement: { bottom: 0, left: 0 },
       vertical: {},
     },
     {
       horizontal: { bottom: "0", top: "auto" },
+      id: "bottom-right",
       placement: { bottom: 0, right: 0 },
       vertical: { left: "auto", right: "0" },
     },
@@ -65,9 +73,9 @@ export const FocusBrackets = ({ active = true, color = "#a5b4fc" }) => {
       aria-hidden="true"
       sx={{ inset: -7, pointerEvents: "none", position: "absolute" }}
     >
-      {corners.map((corner, index) => (
+      {corners.map((corner) => (
         <Box
-          key={index}
+          key={corner.id}
           sx={{
             height: 18,
             position: "absolute",
@@ -356,7 +364,7 @@ const SectionTabs = ({ section, onSectionChange }) => {
     { id: "favorites", label: "Favorites" },
     { id: "recent", label: "Recent" },
   ];
-  /** @param {string} id Section identifier. */
+  /** @param {string} id Selected section identifier. */
   const handleSelect = (id) => {
     onSectionChange?.(id);
   };

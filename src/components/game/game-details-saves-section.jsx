@@ -22,6 +22,7 @@ import { formatLastPlayed } from "./game-details-utils";
 /** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 /** @typedef {import("./game-details-types").GameDetailsSwitchPathInfo} GameDetailsSwitchPathInfo */
+/** @typedef {import("./game-details-types").GameDetailsSwitchSaveRestoreProtection} GameDetailsSwitchSaveRestoreProtection */
 
 /** @param {GameDetailsSave} save Save history item. */
 const getSaveLabel = (save) =>
@@ -92,6 +93,53 @@ const SwitchTechnicalDetails = ({ pathInfo }) =>
       </Typography>
     </Box>
   );
+
+/** @param {{protection: GameDetailsSwitchSaveRestoreProtection, onResumeSwitchSaveNormalSync: () => Promise<void>, switchSyncBusy: boolean}} props Protected revision properties. */
+const SwitchRestoreProtectionNotice = ({
+  onResumeSwitchSaveNormalSync,
+  protection,
+  switchSyncBusy,
+}) => {
+  const revision = protection.selected_revision;
+  const metadata = [
+    revision.file_name,
+    revision.slot,
+    revision.updated_at ?? revision.created_at,
+  ].filter(Boolean);
+  return (
+    <Alert
+      action={
+        <Button
+          color="inherit"
+          disabled={switchSyncBusy}
+          onClick={() => void onResumeSwitchSaveNormalSync()}
+          size="small"
+        >
+          Resume normal sync
+        </Button>
+      }
+      severity="info"
+      sx={{ mb: 2 }}
+    >
+      <Typography component="span" sx={{ fontWeight: 700 }} variant="body2">
+        Protected Eden revision
+      </Typography>
+      <Typography component="span" sx={{ display: "block" }} variant="body2">
+        Automatic sync will keep this restored revision until local save
+        contents change or you resume normal sync.
+      </Typography>
+      {metadata.length > 0 && (
+        <Typography
+          component="span"
+          sx={{ display: "block" }}
+          variant="caption"
+        >
+          Selected revision: {metadata.join(" · ")}
+        </Typography>
+      )}
+    </Alert>
+  );
+};
 
 /** @param {{saves: GameDetailsSave[], onRestore: (save: GameDetailsSave) => void, restoreDisabled: boolean}} props History entries. */
 const SaveHistoryList = ({ onRestore, restoreDisabled, saves }) => (
@@ -324,7 +372,7 @@ const StandardSaveList = ({ onDownloadSave, saves }) => (
   </List>
 );
 
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, historyOpen: boolean, launchActive: boolean, onCloseHistory: () => void, onClearStatus: () => void, onCreateBackup: () => Promise<void>, onDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>, onEnableSaveSync: () => Promise<void>, onListSaves: () => Promise<void>, onSyncCurrentSave: () => Promise<void>, onUploadSave: (retryFilePath?: string|null) => Promise<void>, saveStatus: GameDetailsStatus|null, saveSyncEnabled: boolean, saves: GameDetailsSave[], savesLoaded: boolean, savesLoading: boolean, switchPathInfo: GameDetailsSwitchPathInfo|null, switchSyncBusy: boolean}} GameDetailsSavesSectionProps */
+/** @typedef {{game: GameDetailsGame, isSwitch: boolean, historyOpen: boolean, launchActive: boolean, onCloseHistory: () => void, onClearStatus: () => void, onCreateBackup: () => Promise<void>, onDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>, onEnableSaveSync: () => Promise<void>, onListSaves: () => Promise<void>, onSyncCurrentSave: () => Promise<void>, onUploadSave: (retryFilePath?: string|null) => Promise<void>, onResumeSwitchSaveNormalSync: () => Promise<void>, saveStatus: GameDetailsStatus|null, saveSyncEnabled: boolean, saves: GameDetailsSave[], savesLoaded: boolean, savesLoading: boolean, switchPathInfo: GameDetailsSwitchPathInfo|null, switchRestoreProtection: GameDetailsSwitchSaveRestoreProtection|null, switchSyncBusy: boolean}} GameDetailsSavesSectionProps */
 
 /** @param {GameDetailsSavesSectionProps} props Component properties. */
 export const GameDetailsSavesSection = ({
@@ -338,6 +386,7 @@ export const GameDetailsSavesSection = ({
   onDownloadSave,
   onEnableSaveSync,
   onListSaves,
+  onResumeSwitchSaveNormalSync,
   onSyncCurrentSave,
   onUploadSave,
   saveStatus,
@@ -346,6 +395,7 @@ export const GameDetailsSavesSection = ({
   savesLoaded,
   savesLoading,
   switchPathInfo,
+  switchRestoreProtection,
   switchSyncBusy,
 }) => {
   const [restoreSave, setRestoreSave] = useState(
@@ -361,6 +411,21 @@ export const GameDetailsSavesSection = ({
     };
     return (
       <>
+        {switchRestoreProtection !== null && (
+          <SwitchRestoreProtectionNotice
+            onResumeSwitchSaveNormalSync={onResumeSwitchSaveNormalSync}
+            protection={switchRestoreProtection}
+            switchSyncBusy={switchSyncBusy}
+          />
+        )}
+        {!historyOpen && (
+          <SaveStatusAlert
+            onClearStatus={onClearStatus}
+            saveStatus={saveStatus}
+            savesLoading={savesLoading}
+            syncBusy={switchSyncBusy}
+          />
+        )}
         <SwitchSaveHistoryDialog
           launchActive={launchActive}
           onClearStatus={onClearStatus}
@@ -409,7 +474,7 @@ export const GameDetailsSavesSection = ({
           size="small"
           variant="outlined"
         >
-          Upload save
+          Upload Save
         </Button>
       </Box>
       {savesLoaded && saves.length === 0 && (

@@ -9,6 +9,7 @@ import {
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { RomDownloadsProvider } from "../rom-downloads-context";
 import { MuiTestProvider } from "../test/mui-harness";
 import BiosSettings from "./bios-settings";
 
@@ -25,18 +26,51 @@ const renderBiosPage = (invokeBios) => (
   </StrictMode>
 );
 
-/** @param {boolean} downloaded - Whether the firmware is already present. */
-const getFirmware = (downloaded) => ({
-  file_name: "gba-bios.bin",
+/** @param {import("./use-bios-settings").BiosInvoke} invokeBios BIOS command boundary. @param {typeof import("@tauri-apps/api/event").listen} listen Downloads event boundary. */
+const renderBiosPageWithDownloads = (invokeBios, listen) => (
+  <MuiTestProvider>
+    <RomDownloadsProvider listen={listen}>
+      <BiosSettings invokeBios={invokeBios} libraryPlatforms={[]} />
+    </RomDownloadsProvider>
+  </MuiTestProvider>
+);
+
+/** @param {boolean} downloaded - Whether the firmware is already present. @param {number} [id] Firmware identifier. */
+const getFirmware = (downloaded, id = 1) => ({
+  file_name: id === 1 ? "gba-bios.bin" : `gba-bios-rev${id}.bin`,
   file_size_bytes: 1024,
-  id: 1,
+  id,
   is_downloaded: downloaded,
-  local_path: downloaded ? "C:\\Wingosy\\bios\\gba\\gba-bios.bin" : null,
+  local_path: downloaded
+    ? `C:\\Wingosy\\bios\\gba\\${id === 1 ? "gba-bios.bin" : `gba-bios-rev${id}.bin`}`
+    : null,
   md5_hash: null,
   missing_from_fs: false,
   platform_name: "Game Boy Advance",
   platform_slug: "gba",
 });
+
+/** @param {Partial<{downloaded: number, message: string, percent: number, speed: string, total: number}>} [overrides] BIOS event fields. */
+const biosPayload = (overrides = {}) => ({
+  downloaded: 0,
+  file_name: "gba-bios.bin",
+  firmware_id: 1,
+  message: null,
+  percent: null,
+  platform_name: "Game Boy Advance",
+  platform_slug: "gba",
+  speed: null,
+  total: null,
+  transfer_id: "bios:gba:1",
+  ...overrides,
+});
+
+/** @param {Map<string, (event: import("@tauri-apps/api/event").Event<unknown>) => void>} listeners Event listeners. @param {string} event Event name. @param {object} payload Event payload. */
+const emitBiosDownloadEvent = (listeners, event, payload) => {
+  act(() => {
+    listeners.get(event)?.({ event, id: 1, payload });
+  });
+};
 
 /** @param {boolean} deferReturnedLoads - Hold the remounted page's loads. */
 const createDownloadHarness = (deferReturnedLoads = false) => {
@@ -114,13 +148,8 @@ const countCommand = (calls, command) =>
 
 /** @param {import("./bios-types").BiosDistributionResult[]|Error} distributionResponse Distribution command response. */
 const createDistributionHarness = (distributionResponse) => {
-  /** @type {string[]} */
-  const calls = [];
   /** @type {import("vitest").Mock<BiosMockInvoke>} */
-  const invokeBiosMock = vi.fn();
-  /** @param {string} command BIOS command. */
-  const respondToBiosCommand = (command) => {
-    calls.push(command);
+  const invokeBiosMock = vi.fn((command) => {
     switch (command) {
       case "get_bios_directory": {
         return "C:\\Wingosy\\bios";
@@ -138,18 +167,17 @@ const createDistributionHarness = (distributionResponse) => {
         return null;
       }
     }
-  };
-  invokeBiosMock.mockImplementation(respondToBiosCommand);
+  });
   /** @type {import("./use-bios-settings").BiosInvoke} */
   // @ts-expect-error -- The mock returns the command-specific BIOS values exercised by this fixture.
   const invokeBios = invokeBiosMock;
-
-  return { calls, invokeBios };
+  return { invokeBios };
 };
 
 describe("useBiosSettings", () => {
   afterEach(() => {
     cleanup();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   });
 
   it("keeps an active download busy across a page remount and refreshes it on completion", async () => {
@@ -232,6 +260,7 @@ describe("useBiosSettings", () => {
 describe("BIOS distribution reporting", () => {
   afterEach(() => {
     cleanup();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   });
 
   it("shows the completed distribution result", async () => {
@@ -277,5 +306,143 @@ describe("BIOS distribution reporting", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("No supported emulator is installed");
     expect(alert).toHaveClass("MuiAlert-colorError");
+  });
+});
+
+describe("BIOS download rows", () => {
+  it("shows shared BIOS progress and retries a failed firmware row", async () => {
+    /** @type {Map<string, (event: import("@tauri-apps/api/event").Event<unknown>) => void>} */
+    const eventListeners = new Map();
+    /** @type {typeof import("@tauri-apps/api/event").listen} */
+    const listen = async (event, handler) => {
+      await Promise.resolve();
+      eventListeners.set(event, handler);
+      return () => {
+        eventListeners.delete(event);
+      };
+    };
+    /** @type {import("vitest").Mock<BiosMockInvoke>} */
+    const invokeBiosMock = vi.fn(async (command) => {
+      await Promise.resolve();
+      if (command === "get_bios_directory") {
+        return "C:\\Wingosy\\bios";
+      }
+      if (command === "list_bios_firmware") {
+        return [getFirmware(false)];
+      }
+      if (command === "download_bios_firmware") {
+        return "C:\\Wingosy\\bios\\gba\\gba-bios.bin";
+      }
+      return null;
+    });
+    /** @type {import("./use-bios-settings").BiosInvoke} */
+    // @ts-expect-error -- The mock returns the command-specific BIOS values exercised by this fixture.
+    const invokeBios = invokeBiosMock;
+    window.__TAURI_INTERNALS__ = {};
+    render(renderBiosPageWithDownloads(invokeBios, listen));
+
+    await screen.findByRole("button", { name: "Show files" });
+    await waitFor(() => {
+      expect(eventListeners.has("bios-download-progress")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+    emitBiosDownloadEvent(
+      eventListeners,
+      "bios-download-queued",
+      biosPayload({
+        downloaded: 512,
+        percent: 50,
+        speed: "512 B/s",
+        total: 1024,
+      })
+    );
+
+    expect(
+      screen.queryByText(/512 B \/ 1\.0 KB|512 B\/s/u)
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queued" })).toBeDisabled();
+    emitBiosDownloadEvent(
+      eventListeners,
+      "bios-download-progress",
+      biosPayload({
+        downloaded: 512,
+        percent: 50,
+        speed: "512 B/s",
+        total: 1024,
+      })
+    );
+
+    expect(
+      screen.getByText(/50% · 512 B \/ 1\.0 KB · 512 B\/s/u)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Downloading…" })).toBeDisabled();
+
+    emitBiosDownloadEvent(
+      eventListeners,
+      "bios-download-error",
+      biosPayload({
+        downloaded: 512,
+        message: "Network unavailable",
+        percent: 50,
+        total: 1024,
+      })
+    );
+
+    expect(
+      screen.getByText(/Download failed · Network unavailable/u)
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(invokeBiosMock).toHaveBeenCalledWith("download_bios_firmware", {
+        firmwareId: 1,
+      });
+    });
+  });
+});
+
+describe("BIOS platform download submission", () => {
+  it("submits every missing platform firmware before waiting for any result", async () => {
+    /** @type {PromiseWithResolvers<string>} */
+    const firstDownload = Promise.withResolvers();
+    /** @type {PromiseWithResolvers<string>} */
+    const secondDownload = Promise.withResolvers();
+    /** @type {import("vitest").Mock<BiosMockInvoke>} */
+    const invokeBiosMock = vi.fn(async (command, args) => {
+      if (command === "get_bios_directory") {
+        return "C:\\Wingosy\\bios";
+      }
+      if (command === "list_bios_firmware") {
+        return [getFirmware(false), getFirmware(false, 2)];
+      }
+      if (command === "download_bios_firmware") {
+        return args?.firmwareId === 1
+          ? await firstDownload.promise
+          : await secondDownload.promise;
+      }
+      return null;
+    });
+    /** @type {import("./use-bios-settings").BiosInvoke} */
+    // @ts-expect-error -- The mock returns the command-specific BIOS values exercised by this fixture.
+    const invokeBios = invokeBiosMock;
+    render(renderBiosPage(invokeBios));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download missing (2)" })
+    );
+
+    await waitFor(() => {
+      expect(invokeBiosMock).toHaveBeenCalledWith("download_bios_firmware", {
+        firmwareId: 1,
+      });
+      expect(invokeBiosMock).toHaveBeenCalledWith("download_bios_firmware", {
+        firmwareId: 2,
+      });
+    });
+
+    await act(async () => {
+      firstDownload.resolve("C:\\Wingosy\\bios\\gba\\gba-bios.bin");
+      secondDownload.resolve("C:\\Wingosy\\bios\\gba\\gba-bios-rev2.bin");
+      await Promise.resolve();
+    });
   });
 });

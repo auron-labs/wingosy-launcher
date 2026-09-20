@@ -59,6 +59,12 @@ const getViewHints = (view) => {
       NAVIGATION_HINTS[3],
     ];
   }
+  if (view === "romm-sync") {
+    return [
+      { detail: "Back to library", label: "East / Esc" },
+      NAVIGATION_HINTS[3],
+    ];
+  }
   if (view === "library") {
     return LIBRARY_HINTS;
   }

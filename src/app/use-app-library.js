@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getLaunchErrorPresentation } from "../immersive/launch-error";
-import { filterAndSortGames } from "../utils/game-filters";
 import { useLibraryNavigation } from "./use-app-library-navigation";
 
 /** @typedef {import("./app-runtime").AppRuntime} AppRuntime */
 /** @typedef {import("../components/game/game-details-types").GameDetailsGame} AppGame */
 /** @typedef {{id: string|number, name: string}} AppPlatform */
 /** @typedef {{gameId: number|string, guidance: string, message: string, retryable: boolean}} AppLaunchError */
-/** @typedef {"name"|"recent"|"play_time"} AppSortBy */
-/** @typedef {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} AppFilterBy */
+/** @typedef {"name"|"recent"|"play_time"|"play_count"|"release_year"} AppSortBy */
+/** @typedef {"all"|"favorites"|"recent"} AppFilterBy */
+/** @typedef {"all"|"downloaded"|"not_downloaded"} AppAvailability */
 /** @typedef {{games: AppGame[], total: number}} GamePage */
 /** @typedef {{success?: boolean, error?: string|{message?: string}, dry_run?: boolean, save_sync_messages?: unknown[], save_sync_warnings?: string[]}} LaunchResult */
 
@@ -38,37 +38,26 @@ const getSaveSyncMessages = (messages) => {
   return [...distinctMessages];
 };
 
-/** @param {{platformId: string|null, query: string, requestedPage: number, requestedSortBy: AppSortBy, requestedFilterBy: AppFilterBy, runtime: AppRuntime}} options - Library query dependencies. */
+/** @param {{platformId: string|null, query: string, requestedPage: number, requestedSortBy: AppSortBy, requestedSortDescending: boolean, requestedFilterBy: AppFilterBy, requestedAvailability: AppAvailability, runtime: AppRuntime}} options - Library query dependencies. */
 const fetchGames = async ({
   runtime,
   platformId,
   query,
   requestedPage,
   requestedSortBy,
+  requestedSortDescending,
   requestedFilterBy,
+  requestedAvailability,
 }) => {
-  const usesClientPage =
-    requestedSortBy !== "name" || requestedFilterBy !== "all";
-  if (usesClientPage) {
-    const games = await runtime.invoke("get_games_filtered", {
-      favoritesOnly: requestedFilterBy === "favorites",
-      platformId,
-      searchQuery: query || null,
-      sortBy: requestedSortBy === "recent" ? "last_played" : requestedSortBy,
-    });
-    const visibleGames = filterAndSortGames(games, {
-      filterBy: requestedFilterBy,
-      platformId,
-      searchQuery: query,
-      sortBy: requestedSortBy,
-    });
-    return { games: visibleGames, total: visibleGames.length };
-  }
   const result = await runtime.invoke("get_games_page", {
+    availability: requestedAvailability,
+    filterBy: requestedFilterBy,
     page: requestedPage,
     pageSize: GAMES_PER_PAGE,
     platformId,
     searchQuery: query || null,
+    sortBy: requestedSortBy === "recent" ? "last_played" : requestedSortBy,
+    sortDescending: requestedSortDescending,
   });
   return result;
 };
@@ -130,7 +119,42 @@ const EMPTY_GAMES = [];
 /** @returns {AppLaunchError|null} Initial launch error. */
 const initialLaunchError = () => null;
 
-/** @param {{runtime: AppRuntime, showSetup: boolean|null, page: number, selectedPlatform: string|null, searchQuery: string, librarySortBy: AppSortBy, libraryFilterBy: AppFilterBy, setPage: (page: number) => void, setSelectedGame: (value: AppGame|null | ((current: AppGame|null) => AppGame|null)) => void}} options Library refresh dependencies. */
+/** @param {{result: GamePage, requestedPage: number, setGames: import("react").Dispatch<import("react").SetStateAction<AppGame[]>>, setGameTotal: (value: number) => void, setPage: (page: number) => void, setSelectedGame: import("react").Dispatch<import("react").SetStateAction<AppGame|null>>}} options Applies an accepted page and refreshes the selected game when present. */
+const commitGamesPage = ({
+  result,
+  requestedPage,
+  setGames,
+  setGameTotal,
+  setPage,
+  setSelectedGame,
+}) => {
+  const lastPage = Math.max(1, Math.ceil(result.total / GAMES_PER_PAGE));
+  if (requestedPage > lastPage) {
+    setPage(lastPage);
+    return;
+  }
+  setGames(result.games);
+  setGameTotal(result.total);
+  setSelectedGame((current) => {
+    if (!current) {
+      return current;
+    }
+    return result.games.find((game) => game.id === current.id) ?? current;
+  });
+};
+
+/** @param {boolean|null} showSetup Current setup state. @param {() => Promise<void>} refreshGames Library refresh callback. */
+const useLibraryStartupRefresh = (showSetup, refreshGames) => {
+  useEffect(() => {
+    if (showSetup === false) {
+      queueMicrotask(() => {
+        void refreshGames();
+      });
+    }
+  }, [refreshGames, showSetup]);
+};
+
+/** @param {{runtime: AppRuntime, showSetup: boolean|null, page: number, selectedPlatform: string|null, searchQuery: string, librarySortBy: AppSortBy, librarySortDescending: boolean, libraryFilterBy: AppFilterBy, libraryAvailability: AppAvailability, setPage: (page: number) => void, setSelectedGame: (value: AppGame|null | ((current: AppGame|null) => AppGame|null)) => void}} options Library refresh dependencies. */
 const useLibraryRefresh = ({
   runtime,
   showSetup,
@@ -138,7 +162,9 @@ const useLibraryRefresh = ({
   selectedPlatform,
   searchQuery,
   librarySortBy,
+  librarySortDescending,
   libraryFilterBy,
+  libraryAvailability,
   setPage,
   setSelectedGame,
 }) => {
@@ -147,13 +173,15 @@ const useLibraryRefresh = ({
   const [loading, setLoading] = useState(true);
   const gamesRequestId = useRef(0);
   const refreshGames = useCallback(
-    async (
+    async ({
       platformId = selectedPlatform,
       query = searchQuery,
       requestedPage = page,
       requestedSortBy = librarySortBy,
-      requestedFilterBy = libraryFilterBy
-    ) => {
+      requestedSortDescending = librarySortDescending,
+      requestedFilterBy = libraryFilterBy,
+      requestedAvailability = libraryAvailability,
+    } = {}) => {
       const requestId = gamesRequestId.current + 1;
       gamesRequestId.current = requestId;
       setLoading(true);
@@ -161,28 +189,23 @@ const useLibraryRefresh = ({
         const result = await fetchGames({
           platformId,
           query,
+          requestedAvailability,
           requestedFilterBy,
           requestedPage,
           requestedSortBy,
+          requestedSortDescending,
           runtime,
         });
         if (requestId !== gamesRequestId.current) {
           return;
         }
-        const lastPage = Math.max(1, Math.ceil(result.total / GAMES_PER_PAGE));
-        if (requestedPage > lastPage) {
-          setPage(lastPage);
-          setLoading(false);
-          return;
-        }
-        const firstGame = (requestedPage - 1) * GAMES_PER_PAGE;
-        setGames(result.games.slice(firstGame, requestedPage * GAMES_PER_PAGE));
-        setGameTotal(result.total);
-        setSelectedGame((current) => {
-          if (!current) {
-            return current;
-          }
-          return result.games.find((game) => game.id === current.id) ?? current;
+        commitGamesPage({
+          requestedPage,
+          result,
+          setGameTotal,
+          setGames,
+          setPage,
+          setSelectedGame,
         });
       } catch (error) {
         console.error("Failed to refresh games:", error);
@@ -193,7 +216,9 @@ const useLibraryRefresh = ({
     },
     [
       libraryFilterBy,
+      libraryAvailability,
       librarySortBy,
+      librarySortDescending,
       page,
       runtime,
       searchQuery,
@@ -203,13 +228,7 @@ const useLibraryRefresh = ({
     ]
   );
 
-  useEffect(() => {
-    if (showSetup === false) {
-      queueMicrotask(() => {
-        void refreshGames(selectedPlatform, searchQuery, page);
-      });
-    }
-  }, [page, refreshGames, searchQuery, selectedPlatform, showSetup]);
+  useLibraryStartupRefresh(showSetup, refreshGames);
 
   return { gameTotal, games, loading, refreshGames, setGames };
 };
@@ -413,8 +432,10 @@ export const useAppLibrary = ({
 }) => {
   const navigation = useLibraryNavigation();
   const data = useLibraryRefresh({
+    libraryAvailability: navigation.libraryAvailability,
     libraryFilterBy: navigation.libraryFilterBy,
     librarySortBy: navigation.librarySortBy,
+    librarySortDescending: navigation.librarySortDescending,
     page: navigation.page,
     runtime,
     searchQuery: navigation.searchQuery,
@@ -436,16 +457,21 @@ export const useAppLibrary = ({
     ...actions,
     gameTotal: data.gameTotal,
     games: data.games,
+    handleLibraryAvailabilityChange: navigation.handleLibraryAvailabilityChange,
     handleLibraryFilterChange: navigation.handleLibraryFilterChange,
     handleLibrarySortChange: navigation.handleLibrarySortChange,
+    handleLibrarySortDirectionChange:
+      navigation.handleLibrarySortDirectionChange,
     handleNavigate: navigation.handleNavigate,
     handlePageChange: navigation.handlePageChange,
     handleSearchChange: navigation.handleSearchChange,
     handleSelectGame: navigation.handleSelectGame,
     handleSelectPlatform: navigation.handleSelectPlatform,
+    libraryAvailability: navigation.libraryAvailability,
     libraryFilterBy: navigation.libraryFilterBy,
     libraryScrollRef: navigation.libraryScrollRef,
     librarySortBy: navigation.librarySortBy,
+    librarySortDescending: navigation.librarySortDescending,
     loading: data.loading,
     page: navigation.page,
     searchQuery: navigation.searchQuery,

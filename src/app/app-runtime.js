@@ -12,8 +12,10 @@ import { open as tauriOpenUrl } from "@tauri-apps/plugin-shell";
 /** @typedef {{auto_update_enabled?: boolean, channel?: string, check_on_startup?: boolean}} AppUpdaterConfig */
 /** @typedef {{romm?: AppRommConfig, display?: AppDisplayConfig, library?: {roms_directory?: string}, updater?: AppUpdaterConfig}} AppConfig */
 /** @typedef {{is_update_available?: boolean, signed_update_manifest_url?: string, release_url?: string, latest_version?: string, message?: string}} AppUpdateResult */
-/** @typedef {{"signed-updater-progress": {downloaded?: number, total?: number}}} AppEventPayloads */
-/** @typedef {{get_games_filtered: AppGame[], get_games_page: AppGamePage, toggle_favorite: boolean, prepare_and_launch_game: AppLaunchResult, get_game_details: AppGame, restore_romm_session: {server_url?: string, access_token?: string}, check_for_app_update: AppUpdateResult, install_signed_app_update: unknown, is_first_run: boolean, get_platforms_with_games: [AppPlatform, number][], get_config: AppConfig}} AppInvokeResults */
+/** @typedef {{romm_platform_id: number, platform_id: string, name: string, server_games: number, local_games: number, installed_games: number}} AppRommSyncPlatform */
+/** @typedef {{games_added: number, games_updated: number, games_deleted: number, total_games: number}} AppRommSyncResult */
+/** @typedef {{"signed-updater-progress": {downloaded?: number, total?: number}, "romm-platform-sync-progress": {romm_platform_id?: number, processed?: number, total?: number}}} AppEventPayloads */
+/** @typedef {{get_games_page: AppGamePage, toggle_favorite: boolean, prepare_and_launch_game: AppLaunchResult, get_game_details: AppGame, restore_romm_session: {server_url?: string, access_token?: string}, check_for_app_update: AppUpdateResult, install_signed_app_update: unknown, is_first_run: boolean, get_platforms_with_games: [AppPlatform, number][], list_romm_sync_platforms: AppRommSyncPlatform[], sync_romm_platform: AppRommSyncResult, sync_romm_library: AppGame[] | AppRommSyncResult, get_config: AppConfig}} AppInvokeResults */
 /** @typedef {{getCurrentWindow: () => {isFullscreen: () => Promise<boolean>, onResized: (handler: () => void) => Promise<() => void>, startDragging: () => Promise<void>}, invoke: <K extends keyof AppInvokeResults>(command: K, args?: Record<string, unknown>) => Promise<AppInvokeResults[K]>, listen: <K extends keyof AppEventPayloads>(event: K, handler: (event: {payload: AppEventPayloads[K]}) => void) => Promise<() => void>, openUrl: (url: string) => Promise<unknown>}} AppRuntime */
 
 /** @type {AppRuntime} */

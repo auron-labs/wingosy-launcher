@@ -5,11 +5,88 @@ import {
   cleanupGameDetailsTest,
   createDeferred,
   invoke,
+  openDialog,
+  remoteOnlyGame,
   renderDetails,
   switchRemoteGame,
 } from "./game-details-test-fixtures";
 
-describe("GameDetails save actions", () => {
+describe("GameDetails manual save uploads", () => {
+  afterEach(cleanupGameDetailsTest);
+
+  it("reports success after uploading a selected save", async () => {
+    const filePath = "/saves/cloud-game.sav";
+    openDialog.mockResolvedValue(filePath);
+    invoke.mockImplementation((command) => {
+      if (command === "get_game_saves") {
+        return [];
+      }
+      if (command === "upload_game_save") {
+        return {};
+      }
+      return { display: {} };
+    });
+    renderDetails({ game: remoteOnlyGame });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload Save" }));
+
+    await expect(
+      screen.findByText("Save uploaded!")
+    ).resolves.toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("upload_game_save", {
+      filePath,
+      rommId: remoteOnlyGame.romm_id,
+      serverUrl: "https://romm.example",
+      token: "saved-token",
+    });
+  });
+
+  it("reports a rejected upload and retries the selected save without reopening the dialog", async () => {
+    const filePath = "/saves/cloud-game.sav";
+    const uploadArgs = {
+      filePath,
+      rommId: remoteOnlyGame.romm_id,
+      serverUrl: "https://romm.example",
+      token: "saved-token",
+    };
+    const uploadCalls = [];
+    openDialog.mockResolvedValue(filePath);
+    invoke.mockImplementation((command, args) => {
+      if (command === "get_game_saves") {
+        return [];
+      }
+      if (command === "upload_game_save") {
+        uploadCalls.push([command, args]);
+        if (uploadCalls.length === 1) {
+          throw new Error(
+            "Save upload returned an error: HTTP status server error (503 Service Unavailable)"
+          );
+        }
+        return {};
+      }
+      return { display: {} };
+    });
+    renderDetails({ game: remoteOnlyGame });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload Save" }));
+
+    await screen.findByText(/503 Service Unavailable/u);
+    expect(screen.queryByText("Save uploaded!")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(uploadCalls).toHaveLength(2);
+    });
+    expect(uploadCalls).toStrictEqual([
+      ["upload_game_save", uploadArgs],
+      ["upload_game_save", uploadArgs],
+    ]);
+    expect(openDialog).toHaveBeenCalledOnce();
+    await screen.findByText("Save uploaded!");
+  });
+});
+
+describe("GameDetails device save sync", () => {
   afterEach(cleanupGameDetailsTest);
 
   it("offers a guarded save-sync retry with the same slot and save id", async () => {
@@ -19,6 +96,9 @@ describe("GameDetails save actions", () => {
     invoke.mockImplementation(async (command, args) => {
       if (command === "get_switch_game_saves") {
         return [{ file_name: "Cloud Save", id: 9001, slot: "autosave" }];
+      }
+      if (command === "get_switch_save_restore_protection") {
+        return null;
       }
       if (command === "download_switch_save") {
         saveCalls.push([command, args]);
@@ -67,6 +147,10 @@ describe("GameDetails save actions", () => {
       screen.findAllByText("Save restored.")
     ).resolves.not.toHaveLength(0);
   });
+});
+
+describe("GameDetails permanent save failures", () => {
+  afterEach(cleanupGameDetailsTest);
 
   it("does not offer Retry for a permanent save failure", async () => {
     invoke.mockImplementation(async (command) => {
@@ -74,6 +158,9 @@ describe("GameDetails save actions", () => {
         return await Promise.resolve([
           { file_name: "Cloud Save", id: 9001, slot: "autosave" },
         ]);
+      }
+      if (command === "get_switch_save_restore_protection") {
+        return await Promise.resolve(null);
       }
       if (command === "download_switch_save") {
         return await Promise.reject(new Error("Save not found on server"));

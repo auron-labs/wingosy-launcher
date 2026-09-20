@@ -1,10 +1,10 @@
 # Local Issue State
 
-Generated: 2026-09-19T08:19:39Z
+Generated: 2026-09-20T06:10:02Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 3 active, 34 resolved
+Tickets: 3 active, 43 resolved
 
 ## Active Tickets
 
@@ -25,6 +25,15 @@ Tickets: 3 active, 34 resolved
 | [immersive-input](immersive-input/spec.md) | [02-route-details-and-overlay-controller-actions](immersive-input/issues/02-route-details-and-overlay-controller-actions.md) | — | — | resolved | 01 — Route Library and shell controller actions through the Immersive app seam. |
 | [immersive-library-discovery](immersive-library-discovery) | [01-filter-immersive-library-by-platform](immersive-library-discovery/issues/01-filter-immersive-library-by-platform.md) | — | — | resolved | None — can start immediately. |
 | [immersive-library-discovery](immersive-library-discovery) | [02-search-immersive-library-by-name](immersive-library-discovery/issues/02-search-immersive-library-by-name.md) | — | — | resolved | None — can start immediately. |
+| [import-upstream](import-upstream/spec.md) | [01-fix-local-romm-addresses](import-upstream/issues/01-fix-local-romm-addresses.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [02-complete-library-controls](import-upstream/issues/02-complete-library-controls.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [03-add-platform-sync-monitor](import-upstream/issues/03-add-platform-sync-monitor.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [04-enable-retroachievements](import-upstream/issues/04-enable-retroachievements.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [05-show-rom-download-speed](import-upstream/issues/05-show-rom-download-speed.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [06-track-bios-downloads](import-upstream/issues/06-track-bios-downloads.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [07-queue-parallel-bios-downloads](import-upstream/issues/07-queue-parallel-bios-downloads.md) | — | — | resolved | 06 — Show BIOS progress and results across download surfaces |
+| [import-upstream](import-upstream/spec.md) | [08-correct-manual-save-uploads](import-upstream/issues/08-correct-manual-save-uploads.md) | — | — | resolved | None — can start immediately |
+| [import-upstream](import-upstream/spec.md) | [09-protect-eden-restores](import-upstream/issues/09-protect-eden-restores.md) | — | — | resolved | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [02-offer-save-sync-retry](smoke-test-followups/issues/02-offer-save-sync-retry.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [03-filter-library-by-favorites](smoke-test-followups/issues/03-filter-library-by-favorites.md) | — | — | resolved | None — can start immediately. |

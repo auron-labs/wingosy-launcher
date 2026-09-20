@@ -4,7 +4,7 @@ import { getSaveSyncErrorStatus } from "./game-details-utils";
 /** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
 /** @typedef {import("./game-details-types").GameDetailsStatus} GameDetailsStatus */
 
-/** @typedef {{game: GameDetailsGame, ipc: typeof import("./game-details-ipc").gameDetailsIpc, openDialog: typeof import("@tauri-apps/plugin-dialog").open, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saveSyncInFlightRef: {current: boolean}, setSaveStatus: (status: GameDetailsStatus|null) => void, setSaves: (saves: GameDetailsSave[]) => void, setSavesLoaded: (loaded: boolean) => void, setSavesLoading: (loading: boolean) => void, setSwitchSyncBusy: (busy: boolean) => void}} SaveActionContextBase */
+/** @typedef {{game: GameDetailsGame, ipc: typeof import("./game-details-ipc").gameDetailsIpc, openDialog: typeof import("@tauri-apps/plugin-dialog").open, isSwitch: boolean, rommToken: string|null, rommUrl: string|null, saveSyncInFlightRef: {current: boolean}, setSaveStatus: (status: GameDetailsStatus|null) => void, setSaves: (saves: GameDetailsSave[]) => void, setSavesLoaded: (loaded: boolean) => void, setSavesLoading: (loading: boolean) => void, setSwitchSyncBusy: (busy: boolean) => void, refreshSwitchRestoreProtection: () => Promise<void>}} SaveActionContextBase */
 /** @typedef {SaveActionContextBase & {refreshSaveList: (preserveStatus?: boolean) => Promise<void>}} SaveActionContext */
 
 /** @param {SaveActionContextBase} context Save action context. @returns {{rommId: number, serverUrl: string, token: string}|null} Valid remote save configuration. */
@@ -94,6 +94,7 @@ export const downloadGameSaveAction = async (context, saveId, retrySlot) => {
         saveId,
         slot
       );
+      await context.refreshSwitchRestoreProtection();
       context.setSaveStatus({
         message:
           result.backupSaveId === null || result.backupSaveId === undefined
@@ -155,6 +156,7 @@ export const uploadSwitchSaveAction = async (context, retrySlot) => {
       });
     }
     await context.ipc.uploadSwitchSave(context.game.id, slot);
+    await context.refreshSwitchRestoreProtection();
     const successMessage = slot?.startsWith("backup-")
       ? "Backup created."
       : "Current save synced.";
@@ -195,6 +197,7 @@ export const syncCurrentSwitchSaveAction = async (context) => {
   });
   try {
     await context.ipc.syncCurrentSwitchSave(context.game.id);
+    await context.refreshSwitchRestoreProtection();
     context.setSaveStatus({
       message: "Current save synced.",
       type: "success",
@@ -216,6 +219,40 @@ export const syncCurrentSwitchSaveAction = async (context) => {
         await syncCurrentSwitchSaveAction(context);
       })
     );
+  } finally {
+    context.setSwitchSyncBusy(false);
+    context.saveSyncInFlightRef.current = false;
+  }
+};
+
+/** @param {SaveActionContext} context Save action context. */
+export const resumeSwitchSaveNormalSyncAction = async (context) => {
+  if (
+    !context.isSwitch ||
+    context.game.romm_id === null ||
+    context.game.romm_id === undefined ||
+    context.saveSyncInFlightRef.current
+  ) {
+    return;
+  }
+  const retry = async () => {
+    await resumeSwitchSaveNormalSyncAction(context);
+  };
+  context.saveSyncInFlightRef.current = true;
+  try {
+    context.setSwitchSyncBusy(true);
+    context.setSaveStatus({
+      message: "Resuming normal Eden save sync…",
+      type: "info",
+    });
+    await context.ipc.resumeSwitchSaveNormalSync(context.game.id);
+    await context.refreshSwitchRestoreProtection();
+    context.setSaveStatus({
+      message: "Normal Eden save sync resumed.",
+      type: "success",
+    });
+  } catch (error) {
+    context.setSaveStatus(getSaveSyncErrorStatus(error, retry));
   } finally {
     context.setSwitchSyncBusy(false);
     context.saveSyncInFlightRef.current = false;
@@ -249,6 +286,7 @@ export const downloadSwitchSaveAction = async (context, retrySlot) => {
       });
     }
     await context.ipc.downloadSwitchSave(context.game.id, null, slot);
+    await context.refreshSwitchRestoreProtection();
     context.setSaveStatus({
       message: "Save restored.",
       type: "success",

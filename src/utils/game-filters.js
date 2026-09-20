@@ -1,20 +1,27 @@
-/** @typedef {"name"|"recent"|"play_time"|"last_played"} GameSortBy */
+/** @typedef {"name"|"recent"|"play_time"|"play_count"|"release_year"|"last_played"} GameSortBy */
 /** @typedef {"all"|"favorites"|"recent"|"downloaded"|"not_downloaded"} GameFilterBy */
-/** @typedef {{source?: string|null, sync_state?: string|null, local_file_path?: string|null, is_favorite?: boolean, last_played_at?: string|Date|null, play_time_minutes?: number|null}} GameState */
+/** @typedef {{source?: string|null, sync_state?: string|null, local_file_path?: string|null, is_favorite?: boolean, last_played_at?: string|Date|null, play_count?: number|null, play_time_minutes?: number|null, release_year?: number|null}} GameState */
 /** @typedef {GameState & {id: number|string, name: string, platform_id: string}} Game */
 
-/** @type {Array<{label: string, value: "name"|"recent"|"play_time"}>} */
+/** @type {Array<{label: string, value: "name"|"recent"|"play_time"|"play_count"|"release_year"}>} */
 export const GAME_SORT_OPTIONS = [
   { label: "Name", value: "name" },
   { label: "Recently played", value: "recent" },
   { label: "Play time", value: "play_time" },
+  { label: "Most played", value: "play_count" },
+  { label: "Release year", value: "release_year" },
 ];
 
-/** @type {Array<{label: string, value: GameFilterBy}>} */
+/** @type {Array<{label: string, value: "all"|"favorites"|"recent"}>} */
 export const GAME_FILTER_OPTIONS = [
   { label: "All games", value: "all" },
   { label: "Favorites", value: "favorites" },
   { label: "Recent", value: "recent" },
+];
+
+/** @type {Array<{label: string, value: "all"|"downloaded"|"not_downloaded"}>} */
+export const GAME_AVAILABILITY_OPTIONS = [
+  { label: "All games", value: "all" },
   { label: "Downloaded", value: "downloaded" },
   { label: "Not downloaded", value: "not_downloaded" },
 ];
@@ -137,32 +144,89 @@ const compareNames = (a, b) =>
 
 /** @param {Game} game - Game to inspect. */
 const playTimeMinutes = (game) => {
-  const value = game.play_time_minutes ?? 0;
-  return Number.isFinite(value) ? value : 0;
+  const value = game.play_time_minutes ?? Number.NaN;
+  return Number.isFinite(value) ? value : null;
+};
+
+/** @param {Game} game - Game to inspect. */
+const playCount = (game) => {
+  const value = game.play_count ?? Number.NaN;
+  return Number.isFinite(value) ? value : null;
+};
+
+/** @param {Game} game - Game to inspect. */
+const releaseYear = (game) => {
+  const value = game.release_year ?? Number.NaN;
+  return Number.isFinite(value) ? value : null;
+};
+
+/** @param {number|null} left - First value. @param {number|null} right - Second value. @param {boolean} descending - Sort direction. */
+const compareNullableNumbers = (left, right, descending) => {
+  if (left === null) {
+    return right === null ? 0 : 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  return descending ? right - left : left - right;
 };
 
 /**
  * @param {Game[]} games - Games to sort.
  * @param {GameSortBy} [sortBy] - Sort mode.
+ * @param {boolean} [descending] - Sort direction.
  */
-export const sortGames = (games, sortBy = "name") =>
+export const sortGames = (
+  games,
+  sortBy = "name",
+  descending = sortBy !== "name"
+) =>
   games.toSorted((a, b) => {
     if (sortBy === "recent" || sortBy === "last_played") {
       return (
-        lastPlayedTimestamp(b) - lastPlayedTimestamp(a) || compareNames(a, b)
+        compareNullableNumbers(
+          lastPlayedTimestamp(a) === Number.NEGATIVE_INFINITY
+            ? null
+            : lastPlayedTimestamp(a),
+          lastPlayedTimestamp(b) === Number.NEGATIVE_INFINITY
+            ? null
+            : lastPlayedTimestamp(b),
+          descending
+        ) || compareNames(a, b)
       );
     }
 
     if (sortBy === "play_time") {
-      return playTimeMinutes(b) - playTimeMinutes(a) || compareNames(a, b);
+      return (
+        compareNullableNumbers(
+          playTimeMinutes(a),
+          playTimeMinutes(b),
+          descending
+        ) || compareNames(a, b)
+      );
     }
 
-    return compareNames(a, b);
+    if (sortBy === "play_count") {
+      return (
+        compareNullableNumbers(playCount(a), playCount(b), descending) ||
+        compareNames(a, b)
+      );
+    }
+
+    if (sortBy === "release_year") {
+      return (
+        compareNullableNumbers(releaseYear(a), releaseYear(b), descending) ||
+        compareNames(a, b)
+      );
+    }
+
+    const nameOrder = compareNames(a, b);
+    return descending ? -nameOrder : nameOrder;
   });
 
 /**
  * @param {Game[]} games - Games to filter and sort.
- * @param {{platformId?: string|null, searchQuery?: string, filterBy?: GameFilterBy, sortBy?: GameSortBy}} [options] - Filter and sort options.
+ * @param {{platformId?: string|null, searchQuery?: string, filterBy?: GameFilterBy, availability?: GameFilterBy, sortBy?: GameSortBy, sortDescending?: boolean}} [options] - Filter and sort options.
  */
 export const filterAndSortGames = (
   games,
@@ -170,10 +234,18 @@ export const filterAndSortGames = (
     platformId = null,
     searchQuery = "",
     filterBy = "all",
+    availability = "all",
     sortBy = "name",
+    sortDescending = sortBy !== "name",
   } = {}
 ) =>
   sortGames(
-    filterVisibleGames(games, platformId, searchQuery, filterBy),
-    sortBy
+    filterVisibleGames(
+      filterVisibleGames(games, platformId, searchQuery, filterBy),
+      null,
+      "",
+      availability
+    ),
+    sortBy,
+    sortDescending
   );

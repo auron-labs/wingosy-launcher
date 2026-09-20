@@ -1,15 +1,17 @@
 import CloseIcon from "@mui/icons-material/Close";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import LockIcon from "@mui/icons-material/Lock";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
+import LinearProgress from "@mui/material/LinearProgress";
 import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 
 import KeyboardHint from "../keyboard-hint";
+import AchievementBadge from "./achievement-badge";
+import { getAchievementStats } from "./achievement-presentation";
 
 /** @typedef {import("./game-details-types").GameDetailsAchievementsAchievement} Achievement */
 
@@ -70,55 +72,63 @@ const AchievementEmptyState = ({
   </Box>
 );
 
-/** @param {{achievement: Achievement, locked: boolean}} props Renders one achievement row. */
-const AchievementRow = ({ achievement, locked }) => (
-  <Box
-    sx={{
-      alignItems: "flex-start",
-      bgcolor: locked ? "action.hover" : "action.selected",
-      borderRadius: 2,
-      display: "flex",
-      gap: 2,
-      mb: 1,
-      px: 1.5,
-      py: 1.5,
-    }}
-  >
+/** @param {{achievement: Achievement}} props Renders one achievement row. */
+const AchievementRow = ({ achievement }) => {
+  const unlocked = achievement.unlocked === true;
+  return (
     <Box
       sx={{
-        alignItems: "center",
-        bgcolor: "background.paper",
-        borderRadius: 1,
+        alignItems: "flex-start",
+        bgcolor: unlocked ? "action.selected" : "action.hover",
+        borderRadius: 2,
         display: "flex",
-        flexShrink: 0,
-        height: 56,
-        justifyContent: "center",
-        width: 56,
+        gap: 2,
+        mb: 1,
+        px: 1.5,
+        py: 1.5,
       }}
     >
-      {locked ? (
-        <LockIcon color="disabled" />
-      ) : (
-        <EmojiEventsIcon sx={{ color: TROPHY_AMBER }} />
-      )}
-    </Box>
-    <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography sx={{ fontWeight: 600 }} variant="body2">
-        {achievement.title}
-      </Typography>
-      {achievement.description !== null &&
-      achievement.description !== undefined &&
-      achievement.description !== "" ? (
-        <Typography color="text.secondary" variant="caption">
-          {achievement.description}
+      <Box
+        sx={{
+          alignItems: "center",
+          bgcolor: "background.paper",
+          borderRadius: 1,
+          display: "flex",
+          flexShrink: 0,
+          height: 56,
+          justifyContent: "center",
+          width: 56,
+        }}
+      >
+        <AchievementBadge achievement={achievement} />
+      </Box>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 600 }} variant="body2">
+          {achievement.title}
         </Typography>
-      ) : null}
+        {achievement.description !== null &&
+        achievement.description !== undefined &&
+        achievement.description !== "" ? (
+          <Typography color="text.secondary" variant="caption">
+            {achievement.description}
+          </Typography>
+        ) : null}
+        {achievement.unlocked_hardcore === true ? (
+          <Typography
+            color="warning.main"
+            sx={{ display: "block", fontWeight: 600, mt: 0.25 }}
+            variant="caption"
+          >
+            Hardcore unlock
+          </Typography>
+        ) : null}
+      </Box>
+      <Typography color="text.secondary" variant="caption">
+        {achievement.points ?? 0} pts
+      </Typography>
     </Box>
-    <Typography color="text.secondary" variant="caption">
-      {achievement.points ?? 0} pts
-    </Typography>
-  </Box>
-);
+  );
+};
 
 /** @param {{achievements: Achievement[]}} props Renders unlocked and locked lists. */
 const AchievementSections = ({ achievements }) => {
@@ -139,11 +149,7 @@ const AchievementSections = ({ achievements }) => {
             UNLOCKED ({unlocked.length})
           </Typography>
           {unlocked.map((achievement) => (
-            <AchievementRow
-              achievement={achievement}
-              key={achievement.id}
-              locked={false}
-            />
+            <AchievementRow achievement={achievement} key={achievement.id} />
           ))}
         </>
       )}
@@ -158,11 +164,7 @@ const AchievementSections = ({ achievements }) => {
             LOCKED ({locked.length})
           </Typography>
           {locked.map((achievement) => (
-            <AchievementRow
-              achievement={achievement}
-              key={achievement.id}
-              locked
-            />
+            <AchievementRow achievement={achievement} key={achievement.id} />
           ))}
         </>
       )}
@@ -226,11 +228,8 @@ const AchievementListOverlay = ({
   open,
   retroAchievementsEnabled,
 }) => {
-  const unlockedCount = achievements.filter(
-    (achievement) => achievement.unlocked === true
-  ).length;
-  const total = achievements.length;
-  const progress = total > 0 ? Math.floor((unlockedCount * 100) / total) : 0;
+  const { earnedPoints, progress, total, totalPoints, unlocked } =
+    getAchievementStats(achievements);
   return (
     <Dialog
       fullScreen
@@ -260,9 +259,14 @@ const AchievementListOverlay = ({
             </Typography>
           </Box>
           {retroAchievementsEnabled && total > 0 ? (
-            <Typography color="primary" variant="subtitle1">
-              {unlockedCount}/{total} ({progress}%)
-            </Typography>
+            <Box sx={{ minWidth: 150 }}>
+              <Typography color="primary" variant="subtitle1">
+                {unlocked}/{total} ({progress}%)
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {earnedPoints}/{totalPoints} points
+              </Typography>
+            </Box>
           ) : null}
           <KeyboardHint>Esc to close</KeyboardHint>
           <IconButton aria-label="Close" onClick={onClose}>
@@ -270,6 +274,14 @@ const AchievementListOverlay = ({
           </IconButton>
         </Box>
         <Box sx={{ flex: 1, overflow: "auto", px: 3, py: 2 }}>
+          {retroAchievementsEnabled && total > 0 ? (
+            <LinearProgress
+              aria-label="Achievement completion"
+              sx={{ borderRadius: 999, height: 8, mb: 2 }}
+              value={progress}
+              variant="determinate"
+            />
+          ) : null}
           <AchievementContent
             achievements={achievements}
             enabled={retroAchievementsEnabled}

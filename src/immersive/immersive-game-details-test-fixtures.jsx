@@ -180,7 +180,7 @@ export const installControllerTestEnvironment = () => {
   };
 };
 
-/** @param {(gameId: number|string) => Promise<LaunchResult|null|undefined>} onLaunch Launch callback. @param {ImmersiveGame} game Game under test. @param {{onBack?: () => void, onToggleFavorite?: (gameId?: number|string) => void, onGameUpdate?: () => void, onOpenSettings?: () => void, onOpenIntegrations?: () => void, platformLabel?: string}} [options] Detail fixture options. */
+/** @param {(gameId: number|string) => Promise<LaunchResult|null|undefined>} onLaunch Launch callback. @param {ImmersiveGame} game Game under test. @param {{onBack?: () => void, onToggleFavorite?: (gameId?: number|string) => void, onGameUpdate?: () => void, onOpenSettings?: () => void, onOpenIntegrations?: () => void, platformLabel?: string, retroachievementsEnabled?: boolean}} [options] Detail fixture options. */
 export const renderDetails = (
   onLaunch = vi.fn().mockResolvedValue({ success: true }),
   game = remoteOnlyGame,
@@ -191,6 +191,7 @@ export const renderDetails = (
     onOpenSettings = vi.fn(),
     onOpenIntegrations = vi.fn(),
     platformLabel = "Game Boy Advance",
+    retroachievementsEnabled = false,
   } = {}
 ) =>
   render(
@@ -216,6 +217,7 @@ export const renderDetails = (
             onOpenIntegrations={() => {
               onOpenIntegrations?.();
             }}
+            retroachievementsEnabled={retroachievementsEnabled}
             rommToken="saved-token"
             rommUrl="https://romm.example"
             dependencies={{ ipc: testIpc }}

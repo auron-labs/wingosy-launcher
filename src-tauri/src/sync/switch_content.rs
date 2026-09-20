@@ -600,7 +600,7 @@ fn cleanup_staged_file(error: anyhow::Error, path: &Path) -> anyhow::Error {
 pub(crate) fn replace_file(source: &Path, destination: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        return replace_file_windows(source, destination);
+        replace_file_windows(source, destination)
     }
 
     #[cfg(not(windows))]

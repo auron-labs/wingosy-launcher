@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { gameDetailsIpc } from "../components/game/game-details-ipc";
+import { useGameDetailsAchievements } from "../components/game/use-game-details-achievements";
 import { useGameDetailsActions } from "../components/game/use-game-details-actions";
+import { useGameDetailsSaves } from "../components/game/use-game-details-saves";
 import { useRomDownloads } from "../rom-downloads-context-value";
 import { useAppTheme } from "../theme-context";
 import {
@@ -19,6 +22,10 @@ import { useImmersiveGameDetailsKeyboard } from "./use-immersive-game-details-ke
 /** @typedef {{game: ImmersiveGame, platformLabel?: string, onBack: () => void, onLaunch: (gameId: number|string) => Promise<LaunchResult|null|undefined>, onToggleFavorite: (gameId: number|string) => void|Promise<void>, onGameUpdate?: (gameId: number|string) => void|Promise<void>, onOpenSettings?: () => void, onOpenIntegrations?: (() => void)|null, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled?: boolean, dependencies?: {ipc?: ImmersiveDetailsIpc}}} ImmersiveGameDetailsProps */
 
 const noop = () => null;
+const noSaveFileDialog = async () => {
+  await Promise.resolve();
+  return null;
+};
 
 /** @param {((gameId: number|string) => void|Promise<void>)|undefined} onGameUpdate Game update callback. @param {number|string} gameId Game identifier. */
 const notifyGameUpdate = (onGameUpdate, gameId) => {
@@ -44,6 +51,7 @@ const useDetailsResources = ({
   rommToken,
   rommUrl,
 }) => {
+  const detailsIpc = ipc ?? gameDetailsIpc;
   const { colors } = useAppTheme();
   const { getProgress, getLaunchProgress, getSwitchContentProgress } =
     useRomDownloads();
@@ -61,6 +69,14 @@ const useDetailsResources = ({
     rommToken,
     rommUrl
   );
+  const saves = useGameDetailsSaves({
+    game,
+    ipc: detailsIpc,
+    isSwitch: game.platform_id === "switch",
+    openDialog: noSaveFileDialog,
+    rommToken: rommToken ?? null,
+    rommUrl: rommUrl ?? null,
+  });
   const launchRequest = useCallback(
     /** @param {number|string} gameId Game identifier. */
     async (gameId) => {
@@ -72,7 +88,7 @@ const useDetailsResources = ({
   const actions = useGameDetailsActions({
     canSyncSwitchContent,
     game,
-    ipc,
+    ipc: detailsIpc,
     launchProgress,
     onBack,
     onGameUpdate: (gameId) => {
@@ -90,6 +106,7 @@ const useDetailsResources = ({
     launchProgress,
     primaryActionRef,
     romDl,
+    saves,
     savesSectionRef,
     staleLaunchProgress,
     switchContentProgress,
@@ -111,6 +128,34 @@ const useRestoreDetailsFocus = ({
   }, [launchFailure, launching, primaryActionRef]);
 };
 
+/** @param {{achievementState: ReturnType<typeof useGameDetailsAchievements>, detailsState: ReturnType<typeof getImmersiveDetailsState>, game: ImmersiveGame, launchErrorPresentation: ReturnType<typeof getLaunchErrorPresentation>, resources: ReturnType<typeof useDetailsResources>, retryableLaunchFailure: boolean, rommConfigured: boolean}} options Controller state. */
+const getDetailsController = ({
+  achievementState,
+  detailsState,
+  game,
+  launchErrorPresentation,
+  resources,
+  retryableLaunchFailure,
+  rommConfigured,
+}) => ({
+  achievementState,
+  actions: resources.actions,
+  colors: resources.colors,
+  detailsRef: resources.detailsRef,
+  ...detailsState,
+  hasRomm: game.romm_id !== null && game.romm_id !== undefined,
+  launchErrorPresentation,
+  launchProgress: resources.launchProgress,
+  primaryActionRef: resources.primaryActionRef,
+  retryableLaunchFailure,
+  romDl: resources.romDl,
+  rommConfigured,
+  saves: resources.saves,
+  savesSectionRef: resources.savesSectionRef,
+  staleLaunchProgress: resources.staleLaunchProgress,
+  switchContentProgress: resources.switchContentProgress,
+});
+
 /** @param {ImmersiveGameDetailsProps} props Details properties. */
 export const useImmersiveGameDetailsController = ({
   dependencies,
@@ -120,10 +165,17 @@ export const useImmersiveGameDetailsController = ({
   onLaunch,
   onGameUpdate,
   onOpenSettings,
+  retroachievementsEnabled = false,
   rommToken,
   rommUrl,
 }) => {
-  const openSettings = onOpenSettings ?? noop;
+  const achievementState = useGameDetailsAchievements({
+    game,
+    ipc: dependencies?.ipc,
+    retroachievementsEnabled,
+    rommToken,
+    rommUrl,
+  });
   const resources = useDetailsResources({
     game,
     ipc: dependencies?.ipc,
@@ -155,7 +207,6 @@ export const useImmersiveGameDetailsController = ({
     launching: resources.actions.launching,
     primaryActionRef: resources.primaryActionRef,
   });
-
   useImmersiveGameDetailsKeyboard({
     canPlay: detailsState.canPlay,
     detailsRef: resources.detailsRef,
@@ -164,26 +215,18 @@ export const useImmersiveGameDetailsController = ({
     launchFailure: detailsState.launchFailure,
     launching: resources.actions.launching,
     onBack,
-    onOpenSettings: openSettings,
+    onOpenSettings: onOpenSettings ?? noop,
     primaryActionRef: resources.primaryActionRef,
     retryableLaunchFailure,
     switchContentSyncing: resources.actions.switchContentSyncing,
   });
-
-  return {
-    actions: resources.actions,
-    colors: resources.colors,
-    detailsRef: resources.detailsRef,
-    ...detailsState,
-    hasRomm: game.romm_id !== null && game.romm_id !== undefined,
+  return getDetailsController({
+    achievementState,
+    detailsState,
+    game,
     launchErrorPresentation,
-    launchProgress: resources.launchProgress,
-    primaryActionRef: resources.primaryActionRef,
+    resources,
     retryableLaunchFailure,
-    romDl: resources.romDl,
     rommConfigured: hasRommConnection(rommToken, rommUrl),
-    savesSectionRef: resources.savesSectionRef,
-    staleLaunchProgress: resources.staleLaunchProgress,
-    switchContentProgress: resources.switchContentProgress,
-  };
+  });
 };

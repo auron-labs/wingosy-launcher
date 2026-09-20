@@ -14,6 +14,7 @@ export interface ImmersiveGame {
   local_file_path?: string | null;
   sync_state?: string | null;
   last_played_at?: string | Date | null;
+  genres?: string[] | null;
 }
 
 export interface ImmersivePlatform {
@@ -50,6 +51,6 @@ export interface ImmersiveConfig {
 export interface LaunchResult {
   success: boolean;
   error?: string;
-  save_sync_messages?: unknown[];
-  save_sync_warnings?: string[];
+  save_sync_messages?: string[] | null;
+  save_sync_warnings?: string[] | null;
 }

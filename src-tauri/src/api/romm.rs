@@ -490,6 +490,106 @@ impl RomMClient {
         Ok(rom)
     }
 
+    pub async fn get_retroachievements(
+        &self,
+        rom_id: i32,
+        refresh_progression: bool,
+    ) -> Result<Vec<RomMAchievement>> {
+        let mut request = self
+            .client
+            .get(format!("{}/api/roms/{}", self.base_url, rom_id));
+        if let Some(auth) = self.auth_header() {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to fetch ROM achievements")?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .context("Failed to read ROM achievements response")?;
+        if !status.is_success() {
+            anyhow::bail!("ROM achievements request returned {status}");
+        }
+        let rom: serde_json::Value =
+            serde_json::from_str(&text).context("ROM achievements response is not valid JSON")?;
+
+        let definitions = rom
+            .get("merged_ra_metadata")
+            .and_then(|metadata| metadata.get("achievements"))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if definitions.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ra_game_id = rom.get("ra_id").and_then(valid_identifier);
+
+        let user = self.get_current_user_json().await?;
+        let user = if refresh_progression {
+            let user_id = user
+                .get("id")
+                .and_then(valid_identifier)
+                .context("RomM user response did not include a valid user id; cannot refresh RetroAchievements progression")?;
+            self.refresh_retroachievements_progression(user_id).await?;
+            self.get_current_user_json().await?
+        } else {
+            user
+        };
+
+        let earned = ra_game_id
+            .and_then(|game_id| progression_for_game(&user, game_id))
+            .unwrap_or_default();
+
+        Ok(definitions
+            .iter()
+            .filter_map(|definition| achievement_from_json(definition, &earned))
+            .collect())
+    }
+
+    async fn get_current_user_json(&self) -> Result<serde_json::Value> {
+        let mut request = self.client.get(format!("{}/api/users/me", self.base_url));
+        if let Some(auth) = self.auth_header() {
+            request = request.header("Authorization", auth);
+        }
+        let response = request
+            .send()
+            .await
+            .context("Failed to fetch RomM user progression")?;
+        parse_json_response(response, "RomM user progression request failed").await
+    }
+
+    async fn refresh_retroachievements_progression(&self, user_id: i64) -> Result<()> {
+        let mut request = self
+            .client
+            .post(format!("{}/api/users/{user_id}/ra/refresh", self.base_url))
+            .json(&serde_json::json!({ "incremental": true }));
+        if let Some(auth) = self.auth_header() {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to request RetroAchievements progression refresh")?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .context("Failed to read RetroAchievements refresh response")?;
+        if !status.is_success() {
+            let detail = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|body| body.get("detail")?.as_str().map(str::to_owned))
+                .unwrap_or_else(|| format!("HTTP {status}"));
+            anyhow::bail!("RetroAchievements progression refresh failed: {detail}");
+        }
+        Ok(())
+    }
+
     pub fn rom_download_url(&self, rom_id: i32, filename: &str) -> String {
         format!("{}/api/roms/{}/content/{}", self.base_url, rom_id, filename)
     }
@@ -571,18 +671,25 @@ impl RomMClient {
     pub async fn upload_save(&self, rom_id: i32, save_data: Vec<u8>, filename: &str) -> Result<()> {
         let part = reqwest::multipart::Part::bytes(save_data).file_name(filename.to_string());
 
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let form = reqwest::multipart::Form::new().part("saveFile", part);
 
         let mut request = self
             .client
-            .post(format!("{}/api/roms/{}/saves", self.base_url, rom_id))
-            .multipart(form);
+            .post(format!("{}/api/saves", self.base_url))
+            .multipart(form)
+            .query(&[("rom_id", rom_id.to_string())]);
 
         if let Some(auth) = self.auth_header() {
             request = request.header("Authorization", auth);
         }
 
-        request.send().await.context("Failed to upload save")?;
+        let response = request.send().await.context("Failed to upload save")?;
+        let status = response.status();
+        let text = response.text().await.context("read upload response")?;
+        if !status.is_success() {
+            let detail: String = text.chars().take(300).collect();
+            anyhow::bail!("Upload returned {}: {}", status, detail);
+        }
 
         Ok(())
     }
@@ -1050,6 +1157,25 @@ pub struct RomMRom {
     pub files: Option<Vec<RomMFile>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RomMAchievement {
+    pub id: i64,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub points: i32,
+    #[serde(rename = "type", default)]
+    pub achievement_type: Option<String>,
+    #[serde(default)]
+    pub badge_url: Option<String>,
+    #[serde(default)]
+    pub badge_url_lock: Option<String>,
+    pub unlocked: bool,
+    pub unlocked_hardcore: bool,
+    #[serde(default)]
+    pub unlocked_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RomMFile {
     #[serde(default)]
@@ -1075,6 +1201,77 @@ pub struct RomMFile {
 pub enum RomMFileLastModified {
     Number(f64),
     Text(String),
+}
+
+fn valid_identifier(value: &serde_json::Value) -> Option<i64> {
+    let id = value
+        .as_i64()
+        .or_else(|| value.as_str()?.trim().parse::<i64>().ok())?;
+    (id > 0).then_some(id)
+}
+
+fn identifiers(value: &serde_json::Value, keys: &[&str]) -> Vec<i64> {
+    keys.iter()
+        .filter_map(|key| value.get(*key).and_then(valid_identifier))
+        .collect()
+}
+
+fn progression_for_game(
+    user: &serde_json::Value,
+    ra_game_id: i64,
+) -> Option<Vec<serde_json::Value>> {
+    user.pointer("/ra_progression/results")?
+        .as_array()?
+        .iter()
+        .find(|result| result.get("rom_ra_id").and_then(valid_identifier) == Some(ra_game_id))
+        .and_then(|result| result.get("earned_achievements"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+}
+
+fn non_empty_string(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn achievement_from_json(
+    definition: &serde_json::Value,
+    earned: &[serde_json::Value],
+) -> Option<RomMAchievement> {
+    let id = definition.get("ra_id").and_then(valid_identifier)?;
+    let definition_ids = identifiers(definition, &["ra_id", "badge_id"]);
+    let earned_record = earned.iter().find(|item| {
+        identifiers(item, &["id", "achievement_id", "ra_id", "badge_id"])
+            .iter()
+            .any(|earned_id| definition_ids.contains(earned_id))
+    });
+    let unlocked_at = non_empty_string(earned_record.and_then(|item| item.get("date")));
+    let unlocked_hardcore_at =
+        non_empty_string(earned_record.and_then(|item| item.get("date_hardcore")));
+
+    Some(RomMAchievement {
+        id,
+        title: definition
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Achievement")
+            .to_owned(),
+        description: non_empty_string(definition.get("description")),
+        points: definition
+            .get("points")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|points| i32::try_from(points).ok())
+            .unwrap_or(0),
+        achievement_type: non_empty_string(definition.get("type")),
+        badge_url: non_empty_string(definition.get("badge_url")),
+        badge_url_lock: non_empty_string(definition.get("badge_url_lock")),
+        unlocked: unlocked_at.is_some() || unlocked_hardcore_at.is_some(),
+        unlocked_hardcore: unlocked_hardcore_at.is_some(),
+        unlocked_at: unlocked_hardcore_at.or(unlocked_at),
+    })
 }
 
 impl RomMRom {
@@ -1913,5 +2110,343 @@ mod tests {
         let game = rom.into_game("https://romm.example.com");
         assert_eq!(game.source, crate::models::GameSource::RomM);
         assert_eq!(game.romm_id, Some(123));
+    }
+
+    struct AchievementFixtureState {
+        rom: serde_json::Value,
+        user: serde_json::Value,
+        refreshed_user: Option<serde_json::Value>,
+        refresh_status: u16,
+        user_requests: usize,
+        refresh_requests: usize,
+    }
+
+    struct AchievementFixture {
+        base_url: String,
+        state: std::sync::Arc<std::sync::Mutex<AchievementFixtureState>>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl AchievementFixture {
+        async fn start(
+            rom: serde_json::Value,
+            user: serde_json::Value,
+            refreshed_user: Option<serde_json::Value>,
+            refresh_status: u16,
+        ) -> Self {
+            use tokio::net::TcpListener;
+
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let state = std::sync::Arc::new(std::sync::Mutex::new(AchievementFixtureState {
+                rom,
+                user,
+                refreshed_user,
+                refresh_status,
+                user_requests: 0,
+                refresh_requests: 0,
+            }));
+            let server_state = std::sync::Arc::clone(&state);
+            let task = tokio::spawn(async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    if let Err(error) = serve_achievement_request(&mut stream, &server_state).await
+                    {
+                        panic!("achievement fixture request failed: {error}");
+                    }
+                }
+            });
+
+            Self {
+                base_url: format!("http://{address}"),
+                state,
+                task,
+            }
+        }
+
+        fn request_counts(&self) -> (usize, usize) {
+            let state = self.state.lock().unwrap();
+            (state.user_requests, state.refresh_requests)
+        }
+    }
+
+    impl Drop for AchievementFixture {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn serve_achievement_request(
+        stream: &mut tokio::net::TcpStream,
+        state: &std::sync::Arc<std::sync::Mutex<AchievementFixtureState>>,
+    ) -> Result<(), String> {
+        let (method, target, headers) = read_achievement_request(stream).await?;
+        if headers.get("authorization").map(String::as_str) != Some("Bearer fixture-token") {
+            write_achievement_response(stream, 401, b"missing fixture authorization").await?;
+            return Ok(());
+        }
+
+        match (method.as_str(), target.as_str()) {
+            ("GET", "/api/roms/42") => {
+                let rom = state.lock().unwrap().rom.clone();
+                write_achievement_json(stream, 200, &rom).await
+            }
+            ("GET", "/api/users/me") => {
+                let user = {
+                    let mut state = state.lock().unwrap();
+                    state.user_requests += 1;
+                    state.user.clone()
+                };
+                write_achievement_json(stream, 200, &user).await
+            }
+            ("POST", "/api/users/7/ra/refresh") => {
+                let status = {
+                    let mut state = state.lock().unwrap();
+                    state.refresh_requests += 1;
+                    if let Some(user) = state.refreshed_user.clone() {
+                        state.user = user;
+                    }
+                    state.refresh_status
+                };
+                let body = if (200..=299).contains(&status) {
+                    b"{}".as_slice()
+                } else {
+                    b"{\"detail\":\"refresh rejected\"}".as_slice()
+                };
+                write_achievement_response(stream, status, body).await
+            }
+            _ => write_achievement_response(stream, 404, b"unsupported fixture route").await,
+        }
+    }
+
+    async fn read_achievement_request(
+        stream: &mut tokio::net::TcpStream,
+    ) -> Result<(String, String, std::collections::HashMap<String, String>), String> {
+        use tokio::io::AsyncReadExt;
+
+        let mut bytes = Vec::new();
+        let header_end = loop {
+            let mut chunk = [0_u8; 1024];
+            let read = stream
+                .read(&mut chunk)
+                .await
+                .map_err(|error| format!("read request: {error}"))?;
+            if read == 0 {
+                return Err("request ended before headers".to_string());
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break end + 4;
+            }
+        };
+        let header_text = std::str::from_utf8(&bytes[..header_end - 4])
+            .map_err(|error| format!("request headers were not UTF-8: {error}"))?;
+        let mut lines = header_text.lines();
+        let mut request_line = lines
+            .next()
+            .ok_or_else(|| "missing request line".to_string())?
+            .split_whitespace();
+        let method = request_line.next().unwrap_or_default().to_string();
+        let target = request_line
+            .next()
+            .unwrap_or_default()
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let mut headers = std::collections::HashMap::new();
+        for line in lines {
+            if let Some((name, value)) = line.split_once(':') {
+                headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+            }
+        }
+        Ok((method, target, headers))
+    }
+
+    async fn write_achievement_json(
+        stream: &mut tokio::net::TcpStream,
+        status: u16,
+        value: &serde_json::Value,
+    ) -> Result<(), String> {
+        let body = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+        write_achievement_response(stream, status, &body).await
+    }
+
+    async fn write_achievement_response(
+        stream: &mut tokio::net::TcpStream,
+        status: u16,
+        body: &[u8],
+    ) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+
+        let reason = match status {
+            200 => "OK",
+            401 => "Unauthorized",
+            404 => "Not Found",
+            503 => "Service Unavailable",
+            _ => "Response",
+        };
+        let response = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .map_err(|error| error.to_string())?;
+        stream
+            .write_all(body)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    fn achievement_rom(ra_id: Option<i64>, achievements: serde_json::Value) -> serde_json::Value {
+        let mut rom = serde_json::json!({
+            "id": 42,
+            "merged_ra_metadata": { "achievements": achievements },
+        });
+        if let Some(ra_id) = ra_id {
+            rom["ra_id"] = serde_json::json!(ra_id);
+        }
+        rom
+    }
+
+    fn achievement_user(results: serde_json::Value, id: Option<i64>) -> serde_json::Value {
+        let mut user = serde_json::json!({
+            "ra_progression": { "results": results },
+        });
+        if let Some(id) = id {
+            user["id"] = serde_json::json!(id);
+        }
+        user
+    }
+
+    #[tokio::test]
+    async fn retroachievements_maps_earned_and_locked_progress_without_refreshing() {
+        let fixture = AchievementFixture::start(
+            achievement_rom(
+                Some(9001),
+                serde_json::json!([
+                    {"ra_id": 101, "badge_id": "1001", "title": "Earned", "points": 10},
+                    {"ra_id": 102, "badge_id": "1002", "title": "Locked", "points": 20}
+                ]),
+            ),
+            achievement_user(
+                serde_json::json!([{
+                    "rom_ra_id": 9001,
+                    "earned_achievements": [{
+                        "id": "1001",
+                        "date": "2026-01-01T00:00:00Z",
+                        "date_hardcore": "2026-01-02T00:00:00Z"
+                    }]
+                }]),
+                Some(7),
+            ),
+            None,
+            200,
+        )
+        .await;
+
+        let client = RomMClient::new(&fixture.base_url).with_token("fixture-token".into());
+        let achievements = client.get_retroachievements(42, false).await.unwrap();
+
+        assert_eq!(achievements.len(), 2);
+        assert!(achievements[0].unlocked);
+        assert!(achievements[0].unlocked_hardcore);
+        assert_eq!(
+            achievements[0].unlocked_at.as_deref(),
+            Some("2026-01-02T00:00:00Z")
+        );
+        assert!(!achievements[1].unlocked);
+        assert!(!achievements[1].unlocked_hardcore);
+        assert_eq!(fixture.request_counts(), (1, 0));
+    }
+
+    #[tokio::test]
+    async fn retroachievements_missing_ids_never_select_progress() {
+        let fixture = AchievementFixture::start(
+            achievement_rom(
+                None,
+                serde_json::json!([
+                    {"ra_id": 101, "badge_id": "1001", "title": "No game id"},
+                    {"ra_id": 102, "title": "No badge id"},
+                    {"badge_id": "1003", "title": "No achievement id"}
+                ]),
+            ),
+            achievement_user(
+                serde_json::json!([{
+                    "earned_achievements": [
+                        {"id": "1001", "date": "2026-01-01T00:00:00Z"},
+                        {"date": "2026-01-01T00:00:00Z"}
+                    ]
+                }]),
+                Some(7),
+            ),
+            None,
+            200,
+        )
+        .await;
+
+        let client = RomMClient::new(&fixture.base_url).with_token("fixture-token".into());
+        let achievements = client.get_retroachievements(42, false).await.unwrap();
+
+        assert_eq!(achievements.len(), 2);
+        assert!(achievements.iter().all(|achievement| !achievement.unlocked));
+    }
+
+    #[tokio::test]
+    async fn retroachievements_refresh_reloads_progression() {
+        let fixture = AchievementFixture::start(
+            achievement_rom(
+                Some(9001),
+                serde_json::json!([
+                    {"ra_id": 101, "badge_id": "1001", "title": "Earned"}
+                ]),
+            ),
+            achievement_user(
+                serde_json::json!([{"rom_ra_id": 9001, "earned_achievements": []}]),
+                Some(7),
+            ),
+            Some(achievement_user(
+                serde_json::json!([{
+                    "rom_ra_id": 9001,
+                    "earned_achievements": [{"id": "1001", "date": "2026-01-01"}]
+                }]),
+                Some(7),
+            )),
+            200,
+        )
+        .await;
+
+        let client = RomMClient::new(&fixture.base_url).with_token("fixture-token".into());
+        let achievements = client.get_retroachievements(42, true).await.unwrap();
+
+        assert!(achievements[0].unlocked);
+        assert_eq!(fixture.request_counts(), (2, 1));
+    }
+
+    #[tokio::test]
+    async fn retroachievements_rejected_refresh_is_an_error() {
+        let fixture = AchievementFixture::start(
+            achievement_rom(
+                Some(9001),
+                serde_json::json!([{"ra_id": 101, "badge_id": "1001", "title": "Earned"}]),
+            ),
+            achievement_user(serde_json::json!([]), Some(7)),
+            None,
+            503,
+        )
+        .await;
+
+        let client = RomMClient::new(&fixture.base_url).with_token("fixture-token".into());
+        let error = client
+            .get_retroachievements(42, true)
+            .await
+            .expect_err("refresh rejection should propagate");
+
+        assert!(error.to_string().contains("refresh rejected"));
+        assert_eq!(fixture.request_counts(), (1, 1));
     }
 }

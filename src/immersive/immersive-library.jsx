@@ -21,6 +21,7 @@ import { useImmersiveLibraryController } from "./use-immersive-library-controlle
  * @property {() => void} onOpenSettings Opens settings.
  * @property {() => void} [onOpenDownloads] Opens downloads.
  * @property {{current: HTMLDivElement|null}} [controllerRouteRef] App-owned controller route target.
+ * @property {() => void} [onOpenRommSync] Opens the RomM sync monitor.
  */
 
 /** @param {ImmersiveLibraryProps} props Immersive library properties. */

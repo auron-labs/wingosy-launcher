@@ -47,7 +47,11 @@ export const getImmersiveYear = (game) => {
   return Number.isInteger(year) ? year : null;
 };
 
-/** @param {PlatformEntry[]} platforms Available platform entries. @returns {SpinePlatformOption[]} Spine platform options. */
+/** @param {ImmersiveGame} game Game metadata. @returns {string[]} Genre labels when available. */
+export const getImmersiveGenres = (game) =>
+  (game.genres ?? []).filter((genre) => genre !== "");
+
+/** @param {PlatformEntry[]} platforms Available platforms. @returns {SpinePlatformOption[]} Platform filter options. */
 export const toSpinePlatformOptions = (platforms) => [
   { id: null, label: "All platforms" },
   ...platforms.map(([platform]) => ({
@@ -55,9 +59,6 @@ export const toSpinePlatformOptions = (platforms) => [
     label: platform.name === "" ? platform.id : platform.name,
   })),
 ];
-
-/** @param {ImmersiveGame} game Game metadata. @returns {string[]} Genre labels when available. */
-export const getImmersiveGenres = (game) => game.genres ?? [];
 
 /** @param {number} value Position value. @returns {string} Zero-padded position. */
 export const formatImmersivePosition = (value) =>

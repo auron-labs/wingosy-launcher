@@ -82,7 +82,7 @@ const useSettingsControllerLifecycle = ({
 };
 
 /**
- * @param {{accentHue: number|null, actions: SettingsActions, activeRomDownloadCount: number, coreState: SettingsCoreState, emulatorState: SettingsEmulatorState, libraryState: SettingsLibraryState, onFullscreenChange: ((enabled: boolean) => void)|null, onImmersiveModeChange: ((enabled: boolean) => void)|null, onLibraryChange: (() => void|Promise<void>)|null|undefined, previewArgosySound: ReturnType<typeof useUiSounds>["previewArgosySound"], rommState: SettingsRommState, runtime: import("./settings-runtime").SettingsRuntime, setAccentHue: ReturnType<typeof useAppTheme>["setAccentHue"], setThemeMode: ReturnType<typeof useAppTheme>["setThemeMode"], setUiSoundsVolume: ReturnType<typeof useUiSounds>["setUiSoundsVolume"], themeMode: ReturnType<typeof useAppTheme>["themeMode"], uiSoundsEnabled: ReturnType<typeof useUiSounds>["uiSoundsEnabled"], uiSoundsVolume: ReturnType<typeof useUiSounds>["uiSoundsVolume"], updateState: SettingsUpdateState}} context Controller state and actions.
+ * @param {{accentHue: number|null, actions: SettingsActions, activeRomDownloadCount: number, coreState: SettingsCoreState, emulatorState: SettingsEmulatorState, libraryState: SettingsLibraryState, onFullscreenChange: ((enabled: boolean) => void)|null, onImmersiveModeChange: ((enabled: boolean) => void)|null, onRetroAchievementsChange: ((enabled: boolean) => void)|null, onLibraryChange: (() => void|Promise<void>)|null|undefined, previewArgosySound: ReturnType<typeof useUiSounds>["previewArgosySound"], rommState: SettingsRommState, runtime: import("./settings-runtime").SettingsRuntime, setAccentHue: ReturnType<typeof useAppTheme>["setAccentHue"], setThemeMode: ReturnType<typeof useAppTheme>["setThemeMode"], setUiSoundsVolume: ReturnType<typeof useUiSounds>["setUiSoundsVolume"], themeMode: ReturnType<typeof useAppTheme>["themeMode"], uiSoundsEnabled: ReturnType<typeof useUiSounds>["uiSoundsEnabled"], uiSoundsVolume: ReturnType<typeof useUiSounds>["uiSoundsVolume"], updateState: SettingsUpdateState}} context Controller state and actions.
  * @returns {import("./settings-types").SettingsPanelProps} Settings panel state and actions.
  */
 const buildSettingsControllerValue = ({
@@ -94,6 +94,7 @@ const buildSettingsControllerValue = ({
   libraryState,
   onFullscreenChange,
   onImmersiveModeChange,
+  onRetroAchievementsChange,
   onLibraryChange,
   previewArgosySound,
   rommState,
@@ -129,6 +130,7 @@ const buildSettingsControllerValue = ({
     onFullscreenChange,
     onImmersiveModeChange,
     onLibraryChange,
+    onRetroAchievementsChange,
     previewArgosySound,
     rommSessionActive,
     rommUrlLocked: rommSessionActive,
@@ -159,7 +161,7 @@ const useSettingsControllerStates = ({
   return { coreState, emulatorState, libraryState, rommState, updateState };
 };
 
-/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. @returns {import("./settings-types").SettingsPanelProps} Settings state and actions. */
+/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onRetroAchievementsChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, onBack?: () => void, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. @returns {import("./settings-types").SettingsPanelProps} Settings state and actions. */
 const useSettingsController = ({
   rommToken,
   rommUrl: rommUrlProp,
@@ -168,6 +170,7 @@ const useSettingsController = ({
   onLibraryChange,
   onImmersiveModeChange = null,
   onFullscreenChange = null,
+  onRetroAchievementsChange = null,
   onControllerDeadzoneChange = null,
   initialSection = "general",
   dependencies = {},
@@ -192,22 +195,19 @@ const useSettingsController = ({
     controllerStates;
   const actions = createSettingsActions({
     activeRomDownloadCount,
-    coreState,
-    emulatorState,
-    libraryState,
+    ...controllerStates,
     normalizeGamepadDeadzone,
     onControllerDeadzoneChange,
     onLibraryChange,
+    onRetroAchievementsChange,
     onRommConnect,
     onRommDisconnect,
     refreshUiSoundsFromConfig,
-    rommState,
     rommToken,
     rommUrlProp,
     runtime,
     setUiSoundsEnabled,
     setUiSoundsVolume,
-    updateState,
   });
   useSettingsControllerLifecycle({
     actions,
@@ -228,6 +228,7 @@ const useSettingsController = ({
     onFullscreenChange,
     onImmersiveModeChange,
     onLibraryChange,
+    onRetroAchievementsChange,
     previewArgosySound,
     rommState,
     runtime,

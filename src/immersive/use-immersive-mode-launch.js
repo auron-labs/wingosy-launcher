@@ -59,7 +59,7 @@ export const useImmersiveModeLaunch = ({
           );
           setError(`${presentation.message} ${presentation.guidance}`);
         } else if (
-          result.save_sync_warnings !== undefined &&
+          Array.isArray(result.save_sync_warnings) &&
           result.save_sync_warnings.length > 0
         ) {
           setError(result.save_sync_warnings.join("\n"));

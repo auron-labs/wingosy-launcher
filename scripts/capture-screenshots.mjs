@@ -28,7 +28,7 @@ const textVisible = (selector, wanted) => Array.from(document.querySelectorAll(s
 const interactiveElements = () => Array.from(document.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], [tabindex]')).filter(isVisible);
 const interactive = (wanted) => interactiveElements().find((element) => { const content = text(element); const accessibleName = normalise(element.getAttribute('aria-label')); return accessibleName === wanted || content === wanted || content.endsWith(' ' + wanted); });
 const dialogByTitle = (wanted) => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => { if (!isVisible(dialog)) return false; const labelId = dialog.getAttribute('aria-labelledby'); return labelId ? text(document.getElementById(labelId)) === wanted : Array.from(dialog.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')).some((heading) => text(heading) === wanted); });
-const screenState = () => { const desktopDetails = textVisible('button', 'Back to Library'); const desktopLibrary = selectorVisible('[data-testid="library-result-count"]'); const settings = selectorVisible('[data-testid="settings-nav-general"]'); const desktop = Boolean(interactive('All Games') || desktopLibrary || desktopDetails); return { desktop, desktopDetails, desktopLibrary, immersiveDetails: selectorVisible('[data-testid="immersive-game-details"]'), immersiveDownloads: textVisible('h1', 'Downloads') && !interactive('All Games'), immersiveLibrary: selectorVisible('[data-testid="immersive-library"]'), immersiveSettings: settings && !desktop, setup: Boolean(interactive('Get Started')), settings }; };
+const screenState = () => { const desktopDetails = textVisible('button', 'Back to Library'); const desktopLibrary = selectorVisible('[data-testid="library-result-count"]'); const desktopSync = selectorVisible('[data-testid="romm-sync-monitor"]') && Boolean(interactive('RomM Sync')); const settings = selectorVisible('[data-testid="settings-nav-general"]'); const desktop = Boolean(interactive('All Games') || desktopLibrary || desktopDetails || desktopSync); const immersiveSync = selectorVisible('[data-testid="romm-sync-monitor"]') && !interactive('All Games'); return { desktop, desktopDetails, desktopLibrary, desktopSync, immersiveDetails: selectorVisible('[data-testid="immersive-game-details"]'), immersiveDownloads: textVisible('h1', 'Downloads') && !interactive('All Games'), immersiveLibrary: selectorVisible('[data-testid="immersive-library"]'), immersiveSettings: settings && !desktop, immersiveSync, setup: Boolean(interactive('Get Started')), settings }; };
 `;
 
 let cliCommandPromise;
@@ -450,6 +450,17 @@ async function captureCloudSaveViews(directory, routes, reportSkip) {
 async function captureDesktop(directory, routes, reportSkip) {
   await goToDesktopLibrary();
   await capture("desktop-library", directory, routes);
+  await clickText("RomM Sync");
+  await waitForSelector(
+    '[data-testid="romm-sync-monitor"]',
+    "desktop RomM sync monitor"
+  );
+  await capture("desktop-romm-sync", directory, routes);
+  await clickText("All Games");
+  await waitFor(
+    "selectorVisible('[data-testid=\"library-result-count\"]')",
+    "the desktop library after RomM sync monitor"
+  );
   if ((await gameCount('[data-testid="game-card"]')) > 0) {
     await clickTestId("game-card", "the first desktop game card");
     await waitFor(
@@ -505,6 +516,14 @@ async function captureImmersive(directory, routes, reportSkip) {
     );
     state = await getState();
   }
+  if (state.immersiveSync) {
+    await clickText("Back to library");
+    await waitFor(
+      "selectorVisible('[data-testid=\"immersive-library\"]')",
+      "the immersive library after RomM sync monitor"
+    );
+    state = await getState();
+  }
   if (state.immersiveDetails) {
     await capture("immersive-details", directory, routes);
     await clickText("Back");
@@ -518,6 +537,17 @@ async function captureImmersive(directory, routes, reportSkip) {
     "the immersive library"
   );
   await capture("immersive-library", directory, routes);
+  await clickText("RomM Sync");
+  await waitForSelector(
+    '[data-testid="romm-sync-monitor"]',
+    "immersive RomM sync monitor"
+  );
+  await capture("immersive-romm-sync", directory, routes);
+  await clickText("Back to library");
+  await waitForSelector(
+    '[data-testid="immersive-library"]',
+    "the immersive library after RomM sync monitor"
+  );
   if ((await gameCount('[data-testid="immersive-grid"] button')) > 0) {
     await click(
       { selector: '[data-testid="immersive-grid"] button' },
@@ -549,10 +579,15 @@ async function leaveImmersive() {
   if (
     state.immersiveLibrary ||
     state.immersiveDetails ||
-    state.immersiveDownloads
+    state.immersiveDownloads ||
+    state.immersiveSync
   ) {
-    if (state.immersiveDetails || state.immersiveDownloads) {
-      await clickText("Back");
+    if (
+      state.immersiveDetails ||
+      state.immersiveDownloads ||
+      state.immersiveSync
+    ) {
+      await clickText(state.immersiveSync ? "Back to library" : "Back");
       await waitFor(
         "selectorVisible('[data-testid=\"immersive-library\"]')",
         "the immersive library before exit"
@@ -671,7 +706,8 @@ async function captureAll(options) {
     if (
       state.immersiveLibrary ||
       state.immersiveDetails ||
-      state.immersiveDownloads
+      state.immersiveDownloads ||
+      state.immersiveSync
     ) {
       await captureImmersive(directory, routes, reportSkip);
       await leaveImmersive();

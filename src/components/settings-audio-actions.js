@@ -1,5 +1,5 @@
-/** @typedef {{display?: {big_picture?: boolean, fullscreen?: boolean, controller_deadzone?: number, ui_sounds_enabled?: boolean}, audio?: {ambient_enabled?: boolean, ambient_volume?: number, ambient_path?: string|null, ambient_is_folder?: boolean, ambient_shuffle?: boolean, ui_sounds_volume?: number}}} SettingsConfig */
-/** @typedef {{config: SettingsConfig|null, runtime: import("./settings-runtime").SettingsRuntime, setConfig: SettingsSetter<SettingsConfig|null>, setImmersiveModeEnabled: SettingsSetter<boolean>, setFullscreenEnabled: SettingsSetter<boolean>, setControllerDeadzone: SettingsSetter<number>, onControllerDeadzoneChange?: ((value: number) => void)|null, normalizeGamepadDeadzone: (value: number) => number, setUiSoundsEnabled: SettingsSetter<boolean>, setUiSoundsVolume: SettingsSetter<number>, refreshUiSoundsFromConfig: (config: SettingsConfig) => void, onLibraryChange?: (() => void|Promise<void>)|null, setAmbientEnabled: SettingsSetter<boolean>, setAmbientVolume: SettingsSetter<number>, setAmbientPath: SettingsSetter<string|null>, setAmbientIsFolder: SettingsSetter<boolean>, setAmbientShuffle: SettingsSetter<boolean>}} AudioActionsContext */
+/** @typedef {{display?: {big_picture?: boolean, fullscreen?: boolean, controller_deadzone?: number, ui_sounds_enabled?: boolean, retroachievements_enabled?: boolean}, audio?: {ambient_enabled?: boolean, ambient_volume?: number, ambient_path?: string|null, ambient_is_folder?: boolean, ambient_shuffle?: boolean, ui_sounds_volume?: number}}} SettingsConfig */
+/** @typedef {{config: SettingsConfig|null, runtime: import("./settings-runtime").SettingsRuntime, setConfig: SettingsSetter<SettingsConfig|null>, setImmersiveModeEnabled: SettingsSetter<boolean>, setFullscreenEnabled: SettingsSetter<boolean>, setControllerDeadzone: SettingsSetter<number>, onControllerDeadzoneChange?: ((value: number) => void)|null, onRetroAchievementsChange?: ((value: boolean) => void)|null, normalizeGamepadDeadzone: (value: number) => number, setUiSoundsEnabled: SettingsSetter<boolean>, setUiSoundsVolume: SettingsSetter<number>, refreshUiSoundsFromConfig: (config: SettingsConfig) => void, onLibraryChange?: (() => void|Promise<void>)|null, setAmbientEnabled: SettingsSetter<boolean>, setAmbientVolume: SettingsSetter<number>, setAmbientPath: SettingsSetter<string|null>, setAmbientIsFolder: SettingsSetter<boolean>, setAmbientShuffle: SettingsSetter<boolean>}} AudioActionsContext */
 /** @typedef {{ambient_enabled?: boolean, ambient_volume?: number, ambient_path?: string|null, ambient_is_folder?: boolean, ambient_shuffle?: boolean}} AmbientUpdate */
 /** @template T @typedef {(value: T | ((previous: T) => T)) => void} SettingsSetter */
 
@@ -34,6 +34,26 @@ const persistDisplayFlags = async (
   setConfig(cfg);
   setImmersiveModeEnabled(nextImmersive);
   setFullscreenEnabled(nextFullscreen);
+};
+
+/** @param {Pick<AudioActionsContext, "config"|"runtime"|"setConfig"|"onRetroAchievementsChange">} context Display state. @param {boolean} nextEnabled Whether RetroAchievements is enabled. */
+const persistRetroAchievements = async (
+  { config, onRetroAchievementsChange, runtime, setConfig },
+  nextEnabled
+) => {
+  try {
+    const cfg = await cloneSettingsConfig(
+      config,
+      async () => await runtime.invoke("get_config")
+    );
+    cfg.display ??= {};
+    cfg.display.retroachievements_enabled = nextEnabled;
+    await runtime.invoke("save_config", { config: cfg });
+    setConfig(cfg);
+    onRetroAchievementsChange?.(nextEnabled);
+  } catch (error) {
+    console.error("Failed to save RetroAchievements setting:", error);
+  }
 };
 
 /** @param {Pick<AudioActionsContext, "config"|"runtime"|"setConfig"|"setControllerDeadzone"|"onControllerDeadzoneChange"|"normalizeGamepadDeadzone">} context Display state. @param {number} nextDeadzone Requested deadzone. */
@@ -234,6 +254,10 @@ export const createSettingsAudioActions = (context) => {
   const saveDisplayFlags = async (nextImmersive, nextFullscreen) => {
     await persistDisplayFlags(context, nextImmersive, nextFullscreen);
   };
+  /** @param {boolean} nextEnabled Whether RetroAchievements is enabled. */
+  const saveRetroAchievements = async (nextEnabled) => {
+    await persistRetroAchievements(context, nextEnabled);
+  };
   /** @type {(next: boolean) => Promise<void>} */
   const saveUiSounds = async (next) => {
     await persistUiSounds(context, next);
@@ -259,6 +283,7 @@ export const createSettingsAudioActions = (context) => {
     persistAmbient: saveAmbient,
     persistControllerDeadzone: saveControllerDeadzone,
     persistDisplayFlags: saveDisplayFlags,
+    persistRetroAchievements: saveRetroAchievements,
     persistUiSounds: saveUiSounds,
     persistUiSoundsVolume: saveUiSoundsVolume,
     pickAmbientFile: chooseAmbientFile,

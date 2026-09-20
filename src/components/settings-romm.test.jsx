@@ -7,6 +7,16 @@ import {
   renderSettings,
 } from "./settings-test-fixtures";
 
+const getLastSaveConfigCall = () => {
+  for (let index = invoke.mock.calls.length - 1; index >= 0; index -= 1) {
+    const call = invoke.mock.calls[index];
+    if (call?.[0] === "save_config") {
+      return call;
+    }
+  }
+  return null;
+};
+
 describe("Settings RomM connection", () => {
   afterEach(cleanupSettingsTest);
 
@@ -145,18 +155,53 @@ describe("Settings RomM sync", () => {
   });
 });
 
-describe("Settings integrations preview", () => {
+describe("Settings integrations", () => {
   afterEach(cleanupSettingsTest);
 
-  it("marks RetroAchievements as a disabled preview", async () => {
-    renderSettings({ initialSection: "integrations" });
+  it("loads the persisted RetroAchievements preference", async () => {
+    renderSettings({
+      config: { display: { retroachievements_enabled: true } },
+      initialSection: "integrations",
+    });
 
-    await expect(screen.findByText("Preview")).resolves.toBeInTheDocument();
+    const toggle = await screen.findByRole("switch", {
+      name: "Enable RetroAchievements",
+    });
+    expect(toggle).toBeChecked();
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/tracking and achievement data are not shipped yet/u)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("switch", { name: "Enable RetroAchievements" })
-    ).toBeDisabled();
+      screen.queryByText(/tracking and achievement data are not shipped yet/u)
+    ).not.toBeInTheDocument();
+  });
+
+  it("persists a changed preference and updates the local config", async () => {
+    renderSettings({
+      config: {
+        display: {
+          big_picture: true,
+          retroachievements_enabled: false,
+        },
+      },
+      initialSection: "integrations",
+    });
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Enable RetroAchievements",
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(getLastSaveConfigCall()?.[1]).toMatchObject({
+        config: {
+          display: {
+            big_picture: true,
+            retroachievements_enabled: true,
+          },
+        },
+      });
+      expect(toggle).toBeChecked();
+    });
   });
 });

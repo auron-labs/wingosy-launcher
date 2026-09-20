@@ -19,6 +19,7 @@ import { gameDetailsIpc } from "./game/game-details-ipc";
 import { GameDetailsOverview } from "./game/game-details-overview";
 import { GameDetailsSavesSection } from "./game/game-details-saves-section";
 import { getCoverSrc } from "./game/game-details-utils";
+import { useGameDetailsAchievements } from "./game/use-game-details-achievements";
 import { useGameDetailsActions } from "./game/use-game-details-actions";
 import { useGameDetailsRetroAchievements } from "./game/use-game-details-config";
 import { useGameDetailsSaves } from "./game/use-game-details-saves";
@@ -31,8 +32,10 @@ import { useGameDetailsSaves } from "./game/use-game-details-saves";
 
 /** @typedef {{game: GameDetailsGame, platforms: Array<[GameDetailsPlatform, number]>, onBack: () => void, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, onToggleFavorite: (gameId: number|string) => void, onGameUpdate?: (gameId: number|string) => void|Promise<void>, rommToken: string|null, rommUrl: string|null, onOpenSettings?: (() => void)|null, onOpenIntegrations?: (() => void)|null, dependencies?: {ipc?: import("./game/game-details-ipc").GameDetailsIpc, openDialog?: typeof defaultOpenDialog}}} GameDetailsProps */
 /** @typedef {ReturnType<typeof useGameDetailsActions>} GameDetailsActions */
+/** @typedef {ReturnType<typeof useGameDetailsAchievements>} GameDetailsAchievementsState */
+/** @typedef {{achievementsState: GameDetailsAchievementsState, retroachievementsEnabled: boolean}} GameDetailsAchievementResources */
 /** @typedef {ReturnType<typeof useGameDetailsSaves>} GameDetailsSaves */
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, actions: GameDetailsActions, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
+/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, actions: GameDetailsActions, achievementsState: GameDetailsAchievementsState, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
 /** @typedef {Omit<GameDetailsViewProps, "coverSrc"|"onBack"|"onImageError">} GameDetailsPanelProps */
 
 /** @param {GameDetailsGame} game Game being viewed. @param {string|null} rommToken RomM token. @param {string|null} rommUrl RomM URL. @returns {boolean} Whether the game has remote access configured. */
@@ -114,6 +117,21 @@ const getGameDetailsViewState = (game, platforms, rommToken, rommUrl) => {
     game.source === "RomM" &&
     hasRemoteAccess(game, rommToken, rommUrl);
   return { canSyncSwitchContent, isSwitch, platform, syncStatus };
+};
+
+/** @param {GameDetailsProps} props Game details properties. @param {import("./game/game-details-ipc").GameDetailsIpc} ipc Game details IPC. @returns {GameDetailsAchievementResources} Achievement resources. */
+const useGameDetailsAchievementState = (props, ipc) => {
+  const enabled = useGameDetailsRetroAchievements(ipc);
+  return {
+    achievementsState: useGameDetailsAchievements({
+      game: props.game,
+      ipc,
+      retroachievementsEnabled: enabled,
+      rommToken: props.rommToken,
+      rommUrl: props.rommUrl,
+    }),
+    retroachievementsEnabled: enabled,
+  };
 };
 
 /** @param {GameDetailsPanelProps & {onOpenSaveHistory?: () => void}} props Playback controls and status content. */
@@ -237,6 +255,7 @@ const GameDetailsPanelContent = (props) => {
     actions,
     game,
     isSwitch,
+    achievementsState,
     onOpenIntegrations,
     retroachievementsEnabled,
     saves,
@@ -250,6 +269,7 @@ const GameDetailsPanelContent = (props) => {
         }}
       />
       <GameDetailsOverview
+        achievementsState={achievementsState}
         game={game}
         onOpenIntegrations={onOpenIntegrations}
         retroachievementsEnabled={retroachievementsEnabled}
@@ -259,24 +279,26 @@ const GameDetailsPanelContent = (props) => {
         historyOpen={saveHistoryOpen}
         isSwitch={isSwitch}
         launchActive={actions.launchActive}
-        onCloseHistory={() => {
-          setSaveHistoryOpen(false);
-        }}
         onClearStatus={() => {
           saves.setSaveStatus(null);
+        }}
+        onCloseHistory={() => {
+          setSaveHistoryOpen(false);
         }}
         onCreateBackup={saves.handleCreateSwitchBackup}
         onDownloadSave={saves.handleDownloadSave}
         onEnableSaveSync={saves.handleEnableSaveSync}
         onListSaves={saves.handleListSaves}
-        onUploadSave={saves.handleUploadSave}
+        onResumeSwitchSaveNormalSync={saves.handleResumeSwitchSaveNormalSync}
         onSyncCurrentSave={saves.handleSyncCurrentSwitchSave}
+        onUploadSave={saves.handleUploadSave}
         saveStatus={saves.saveStatus}
         saveSyncEnabled={saves.saveSyncEnabled}
         saves={saves.saves}
         savesLoaded={saves.savesLoaded}
         savesLoading={saves.savesLoading}
         switchPathInfo={saves.switchPathInfo}
+        switchRestoreProtection={saves.switchRestoreProtection}
         switchSyncBusy={saves.switchSyncBusy}
       />
     </>
@@ -301,6 +323,7 @@ const GameDetailsPanel = (props) => (
 /** @param {GameDetailsViewProps} props View properties. */
 const GameDetailsView = ({
   actions,
+  achievementsState,
   canSyncSwitchContent,
   coverSrc,
   game,
@@ -339,6 +362,7 @@ const GameDetailsView = ({
     />
     <GameDetailsPanel
       actions={actions}
+      achievementsState={achievementsState}
       canSyncSwitchContent={canSyncSwitchContent}
       game={game}
       hasLocalFile={hasLocalFile}
@@ -421,7 +445,8 @@ const useGameDetailsController = (props) => {
     rommToken,
     rommUrl,
   });
-  const retroachievementsEnabled = useGameDetailsRetroAchievements(ipc);
+  const { achievementsState, retroachievementsEnabled } =
+    useGameDetailsAchievementState(props, ipc);
   const displayState = getGameDetailsDisplayState(
     game,
     actions,
@@ -431,6 +456,7 @@ const useGameDetailsController = (props) => {
   );
   return {
     ...displayState,
+    achievementsState,
     actions,
     canSyncSwitchContent,
     game,
