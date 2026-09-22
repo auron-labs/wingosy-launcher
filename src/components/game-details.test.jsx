@@ -298,6 +298,53 @@ describe("GameDetails launch retry", () => {
       expect(screen.getByRole("button", { name: "Play" })).not.toBeDisabled();
     });
   });
+
+  it("dismisses a retained launch failure until the next failed Play", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    listen.mockImplementation(async (event, handler) => {
+      eventListeners.set(event, handler);
+      const unsubscribe = () => {
+        eventListeners.delete(event);
+      };
+      return await Promise.resolve(unsubscribe);
+    });
+    const onLaunch = vi
+      .fn()
+      .mockResolvedValueOnce({ error: "first launch failed", success: false })
+      .mockResolvedValueOnce({ error: "second launch failed", success: false });
+    const view = renderDetails({ onLaunch });
+
+    await waitFor(() => {
+      if (!eventListeners.has("game-launch-progress")) {
+        throw new Error("Launch progress listener is not registered");
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await screen.findByText("first launch failed");
+    act(() => {
+      dispatchEvent("game-launch-progress", {
+        error: "retained launch failure",
+        game_id: remoteOnlyGame.id,
+        stage: "failure",
+      });
+    });
+
+    const dismiss = screen.getByRole("button", {
+      name: "Dismiss launch error",
+    });
+    dismiss.focus();
+    expect(dismiss).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    view.rerender(createDetailsElement({ onLaunch }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await screen.findByText("second launch failed");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
 });
 
 describe("GameDetails cloud saves", () => {

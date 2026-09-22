@@ -1,9 +1,11 @@
+import CloseIcon from "@mui/icons-material/Close";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SyncIcon from "@mui/icons-material/Sync";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -180,7 +182,7 @@ export const GameDetailsPlayControls = ({
 );
 
 /** @typedef {{offer: EmulatorInfo|null, status: "idle"|"loading"|"ready"|"cancelled"|"installing"|"success"|"error", pending: boolean, error: string|null, confirm: () => Promise<void>, cancel: () => void}} MissingEmulatorRecovery */
-/** @typedef {{progress: GameDetailsProgress|null, launchError: string|null, presentation: {message: string, guidance: string, retryable: boolean}, launchActive: boolean, downloadActive: boolean, onRetry: () => Promise<void>, onOpenSettings: (() => void)|null, recovery: MissingEmulatorRecovery}} GameDetailsLaunchStatusProps */
+/** @typedef {{progress: GameDetailsProgress|null, launchError: string|null, presentation: {message: string, guidance: string, retryable: boolean}, launchActive: boolean, downloadActive: boolean, onDismiss: () => void, onRetry: () => Promise<void>, onOpenSettings: (() => void)|null, recovery: MissingEmulatorRecovery}} GameDetailsLaunchStatusProps */
 
 /** @param {MissingEmulatorRecovery} recovery Recovery state. @returns {string} Install offer message. */
 const getMissingEmulatorInstallMessage = (recovery) => {
@@ -303,6 +305,7 @@ export const GameDetailsLaunchStatus = ({
   downloadActive,
   launchActive,
   launchError,
+  onDismiss,
   onOpenSettings,
   onRetry,
   presentation,
@@ -340,6 +343,14 @@ export const GameDetailsLaunchStatus = ({
                   Retry
                 </Button>
               ) : null}
+              <IconButton
+                aria-label="Dismiss launch error"
+                color="inherit"
+                onClick={onDismiss}
+                size="small"
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
             </Box>
           ) : undefined
         }

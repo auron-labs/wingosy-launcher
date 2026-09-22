@@ -37,7 +37,7 @@ import { useMissingEmulatorRecovery } from "./game/use-missing-emulator-recovery
 /** @typedef {ReturnType<typeof useMissingEmulatorRecovery>} MissingEmulatorRecovery */
 /** @typedef {{achievementsState: GameDetailsAchievementsState, retroachievementsEnabled: boolean}} GameDetailsAchievementResources */
 /** @typedef {ReturnType<typeof useGameDetailsSaves>} GameDetailsSaves */
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, missingEmulatorRecovery: MissingEmulatorRecovery, actions: GameDetailsActions, achievementsState: GameDetailsAchievementsState, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
+/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, visibleLaunchError: string|null, missingEmulatorRecovery: MissingEmulatorRecovery, actions: GameDetailsActions, achievementsState: GameDetailsAchievementsState, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
 /** @typedef {Omit<GameDetailsViewProps, "coverSrc"|"onBack"|"onImageError">} GameDetailsPanelProps */
 
 const noOp = () => null;
@@ -70,9 +70,19 @@ const getSyncStatus = (syncState) => {
   return null;
 };
 
-/** @param {boolean} launching Whether a launch is active. @param {GameDetailsProgress|null} launchProgress Current launch progress. @returns {GameDetailsProgress|null} Progress visible in the details view. */
-const getVisibleLaunchProgress = (launching, launchProgress) =>
-  launching && launchProgress?.stage === "failure" ? null : launchProgress;
+/** @param {boolean} launching Whether a launch is active. @param {boolean} launchFailureDismissed Whether the current failure was dismissed. @param {GameDetailsProgress|null} launchProgress Current launch progress. @returns {GameDetailsProgress|null} Progress visible in the details view. */
+const getVisibleLaunchProgress = (
+  launching,
+  launchFailureDismissed,
+  launchProgress
+) =>
+  (launching || launchFailureDismissed) && launchProgress?.stage === "failure"
+    ? null
+    : launchProgress;
+
+/** @param {string|null} launchError Current launch error. @param {boolean} launchFailureDismissed Whether the current failure was dismissed. @returns {string|null} Launch error visible in the details view. */
+const getVisibleLaunchError = (launchError, launchFailureDismissed) =>
+  launchFailureDismissed ? null : launchError;
 
 /** @param {string|null} launchError Current launch error. @param {GameDetailsProgress|null} launchProgress Current launch progress. @param {GameDetailsPlatform|null} platform Current game platform. @returns {GameDetailsLaunchErrorPresentation} Launch error presentation. */
 const getGameDetailsLaunchPresentation = (
@@ -85,7 +95,7 @@ const getGameDetailsLaunchPresentation = (
     platform?.name
   );
 
-/** @param {GameDetailsGame} game Game being viewed. @param {GameDetailsActions} actions Current action state. @param {boolean} imgError Whether the cover image failed. @param {GameDetailsProgress|null} launchProgress Current launch progress. @param {GameDetailsPlatform|null} platform Current platform. @returns {{coverSrc: string|null, showCover: boolean, hasLocalFile: boolean, launchProgress: GameDetailsProgress|null, launchErrorPresentation: GameDetailsLaunchErrorPresentation}} Display state. */
+/** @param {GameDetailsGame} game Game being viewed. @param {GameDetailsActions} actions Current action state. @param {boolean} imgError Whether the cover image failed. @param {GameDetailsProgress|null} launchProgress Current launch progress. @param {GameDetailsPlatform|null} platform Current platform. @returns {{coverSrc: string|null, showCover: boolean, hasLocalFile: boolean, launchProgress: GameDetailsProgress|null, launchErrorPresentation: GameDetailsLaunchErrorPresentation, visibleLaunchError: string|null}} Display state. */
 const getGameDetailsDisplayState = (
   game,
   actions,
@@ -99,18 +109,24 @@ const getGameDetailsDisplayState = (
     actions.justDownloaded || Boolean(game.local_file_path?.trim());
   const visibleLaunchProgress = getVisibleLaunchProgress(
     actions.launching,
+    actions.launchFailureDismissed,
     launchProgress
+  );
+  const visibleLaunchError = getVisibleLaunchError(
+    actions.launchError,
+    actions.launchFailureDismissed
   );
   return {
     coverSrc,
     hasLocalFile,
     launchErrorPresentation: getGameDetailsLaunchPresentation(
-      actions.launchError,
+      visibleLaunchError,
       visibleLaunchProgress,
       platform
     ),
     launchProgress: visibleLaunchProgress,
     showCover,
+    visibleLaunchError,
   };
 };
 
@@ -188,6 +204,7 @@ const GameDetailsProgressContent = ({
   rommUrl,
   saves,
   switchContentProgress,
+  visibleLaunchError,
 }) => (
   <>
     <GameDetailsPlayControls
@@ -215,7 +232,8 @@ const GameDetailsProgressContent = ({
     <GameDetailsLaunchStatus
       downloadActive={actions.downloadActive}
       launchActive={actions.launchActive}
-      launchError={actions.launchError}
+      launchError={visibleLaunchError}
+      onDismiss={actions.handleDismissLaunchFailure}
       onOpenSettings={onOpenSettings}
       onRetry={actions.handleLaunchGame}
       presentation={launchErrorPresentation}
@@ -385,6 +403,7 @@ const GameDetailsView = ({
   showCover,
   switchContentProgress,
   syncStatus,
+  visibleLaunchError,
 }) => (
   <Box
     sx={{
@@ -422,6 +441,7 @@ const GameDetailsView = ({
       showCover={showCover}
       switchContentProgress={switchContentProgress}
       syncStatus={syncStatus}
+      visibleLaunchError={visibleLaunchError}
     />
     <CollectionPickerDialog
       collections={actions.collections}

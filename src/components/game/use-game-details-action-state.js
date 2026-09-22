@@ -19,6 +19,7 @@ export const useGameDetailsActionState = () => {
   const [downloading, setDownloading] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState(initialLaunchError);
+  const [launchFailureDismissed, setLaunchFailureDismissed] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState(initialDownloadStatus);
   const [justDownloaded, setJustDownloaded] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(initialMenuAnchor);
@@ -31,6 +32,9 @@ export const useGameDetailsActionState = () => {
   const downloadInFlightRef = useRef(false);
   const launchInFlightRef = useRef(false);
   const switchContentInFlightRef = useRef(false);
+  const handleDismissLaunchFailure = () => {
+    setLaunchFailureDismissed(true);
+  };
 
   return {
     actionStatus,
@@ -40,8 +44,10 @@ export const useGameDetailsActionState = () => {
     downloadInFlightRef,
     downloadStatus,
     downloading,
+    handleDismissLaunchFailure,
     justDownloaded,
     launchError,
+    launchFailureDismissed,
     launchInFlightRef,
     launching,
     menuAnchor,
@@ -54,6 +60,7 @@ export const useGameDetailsActionState = () => {
     setDownloading,
     setJustDownloaded,
     setLaunchError,
+    setLaunchFailureDismissed,
     setLaunching,
     setMenuAnchor,
     setRefreshing,

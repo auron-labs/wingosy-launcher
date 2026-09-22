@@ -1,17 +1,16 @@
 # Local Issue State
 
-Generated: 2026-09-22T07:33:45Z
+Generated: 2026-09-22T08:23:49Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 6 active, 46 resolved
+Tickets: 5 active, 47 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [eden-integration](eden-integration/spec.md) | [03-reliable-eden-save-sync](eden-integration/issues/03-reliable-eden-save-sync.md) | — | — | ready-for-human | None — can start immediately |
-| [notes-followups](notes-followups) | [04-dismiss-game-details-launch-error](notes-followups/issues/04-dismiss-game-details-launch-error.md) | — | — | ready-for-agent | None — can start immediately |
 | [notes-followups](notes-followups) | [05-show-settings-outside-library-shell](notes-followups/issues/05-show-settings-outside-library-shell.md) | — | — | ready-for-agent | None — can start immediately |
 | [notes-followups](notes-followups) | [06-show-switch-updates-dlc-status](notes-followups/issues/06-show-switch-updates-dlc-status.md) | — | — | ready-for-agent | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [04-restore-focus-after-eden-exits](smoke-test-followups/issues/04-restore-focus-after-eden-exits.md) | — | — | ready-for-human | None — can start immediately. |
@@ -40,6 +39,7 @@ Tickets: 6 active, 46 resolved
 | [notes-followups](notes-followups) | [01-stop-romm-status-flicker](notes-followups/issues/01-stop-romm-status-flicker.md) | — | — | resolved | None — can start immediately |
 | [notes-followups](notes-followups) | [02-correct-switch-emulator-compatibility](notes-followups/issues/02-correct-switch-emulator-compatibility.md) | — | — | resolved | None — can start immediately |
 | [notes-followups](notes-followups) | [03-offer-sole-compatible-emulator-install](notes-followups/issues/03-offer-sole-compatible-emulator-install.md) | — | — | resolved | [02 — Correct Switch emulator compatibility](./02-correct-switch-emulator-compatibility.md) |
+| [notes-followups](notes-followups) | [04-dismiss-game-details-launch-error](notes-followups/issues/04-dismiss-game-details-launch-error.md) | — | — | resolved | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [02-offer-save-sync-retry](smoke-test-followups/issues/02-offer-save-sync-retry.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [03-filter-library-by-favorites](smoke-test-followups/issues/03-filter-library-by-favorites.md) | — | — | resolved | None — can start immediately. |
