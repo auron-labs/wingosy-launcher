@@ -13,6 +13,7 @@ import { launchStageLabel } from "./game-details-utils";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
+/** @typedef {import("./game-details-types").EmulatorInfo} EmulatorInfo */
 
 /** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, saveSyncBusy: boolean, switchContentSyncing: boolean, canSyncSwitchContent: boolean, cloudSaveStatus?: import("react").ReactNode, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
 
@@ -178,7 +179,66 @@ export const GameDetailsPlayControls = ({
   </Box>
 );
 
-/** @typedef {{progress: GameDetailsProgress|null, launchError: string|null, presentation: {message: string, guidance: string, retryable: boolean}, launchActive: boolean, downloadActive: boolean, onRetry: () => Promise<void>, onOpenSettings: (() => void)|null}} GameDetailsLaunchStatusProps */
+/** @typedef {{offer: EmulatorInfo|null, status: "idle"|"loading"|"ready"|"cancelled"|"installing"|"success"|"error", pending: boolean, error: string|null, confirm: () => Promise<void>, cancel: () => void}} MissingEmulatorRecovery */
+/** @typedef {{progress: GameDetailsProgress|null, launchError: string|null, presentation: {message: string, guidance: string, retryable: boolean}, launchActive: boolean, downloadActive: boolean, onRetry: () => Promise<void>, onOpenSettings: (() => void)|null, recovery: MissingEmulatorRecovery}} GameDetailsLaunchStatusProps */
+
+/** @param {MissingEmulatorRecovery} recovery Recovery state. @returns {string} Install offer message. */
+const getMissingEmulatorInstallMessage = (recovery) => {
+  const emulatorName = recovery.offer?.name ?? "the emulator";
+  if (recovery.status === "installing") {
+    return `Installing ${emulatorName}…`;
+  }
+  if (recovery.status === "error") {
+    return `Couldn’t install ${emulatorName}: ${recovery.error}`;
+  }
+  return `Install ${emulatorName} to play this game.`;
+};
+
+/** @param {{recovery: MissingEmulatorRecovery}} props Missing-emulator install offer state. */
+const MissingEmulatorInstallOffer = ({ recovery }) => {
+  const emulator = recovery.offer;
+  if (emulator === null) {
+    return null;
+  }
+  if (recovery.status === "success") {
+    return (
+      <Typography sx={{ display: "block", mt: 1 }} variant="body2">
+        {emulator.name} was installed. Press Play when you&apos;re ready.
+      </Typography>
+    );
+  }
+  const handleInstall = () => {
+    void recovery.confirm();
+  };
+  const handleCancel = () => {
+    recovery.cancel();
+  };
+  return (
+    <>
+      <Typography sx={{ display: "block", mt: 1 }} variant="body2">
+        {getMissingEmulatorInstallMessage(recovery)}
+      </Typography>
+      <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+        <Button
+          color="inherit"
+          disabled={recovery.pending}
+          onClick={handleInstall}
+          size="small"
+        >
+          Install {emulator.name}
+        </Button>
+        <Button
+          color="inherit"
+          disabled={recovery.pending}
+          onClick={handleCancel}
+          size="small"
+        >
+          Cancel
+        </Button>
+      </Box>
+    </>
+  );
+};
 
 /** @param {{progress: GameDetailsProgress|null}} props Download progress properties. */
 const LaunchDownloadProgress = ({ progress }) => {
@@ -247,6 +307,7 @@ export const GameDetailsLaunchStatus = ({
   onRetry,
   presentation,
   progress,
+  recovery,
 }) => {
   if (progress === null && launchError === null) {
     return null;
@@ -286,9 +347,12 @@ export const GameDetailsLaunchStatus = ({
       >
         {statusMessage}
         {failed ? (
-          <Typography sx={{ display: "block", mt: 0.5 }} variant="body2">
-            {presentation.guidance}
-          </Typography>
+          <>
+            <Typography sx={{ display: "block", mt: 0.5 }} variant="body2">
+              {presentation.guidance}
+            </Typography>
+            <MissingEmulatorInstallOffer recovery={recovery} />
+          </>
         ) : null}
       </Alert>
       <LaunchDownloadProgress progress={progress} />

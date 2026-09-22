@@ -160,15 +160,32 @@ const handleArrowKey = ({
   });
 };
 
-/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void}} options Failed launch action dependencies. */
+/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, missingEmulatorRecovery: {offer: unknown, pending: boolean, status: string, confirm: () => Promise<void>}, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void}} options Failed launch action dependencies. */
 const handleLaunchFailure = ({
   event,
   action,
+  missingEmulatorRecovery,
   retryableLaunchFailure,
   handleLaunchGame,
   onOpenSettings,
 }) => {
   event.preventDefault();
+  if (missingEmulatorRecovery.status === "installing") {
+    logControllerOutcome(action, "details", "suppressed", {
+      reason: "emulator-install-in-progress",
+    });
+    return;
+  }
+  if (
+    missingEmulatorRecovery.offer !== null &&
+    missingEmulatorRecovery.status !== "success"
+  ) {
+    void missingEmulatorRecovery.confirm();
+    logControllerOutcome(action, "details", "handled", {
+      reason: "install-emulator",
+    });
+    return;
+  }
   if (retryableLaunchFailure) {
     void handleLaunchGame();
     logControllerOutcome(action, "details", "handled", {
@@ -182,13 +199,14 @@ const handleLaunchFailure = ({
   });
 };
 
-/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, launchFailure: boolean, launching: boolean, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void}} options Controller Enter overlay dependencies. @returns {boolean} Whether an overlay handled the event. */
+/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, launchFailure: boolean, launching: boolean, missingEmulatorRecovery: {offer: unknown, pending: boolean, status: string, confirm: () => Promise<void>}, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void}} options Controller Enter overlay dependencies. @returns {boolean} Whether an overlay handled the event. */
 const handleEnterOverlay = ({
   action,
   event,
   handleLaunchGame,
   launchFailure,
   launching,
+  missingEmulatorRecovery,
   onOpenSettings,
   retryableLaunchFailure,
 }) => {
@@ -205,6 +223,7 @@ const handleEnterOverlay = ({
       action,
       event,
       handleLaunchGame,
+      missingEmulatorRecovery,
       onOpenSettings,
       retryableLaunchFailure,
     });
@@ -227,7 +246,7 @@ const handleEnterOverlay = ({
   return true;
 };
 
-/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, canPlay: boolean, handleDownloadRom: () => Promise<void>, launchFailure: boolean, launching: boolean, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void, detailsRef: {current: HTMLElement|null}, switchContentSyncing: boolean}} options Enter keyboard dependencies. */
+/** @param {{event: KeyboardEvent, action: ReturnType<typeof getControllerAction>, canPlay: boolean, handleDownloadRom: () => Promise<void>, launchFailure: boolean, launching: boolean, missingEmulatorRecovery: {offer: unknown, pending: boolean, status: string, confirm: () => Promise<void>}, retryableLaunchFailure: boolean, handleLaunchGame: () => Promise<void>, onOpenSettings: () => void, detailsRef: {current: HTMLElement|null}, switchContentSyncing: boolean}} options Enter keyboard dependencies. */
 const handleEnterKey = ({
   event,
   action,
@@ -235,6 +254,7 @@ const handleEnterKey = ({
   handleDownloadRom,
   launchFailure,
   launching,
+  missingEmulatorRecovery,
   retryableLaunchFailure,
   handleLaunchGame,
   onOpenSettings,
@@ -248,6 +268,7 @@ const handleEnterKey = ({
       handleLaunchGame,
       launchFailure,
       launching,
+      missingEmulatorRecovery,
       onOpenSettings,
       retryableLaunchFailure,
     })
@@ -271,6 +292,7 @@ const handleEnterKey = ({
       action,
       event,
       handleLaunchGame,
+      missingEmulatorRecovery,
       onOpenSettings,
       retryableLaunchFailure,
     });
@@ -327,7 +349,7 @@ const handleEscapeKey = ({ event, action, launchFailure, onBack }) => {
   });
 };
 
-/** @param {{canPlay: boolean, detailsRef: {current: HTMLElement|null}, handleDownloadRom: () => Promise<void>, handleLaunchGame: () => Promise<void>, launchFailure: boolean, launching: boolean, onBack: () => void, onOpenSettings: () => void, primaryActionRef: {current: HTMLButtonElement|null}, retryableLaunchFailure: boolean, switchContentSyncing: boolean}} options Keyboard hook options. */
+/** @param {{canPlay: boolean, detailsRef: {current: HTMLElement|null}, handleDownloadRom: () => Promise<void>, handleLaunchGame: () => Promise<void>, launchFailure: boolean, launching: boolean, missingEmulatorRecovery: {offer: unknown, pending: boolean, status: string, confirm: () => Promise<void>}, onBack: () => void, onOpenSettings: () => void, primaryActionRef: {current: HTMLButtonElement|null}, retryableLaunchFailure: boolean, switchContentSyncing: boolean}} options Keyboard hook options. */
 export const useImmersiveGameDetailsKeyboard = ({
   canPlay,
   detailsRef,
@@ -335,6 +357,7 @@ export const useImmersiveGameDetailsKeyboard = ({
   handleLaunchGame,
   launchFailure,
   launching,
+  missingEmulatorRecovery,
   onBack,
   onOpenSettings,
   primaryActionRef,
@@ -345,9 +368,7 @@ export const useImmersiveGameDetailsKeyboard = ({
     /** @param {KeyboardEvent} event Keyboard event. */
     const onWindowKeyDown = (event) => {
       const action = getControllerAction(event);
-      const targetIsWindow =
-        event.target === window || event.target === event.currentTarget;
-      if (!targetIsWindow) {
+      if (event.target !== window && event.target !== event.currentTarget) {
         logControllerOutcome(action, "details", "ignored", {
           reason: "event-target-not-window",
         });
@@ -379,6 +400,7 @@ export const useImmersiveGameDetailsKeyboard = ({
           handleLaunchGame,
           launchFailure,
           launching,
+          missingEmulatorRecovery,
           onOpenSettings,
           retryableLaunchFailure,
           switchContentSyncing,
@@ -400,6 +422,7 @@ export const useImmersiveGameDetailsKeyboard = ({
     handleLaunchGame,
     launchFailure,
     launching,
+    missingEmulatorRecovery,
     onBack,
     onOpenSettings,
     primaryActionRef,

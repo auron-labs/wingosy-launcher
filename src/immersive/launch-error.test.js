@@ -13,6 +13,7 @@ describe("immersive launch errors", () => {
       "This game cannot start because no compatible emulator is installed for PlayStation 2."
     );
     expect(presentation.guidance).toContain("Settings → Emulators");
+    expect(presentation.kind).toBe("missing-emulator");
     expect(presentation.retryable).toBeFalsy();
     expect(presentation.message).not.toMatch(/promised|certified|RetroArch/iu);
   });
@@ -39,5 +40,12 @@ describe("immersive launch errors", () => {
     expect(
       canRetryLaunch("The emulator closed before it could start")
     ).toBeTruthy();
+  });
+
+  it("classifies unrelated launch failures without relying on presentation copy", () => {
+    expect(
+      getLaunchErrorPresentation("The emulator closed before it could start")
+        .kind
+    ).toBe("other");
   });
 });

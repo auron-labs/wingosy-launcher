@@ -65,6 +65,13 @@ export const launchableGame = {
   local_file_path: "/roms/cloud.gba",
 };
 
+export const switchLaunchableGame = {
+  ...launchableGame,
+  id: 18,
+  name: "Switch Launchable Game",
+  platform_id: "switch",
+};
+
 /** @param {string} eventName Event name. @param {unknown} payload Event payload. */
 export const dispatchEvent = (eventName, payload) => {
   const handler = eventListeners.get(eventName);

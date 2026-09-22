@@ -2,6 +2,7 @@ import type {
   GameDetailsAchievementsAchievement,
   GameDetailsCollection,
   GameDetailsConfig,
+  EmulatorInfo,
   GameDetailsSave,
   GameDetailsSwitchPathInfo,
   GameDetailsSwitchSaveRestoreProtection,
@@ -17,6 +18,7 @@ import type {
 interface TestInvokeArgs {
   collectionId?: number;
   config?: ImmersiveConfig;
+  emulatorId?: string;
   filePath?: string;
   gameId?: number | string;
   page?: number;
@@ -32,7 +34,10 @@ interface TestInvokeArgs {
 }
 
 export interface GameDetailsTestInvoke {
-  (command: "download_game_save", args?: TestInvokeArgs): Promise<string>;
+  (
+    command: "download_emulator" | "download_game_save",
+    args?: TestInvokeArgs
+  ): Promise<string>;
   (
     command:
       | "download_switch_save"
@@ -45,13 +50,13 @@ export interface GameDetailsTestInvoke {
     command: "get_collections",
     args?: TestInvokeArgs
   ): Promise<GameDetailsCollection[]>;
+  (
+    command: "get_emulators_for_platform",
+    args?: TestInvokeArgs
+  ): Promise<EmulatorInfo[]>;
   (command: "get_config", args?: TestInvokeArgs): Promise<GameDetailsConfig>;
   (
-    command: "get_game_saves",
-    args?: TestInvokeArgs
-  ): Promise<GameDetailsSave[]>;
-  (
-    command: "get_switch_game_saves",
+    command: "get_game_saves" | "get_switch_game_saves",
     args?: TestInvokeArgs
   ): Promise<GameDetailsSave[]>;
   (

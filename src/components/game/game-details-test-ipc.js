@@ -9,8 +9,20 @@ const createSetSaveSyncEnabled = (invoke) => async (enabled) => {
   await invoke("save_config", { config });
 };
 
+/** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {Pick<GameDetailsIpc, "downloadEmulator"|"getEmulatorsForPlatform">} Missing-emulator recovery IPC. */
+const createMissingEmulatorRecoveryIpc = (invoke) => {
+  /** @type {GameDetailsIpc["downloadEmulator"]} */
+  const downloadEmulator = async (emulatorId) =>
+    await invoke("download_emulator", { emulatorId });
+  /** @type {GameDetailsIpc["getEmulatorsForPlatform"]} */
+  const getEmulatorsForPlatform = async (platformId) =>
+    await invoke("get_emulators_for_platform", { platformId });
+  return { downloadEmulator, getEmulatorsForPlatform };
+};
+
 /** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {GameDetailsIpc} Game details IPC adapter. */
 export const createGameDetailsTestIpc = (invoke) => {
+  const missingEmulatorRecoveryIpc = createMissingEmulatorRecoveryIpc(invoke);
   /** @type {(command: "get_romm_retroachievements", args?: Record<string, unknown>) => Promise<import("./game-details-types").GameDetailsAchievementsAchievement[]>} */
   const invokeRommRetroAchievements = invoke;
   /** @type {GameDetailsIpc["addGameToCollection"]} */
@@ -86,6 +98,7 @@ export const createGameDetailsTestIpc = (invoke) => {
     await invoke("upload_switch_save", { gameId, slot });
 
   return {
+    ...missingEmulatorRecoveryIpc,
     addGameToCollection,
     deleteLocalRom,
     downloadGameSave,

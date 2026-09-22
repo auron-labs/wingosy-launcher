@@ -5,6 +5,7 @@ import type {
   GameDetailsAchievementsAchievement,
   GameDetailsCollection,
   GameDetailsConfig,
+  EmulatorInfo,
   GameDetailsGame,
   GameDetailsSave,
   GameDetailsSwitchPathInfo,
@@ -17,6 +18,12 @@ const command = async <T>(name: string, args?: InvokeArgs) =>
 
 export const getGameDetailsConfig = async () =>
   await command<GameDetailsConfig>("get_config");
+
+export const getEmulatorsForPlatform = async (platformId: string) =>
+  await command<EmulatorInfo[]>("get_emulators_for_platform", { platformId });
+
+export const downloadEmulator = async (emulatorId: EmulatorInfo["id"]) =>
+  await command<string>("download_emulator", { emulatorId });
 
 export const getSwitchSavePathInfo = async (gameId: GameDetailsGame["id"]) =>
   await command<GameDetailsSwitchPathInfo>("get_switch_save_path_info", {
@@ -161,10 +168,12 @@ export const addGameToCollection = async (
 export const gameDetailsIpc = {
   addGameToCollection,
   deleteLocalRom,
+  downloadEmulator,
   downloadGameSave,
   downloadRom,
   downloadSwitchSave,
   getCollections,
+  getEmulatorsForPlatform,
   getGameDetailsConfig,
   getGameSaves,
   getRommRetroAchievements,
@@ -174,12 +183,12 @@ export const gameDetailsIpc = {
   openRomLocation,
   refreshGameMetadata,
   resumeSwitchSaveNormalSync,
-  syncSwitchContent,
+  setSaveSyncEnabled,
   syncCurrentSwitchSave,
+  syncSwitchContent,
   toggleGameHidden,
   uploadGameSave,
   uploadSwitchSave,
-  setSaveSyncEnabled,
 };
 
 export type GameDetailsIpc = typeof gameDetailsIpc;

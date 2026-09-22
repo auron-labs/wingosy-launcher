@@ -2,6 +2,7 @@ const MISSING_EMULATOR_ERROR =
   /(?:No compatible RetroArch core is installed for|No emulator configured for platform:)\s*(?<platform>.+)$/iu;
 
 /** @typedef {string|{message?: string}|null|undefined} LaunchError */
+/** @typedef {"missing-emulator"|"other"} LaunchErrorKind */
 
 /** @param {LaunchError} error Candidate error. @returns {error is string} Whether the error is text. */
 const isLaunchErrorString = (error) =>
@@ -27,7 +28,8 @@ export const canRetryLaunch = (error) =>
 
 /**
  * @param {LaunchError} error - Error returned by a launch attempt.
- * @param {string|null|undefined} platformLabel - Human-readable platform name.
+ * @param {string|null} [platformLabel] - Human-readable platform name.
+ * @returns {{guidance: string, kind: LaunchErrorKind, message: string, retryable: boolean}} Presentation for a launch failure.
  */
 export const getLaunchErrorPresentation = (error, platformLabel) => {
   const message = getErrorMessage(error);
@@ -41,6 +43,7 @@ export const getLaunchErrorPresentation = (error, platformLabel) => {
     const platform = label === "" ? fallback : label;
     return {
       guidance: `Open Settings → Emulators to install or select a compatible emulator for ${platform}.`,
+      kind: "missing-emulator",
       message: `This game cannot start because no compatible emulator is installed for ${platform}.`,
       retryable,
     };
@@ -48,6 +51,7 @@ export const getLaunchErrorPresentation = (error, platformLabel) => {
 
   return {
     guidance: "Check Settings → Emulators, then try again.",
+    kind: "other",
     message: rawMessage,
     retryable,
   };

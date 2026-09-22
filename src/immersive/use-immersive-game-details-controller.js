@@ -4,6 +4,7 @@ import { gameDetailsIpc } from "../components/game/game-details-ipc";
 import { useGameDetailsAchievements } from "../components/game/use-game-details-achievements";
 import { useGameDetailsActions } from "../components/game/use-game-details-actions";
 import { useGameDetailsSaves } from "../components/game/use-game-details-saves";
+import { useMissingEmulatorRecovery } from "../components/game/use-missing-emulator-recovery";
 import { useRomDownloads } from "../rom-downloads-context-value";
 import { useAppTheme } from "../theme-context";
 import {
@@ -128,12 +129,13 @@ const useRestoreDetailsFocus = ({
   }, [launchFailure, launching, primaryActionRef]);
 };
 
-/** @param {{achievementState: ReturnType<typeof useGameDetailsAchievements>, detailsState: ReturnType<typeof getImmersiveDetailsState>, game: ImmersiveGame, launchErrorPresentation: ReturnType<typeof getLaunchErrorPresentation>, resources: ReturnType<typeof useDetailsResources>, retryableLaunchFailure: boolean, rommConfigured: boolean}} options Controller state. */
+/** @param {{achievementState: ReturnType<typeof useGameDetailsAchievements>, detailsState: ReturnType<typeof getImmersiveDetailsState>, game: ImmersiveGame, launchErrorPresentation: ReturnType<typeof getLaunchErrorPresentation>, missingEmulatorRecovery: ReturnType<typeof useMissingEmulatorRecovery>, resources: ReturnType<typeof useDetailsResources>, retryableLaunchFailure: boolean, rommConfigured: boolean}} options Controller state. */
 const getDetailsController = ({
   achievementState,
   detailsState,
   game,
   launchErrorPresentation,
+  missingEmulatorRecovery,
   resources,
   retryableLaunchFailure,
   rommConfigured,
@@ -146,6 +148,7 @@ const getDetailsController = ({
   hasRomm: game.romm_id !== null && game.romm_id !== undefined,
   launchErrorPresentation,
   launchProgress: resources.launchProgress,
+  missingEmulatorRecovery,
   primaryActionRef: resources.primaryActionRef,
   retryableLaunchFailure,
   romDl: resources.romDl,
@@ -155,6 +158,34 @@ const getDetailsController = ({
   staleLaunchProgress: resources.staleLaunchProgress,
   switchContentProgress: resources.switchContentProgress,
 });
+
+/** @param {{actions: ReturnType<typeof useGameDetailsActions>, detailsState: ReturnType<typeof getImmersiveDetailsState>, ipc: ImmersiveDetailsIpc|undefined, platformId: string, platformLabel: string|undefined}} options Launch failure presentation and recovery dependencies. */
+const useImmersiveLaunchFailureRecovery = ({
+  actions,
+  detailsState,
+  ipc,
+  platformId,
+  platformLabel,
+}) => {
+  const launchError =
+    actions.launchError ?? detailsState.visibleLaunchProgress?.error;
+  const launchErrorPresentation = getLaunchErrorPresentation(
+    launchError,
+    platformLabel
+  );
+  const missingEmulatorRecovery = useMissingEmulatorRecovery({
+    ipc,
+    launchError,
+    launchErrorPresentation,
+    platformId,
+  });
+  return {
+    launchErrorPresentation,
+    missingEmulatorRecovery,
+    retryableLaunchFailure:
+      detailsState.launchFailure && launchErrorPresentation.retryable,
+  };
+};
 
 /** @param {ImmersiveGameDetailsProps} props Details properties. */
 export const useImmersiveGameDetailsController = ({
@@ -195,12 +226,17 @@ export const useImmersiveGameDetailsController = ({
     rommUrl,
     staleLaunchProgress: resources.staleLaunchProgress,
   });
-  const launchErrorPresentation = getLaunchErrorPresentation(
-    resources.actions.launchError ?? detailsState.visibleLaunchProgress?.error,
-    platformLabel
-  );
-  const retryableLaunchFailure =
-    detailsState.launchFailure && launchErrorPresentation.retryable;
+  const {
+    launchErrorPresentation,
+    missingEmulatorRecovery,
+    retryableLaunchFailure,
+  } = useImmersiveLaunchFailureRecovery({
+    actions: resources.actions,
+    detailsState,
+    ipc: dependencies?.ipc,
+    platformId: game.platform_id,
+    platformLabel,
+  });
 
   useRestoreDetailsFocus({
     launchFailure: detailsState.launchFailure,
@@ -214,6 +250,7 @@ export const useImmersiveGameDetailsController = ({
     handleLaunchGame: resources.actions.handleLaunchGame,
     launchFailure: detailsState.launchFailure,
     launching: resources.actions.launching,
+    missingEmulatorRecovery,
     onBack,
     onOpenSettings: onOpenSettings ?? noop,
     primaryActionRef: resources.primaryActionRef,
@@ -225,6 +262,7 @@ export const useImmersiveGameDetailsController = ({
     detailsState,
     game,
     launchErrorPresentation,
+    missingEmulatorRecovery,
     resources,
     retryableLaunchFailure,
     rommConfigured: hasRommConnection(rommToken, rommUrl),

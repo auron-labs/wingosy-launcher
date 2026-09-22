@@ -12,6 +12,7 @@ import {
   dispatchControllerKey,
   dispatchEvent,
   eventListeners,
+  invoke,
   launchableGame,
   listen,
   remoteOnlyGame,
@@ -19,6 +20,7 @@ import {
   resetImmersiveGameDetailsTest,
   resolveDeferred,
   createVoidCallback,
+  switchLaunchableGame,
 } from "./immersive-game-details-test-fixtures";
 
 const installLaunchProgressListener = () => {
@@ -57,6 +59,17 @@ const expectMissingEmulatorDialog = () => {
     screen.getByRole("heading", { name: "Launch failed" })
   ).toBeInTheDocument();
   expect(screen.getByText("Esc to go back")).toBeInTheDocument();
+};
+
+const eden = {
+  has_download: true,
+  id: "eden",
+  install_type: null,
+  installed_path: null,
+  is_installed: false,
+  name: "Eden",
+  supported_platforms: ["switch"],
+  version: null,
 };
 
 describe("ImmersiveGameDetails repeated launch input", () => {
@@ -234,6 +247,118 @@ describe("ImmersiveGameDetails missing emulator guidance", () => {
     });
     expectMissingEmulatorDialog();
     expect(document.querySelector(".MuiBackdrop-root")).toBeInTheDocument();
+  });
+});
+
+describe("ImmersiveGameDetails missing emulator installation confirmation", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("confirms the sole install offer with pending and success feedback without relaunching", async () => {
+    /** @type {PromiseWithResolvers<string>} */
+    const installation = createDeferred();
+    const onLaunch = vi.fn().mockResolvedValue({
+      error: "No emulator configured for platform: switch",
+      success: false,
+    });
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_emulators_for_platform") {
+        return [eden];
+      }
+      if (command === "download_emulator") {
+        return await installation.promise;
+      }
+      return { display: {} };
+    });
+    renderDetails(onLaunch, switchLaunchableGame, {
+      platformLabel: "Nintendo Switch",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    const install = await screen.findByRole("button", {
+      name: "Install Eden",
+    });
+    expect(install).toHaveFocus();
+    fireEvent.click(install);
+
+    expect(invoke).toHaveBeenCalledWith("download_emulator", {
+      emulatorId: "eden",
+    });
+    expect(screen.getByText("Installing Eden…")).toBeInTheDocument();
+
+    await act(async () => {
+      installation.resolve("C:\\Emulators\\eden.exe");
+      await installation.promise;
+    });
+    await expect(
+      screen.findByText("Eden was installed. Press Play when you're ready.")
+    ).resolves.toBeInTheDocument();
+    expect(onLaunch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ImmersiveGameDetails missing emulator installation errors", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("shows installation errors in the launch recovery dialog", async () => {
+    const onLaunch = vi.fn().mockResolvedValue({
+      error: "No emulator configured for platform: switch",
+      success: false,
+    });
+    invoke.mockImplementation((command) => {
+      if (command === "get_emulators_for_platform") {
+        return [eden];
+      }
+      if (command === "download_emulator") {
+        throw new Error("Download failed");
+      }
+      return { display: {} };
+    });
+    renderDetails(onLaunch, switchLaunchableGame, {
+      platformLabel: "Nintendo Switch",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Install Eden" })
+    );
+
+    await expect(
+      screen.findByText("Couldn’t install Eden: Download failed")
+    ).resolves.toBeInTheDocument();
+    expect(onLaunch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ImmersiveGameDetails missing emulator installation cancellation", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("cancels only the install offer without installing", async () => {
+    const onLaunch = vi.fn().mockResolvedValue({
+      error: "No emulator configured for platform: switch",
+      success: false,
+    });
+    invoke.mockImplementation((command) => {
+      if (command === "get_emulators_for_platform") {
+        return [eden];
+      }
+      return { display: {} };
+    });
+    renderDetails(onLaunch, switchLaunchableGame, {
+      platformLabel: "Nintendo Switch",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(
+      invoke.mock.calls.filter(([command]) => command === "download_emulator")
+    ).toHaveLength(0);
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Open Settings → Emulators"
+    );
+    expect(
+      screen.queryByRole("button", { name: "Install Eden" })
+    ).not.toBeInTheDocument();
   });
 });
 

@@ -23,6 +23,7 @@ import { useGameDetailsAchievements } from "./game/use-game-details-achievements
 import { useGameDetailsActions } from "./game/use-game-details-actions";
 import { useGameDetailsRetroAchievements } from "./game/use-game-details-config";
 import { useGameDetailsSaves } from "./game/use-game-details-saves";
+import { useMissingEmulatorRecovery } from "./game/use-missing-emulator-recovery";
 
 /** @typedef {import("./game/game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game/game-details-types").GameDetailsLaunchErrorPresentation} GameDetailsLaunchErrorPresentation */
@@ -33,10 +34,18 @@ import { useGameDetailsSaves } from "./game/use-game-details-saves";
 /** @typedef {{game: GameDetailsGame, platforms: Array<[GameDetailsPlatform, number]>, onBack: () => void, onLaunch: (gameId: number|string) => Promise<GameDetailsLaunchResult|null|undefined>, onToggleFavorite: (gameId: number|string) => void, onGameUpdate?: (gameId: number|string) => void|Promise<void>, rommToken: string|null, rommUrl: string|null, onOpenSettings?: (() => void)|null, onOpenIntegrations?: (() => void)|null, dependencies?: {ipc?: import("./game/game-details-ipc").GameDetailsIpc, openDialog?: typeof defaultOpenDialog}}} GameDetailsProps */
 /** @typedef {ReturnType<typeof useGameDetailsActions>} GameDetailsActions */
 /** @typedef {ReturnType<typeof useGameDetailsAchievements>} GameDetailsAchievementsState */
+/** @typedef {ReturnType<typeof useMissingEmulatorRecovery>} MissingEmulatorRecovery */
 /** @typedef {{achievementsState: GameDetailsAchievementsState, retroachievementsEnabled: boolean}} GameDetailsAchievementResources */
 /** @typedef {ReturnType<typeof useGameDetailsSaves>} GameDetailsSaves */
-/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, actions: GameDetailsActions, achievementsState: GameDetailsAchievementsState, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
+/** @typedef {{game: GameDetailsGame, isSwitch: boolean, platform: GameDetailsPlatform|null, coverSrc: string|null, showCover: boolean, romDl: GameDetailsProgress|null, launchProgress: GameDetailsProgress|null, switchContentProgress: GameDetailsProgress|null, hasLocalFile: boolean, launchErrorPresentation: GameDetailsLaunchErrorPresentation, missingEmulatorRecovery: MissingEmulatorRecovery, actions: GameDetailsActions, achievementsState: GameDetailsAchievementsState, saves: GameDetailsSaves, canSyncSwitchContent: boolean, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, onBack: () => void, onImageError: () => void, onToggleFavorite: (gameId: number|string) => void, onOpenSettings: (() => void)|null, onOpenIntegrations: (() => void)|null, rommToken: string|null, rommUrl: string|null, retroachievementsEnabled: boolean}} GameDetailsViewProps */
 /** @typedef {Omit<GameDetailsViewProps, "coverSrc"|"onBack"|"onImageError">} GameDetailsPanelProps */
+
+const noOp = () => null;
+
+/** @param {GameDetailsProps["onGameUpdate"]} onGameUpdate Update callback. @returns {(gameId: GameDetailsGame["id"]) => void} Callback that does not hold up the current UI action. */
+const createGameUpdateNotifier = (onGameUpdate) => (gameId) => {
+  void onGameUpdate?.(gameId);
+};
 
 /** @param {GameDetailsGame} game Game being viewed. @param {string|null} rommToken RomM token. @param {string|null} rommUrl RomM URL. @returns {boolean} Whether the game has remote access configured. */
 const hasRemoteAccess = (game, rommToken, rommUrl) =>
@@ -105,6 +114,34 @@ const getGameDetailsDisplayState = (
   };
 };
 
+/** @param {{actions: GameDetailsActions, game: GameDetailsGame, imgError: boolean, ipc: typeof gameDetailsIpc, launchProgress: GameDetailsProgress|null, platform: GameDetailsPlatform|null}} options Display and missing-emulator recovery state. */
+const useGameDetailsDisplayState = ({
+  actions,
+  game,
+  imgError,
+  ipc,
+  launchProgress,
+  platform,
+}) => {
+  const displayState = getGameDetailsDisplayState(
+    game,
+    actions,
+    imgError,
+    launchProgress,
+    platform
+  );
+  return {
+    ...displayState,
+    missingEmulatorRecovery: useMissingEmulatorRecovery({
+      ipc,
+      launchError:
+        actions.launchError ?? displayState.launchProgress?.error ?? null,
+      launchErrorPresentation: displayState.launchErrorPresentation,
+      platformId: game.platform_id,
+    }),
+  };
+};
+
 /** @param {GameDetailsGame} game Game being viewed. @param {Array<[GameDetailsPlatform, number]>} platforms Available platforms. @param {string|null} rommToken RomM token. @param {string|null} rommUrl RomM URL. @returns {{isSwitch: boolean, platform: GameDetailsPlatform|null, syncStatus: "remote-only"|"synced"|"downloaded-not-synced"|null, canSyncSwitchContent: boolean}} Derived game details state. */
 const getGameDetailsViewState = (game, platforms, rommToken, rommUrl) => {
   const isSwitch = game.platform_id === "switch";
@@ -143,7 +180,8 @@ const GameDetailsProgressContent = ({
   launchErrorPresentation,
   launchProgress,
   isSwitch,
-  onOpenSaveHistory = () => {},
+  missingEmulatorRecovery,
+  onOpenSaveHistory = noOp,
   onOpenSettings,
   romDl,
   rommToken,
@@ -182,6 +220,7 @@ const GameDetailsProgressContent = ({
       onRetry={actions.handleLaunchGame}
       presentation={launchErrorPresentation}
       progress={launchProgress}
+      recovery={missingEmulatorRecovery}
     />
     <GameDetailsDownloadStatus
       downloading={actions.downloading}
@@ -331,6 +370,7 @@ const GameDetailsView = ({
   isSwitch,
   launchErrorPresentation,
   launchProgress,
+  missingEmulatorRecovery,
   onBack,
   onOpenIntegrations,
   onOpenSettings,
@@ -369,6 +409,7 @@ const GameDetailsView = ({
       isSwitch={isSwitch}
       launchErrorPresentation={launchErrorPresentation}
       launchProgress={launchProgress}
+      missingEmulatorRecovery={missingEmulatorRecovery}
       onOpenIntegrations={onOpenIntegrations}
       onOpenSettings={onOpenSettings}
       onToggleFavorite={onToggleFavorite}
@@ -410,7 +451,6 @@ const useGameDetailsController = (props) => {
     rommToken,
     rommUrl,
   } = props;
-  /** @type {{ipc?: typeof gameDetailsIpc, openDialog?: typeof defaultOpenDialog}} */
   const dependencies = props.dependencies ?? {};
   const ipc = dependencies.ipc ?? gameDetailsIpc;
   const openDialog = dependencies.openDialog ?? defaultOpenDialog;
@@ -436,9 +476,7 @@ const useGameDetailsController = (props) => {
     ipc,
     launchProgress,
     onBack,
-    onGameUpdate: (gameId) => {
-      void onGameUpdate?.(gameId);
-    },
+    onGameUpdate: createGameUpdateNotifier(onGameUpdate),
     onLaunch,
     onLaunchComplete: saves.handleLaunchSaveSyncResult,
     romDl,
@@ -447,13 +485,14 @@ const useGameDetailsController = (props) => {
   });
   const { achievementsState, retroachievementsEnabled } =
     useGameDetailsAchievementState(props, ipc);
-  const displayState = getGameDetailsDisplayState(
-    game,
+  const displayState = useGameDetailsDisplayState({
     actions,
+    game,
     imgError,
+    ipc,
     launchProgress,
-    platform
-  );
+    platform,
+  });
   return {
     ...displayState,
     achievementsState,

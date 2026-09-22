@@ -64,6 +64,18 @@ export interface GameDetailsLaunchErrorPresentation {
   message: string;
   guidance: string;
   retryable: boolean;
+  kind: "missing-emulator" | "other";
+}
+
+export interface EmulatorInfo {
+  id: string;
+  name: string;
+  is_installed: boolean;
+  installed_path: string | null;
+  install_type: string | null;
+  version: string | null;
+  has_download: boolean;
+  supported_platforms: string[];
 }
 
 export interface GameDetailsSwitchSyncResult {

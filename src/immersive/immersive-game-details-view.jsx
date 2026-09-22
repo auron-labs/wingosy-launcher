@@ -137,6 +137,7 @@ const ImmersiveGameDetailsView = ({
         launchDialogOpen={controller.launchDialogOpen}
         launchErrorPresentation={controller.launchErrorPresentation}
         launchFailure={controller.launchFailure}
+        missingEmulatorRecovery={controller.missingEmulatorRecovery}
         launchActive={actions.launchActive}
         launchProgressLabel={launchProgressLabel}
         launchStageLabel={launchStageLabel}
