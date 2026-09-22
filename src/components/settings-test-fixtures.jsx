@@ -135,6 +135,33 @@ const createSettingsInvoke = (options) => {
   return settingsInvoke;
 };
 
+/** @type {SettingsInvoke} */
+// @ts-expect-error -- Vitest does not preserve the overloaded runtime invoke signature.
+const runtimeInvoke = invoke;
+
+/** @param {{initialSection: string, rommToken: string|null, rommUrl: string}} props Settings component props. */
+const createSettingsElement = ({ initialSection, rommToken, rommUrl }) => (
+  <MuiTestProvider>
+    <ThemeContext.Provider value={themeValue}>
+      <UiSoundsContext.Provider value={soundValue}>
+        <Settings
+          dependencies={{
+            invoke: runtimeInvoke,
+            listen,
+            openDialog: open,
+            shellOpen,
+          }}
+          onRommConnect={noOp}
+          onLibraryChange={noOp}
+          rommToken={rommToken}
+          rommUrl={rommUrl}
+          initialSection={initialSection}
+        />
+      </UiSoundsContext.Provider>
+    </ThemeContext.Provider>
+  </MuiTestProvider>
+);
+
 /** @param {SettingsFixtureOptions} [options] Settings test fixture options. */
 export const renderSettings = ({
   emulators = [],
@@ -169,29 +196,12 @@ export const renderSettings = ({
     })
   );
   listen.mockResolvedValue(noOp);
-  /** @type {SettingsInvoke} */
-  // @ts-expect-error -- Vitest does not preserve the overloaded runtime invoke signature.
-  const runtimeInvoke = invoke;
-
-  return render(
-    <MuiTestProvider>
-      <ThemeContext.Provider value={themeValue}>
-        <UiSoundsContext.Provider value={soundValue}>
-          <Settings
-            dependencies={{
-              invoke: runtimeInvoke,
-              listen,
-              openDialog: open,
-              shellOpen,
-            }}
-            onRommConnect={noOp}
-            onLibraryChange={noOp}
-            rommToken={rommToken}
-            rommUrl={rommUrl}
-            initialSection={initialSection}
-          />
-        </UiSoundsContext.Provider>
-      </ThemeContext.Provider>
-    </MuiTestProvider>
-  );
+  const settingsProps = { initialSection, rommToken, rommUrl };
+  const view = render(createSettingsElement(settingsProps));
+  return {
+    ...view,
+    rerenderSettings: (nextProps = {}) => {
+      view.rerender(createSettingsElement({ ...settingsProps, ...nextProps }));
+    },
+  };
 };

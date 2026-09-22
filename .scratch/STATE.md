@@ -1,17 +1,16 @@
 # Local Issue State
 
-Generated: 2026-09-22T03:19:27Z
+Generated: 2026-09-22T06:13:54Z
 
 NOTE: This file is auto-generated. Do not edit manually.
 
-Tickets: 9 active, 43 resolved
+Tickets: 8 active, 44 resolved
 
 ## Active Tickets
 
 | Effort | Ticket | Type | Mode | Status | Blocked by |
 | --- | --- | --- | --- | --- | --- |
 | [eden-integration](eden-integration/spec.md) | [03-reliable-eden-save-sync](eden-integration/issues/03-reliable-eden-save-sync.md) | — | — | ready-for-human | None — can start immediately |
-| [notes-followups](notes-followups) | [01-stop-romm-status-flicker](notes-followups/issues/01-stop-romm-status-flicker.md) | — | — | ready-for-agent | None — can start immediately |
 | [notes-followups](notes-followups) | [02-correct-switch-emulator-compatibility](notes-followups/issues/02-correct-switch-emulator-compatibility.md) | — | — | ready-for-agent | None — can start immediately |
 | [notes-followups](notes-followups) | [03-offer-sole-compatible-emulator-install](notes-followups/issues/03-offer-sole-compatible-emulator-install.md) | — | — | ready-for-agent | [02 — Correct Switch emulator compatibility](./02-correct-switch-emulator-compatibility.md) |
 | [notes-followups](notes-followups) | [04-dismiss-game-details-launch-error](notes-followups/issues/04-dismiss-game-details-launch-error.md) | — | — | ready-for-agent | None — can start immediately |
@@ -40,6 +39,7 @@ Tickets: 9 active, 43 resolved
 | [import-upstream](import-upstream/spec.md) | [07-queue-parallel-bios-downloads](import-upstream/issues/07-queue-parallel-bios-downloads.md) | — | — | resolved | 06 — Show BIOS progress and results across download surfaces |
 | [import-upstream](import-upstream/spec.md) | [08-correct-manual-save-uploads](import-upstream/issues/08-correct-manual-save-uploads.md) | — | — | resolved | None — can start immediately |
 | [import-upstream](import-upstream/spec.md) | [09-protect-eden-restores](import-upstream/issues/09-protect-eden-restores.md) | — | — | resolved | None — can start immediately |
+| [notes-followups](notes-followups) | [01-stop-romm-status-flicker](notes-followups/issues/01-stop-romm-status-flicker.md) | — | — | resolved | None — can start immediately |
 | [smoke-test-followups](smoke-test-followups/map.md) | [01-restore-eden-save-round-trips](smoke-test-followups/issues/01-restore-eden-save-round-trips.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [02-offer-save-sync-retry](smoke-test-followups/issues/02-offer-save-sync-retry.md) | — | — | resolved | None — can start immediately. |
 | [smoke-test-followups](smoke-test-followups/map.md) | [03-filter-library-by-favorites](smoke-test-followups/issues/03-filter-library-by-favorites.md) | — | — | resolved | None — can start immediately. |

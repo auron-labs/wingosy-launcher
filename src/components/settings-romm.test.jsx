@@ -1,5 +1,11 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cleanupSettingsTest,
@@ -16,6 +22,9 @@ const getLastSaveConfigCall = () => {
   }
   return null;
 };
+
+const getRommConnectionChecks = () =>
+  invoke.mock.calls.filter(([command]) => command === "check_romm_connection");
 
 describe("Settings RomM connection", () => {
   afterEach(cleanupSettingsTest);
@@ -67,6 +76,75 @@ describe("Settings RomM status", () => {
     expect(
       within(rommCard).queryByRole("button", { name: "Connected" })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("Settings RomM connection lifecycle", () => {
+  afterEach(() => {
+    cleanupSettingsTest();
+    vi.useRealTimers();
+  });
+
+  it("does not recheck or flash checking after an unrelated Settings rerender", async () => {
+    renderSettings({
+      initialSection: "romm",
+      rommConnectionStatus: "online",
+    });
+
+    await waitFor(() => {
+      expect(getRommConnectionChecks()).toHaveLength(1);
+      expect(screen.getByTestId("settings-sync-status")).toHaveTextContent(
+        "Connected"
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("settings-nav-general"));
+
+    expect(getRommConnectionChecks()).toHaveLength(1);
+    expect(screen.getByTestId("settings-sync-status")).toHaveTextContent(
+      "Connected"
+    );
+  });
+
+  it("continues 30-second polling", async () => {
+    vi.useFakeTimers();
+    renderSettings({ rommConnectionStatus: "online" });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getRommConnectionChecks()).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(getRommConnectionChecks()).toHaveLength(2);
+  });
+
+  it("checks a changed RomM URL and token session", async () => {
+    const view = renderSettings({
+      initialSection: "romm",
+      rommConnectionStatus: "online",
+      rommToken: null,
+    });
+
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "Server URL" }),
+      {
+        target: { value: "https://next.romm.example" },
+      }
+    );
+
+    view.rerenderSettings({ rommToken: "next-token" });
+
+    await waitFor(() => {
+      expect(getRommConnectionChecks()).toHaveLength(1);
+    });
+    expect(getRommConnectionChecks().at(-1)).toStrictEqual([
+      "check_romm_connection",
+      { serverUrl: "https://next.romm.example", token: "next-token" },
+    ]);
   });
 });
 

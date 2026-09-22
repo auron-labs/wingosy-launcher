@@ -4,13 +4,13 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Acceptance
 
-- [ ] Rerendering Settings for unrelated state or sync activity does not invoke another immediate RomM check or move the status through `checking`.
-- [ ] Initial mount, a changed RomM URL/token session, and the scheduled 30-second check still invoke the existing connection check.
-- [ ] Existing authenticated/session, disconnect, and online/offline behavior remains unchanged.
+- [x] Rerendering Settings for unrelated state or sync activity does not invoke another immediate RomM check or move the status through `checking`.
+- [x] Initial mount, a changed RomM URL/token session, and the scheduled 30-second check still invoke the existing connection check.
+- [x] Existing authenticated/session, disconnect, and online/offline behavior remains unchanged.
 
 ## Evidence and context
 
@@ -28,3 +28,13 @@ Do not replace the polling architecture, add remote-sync requirements, or alter 
 ## Targeted verification
 
 Extend the focused existing Vitest Settings lifecycle coverage with a rerender regression: assert no extra immediate check/status flicker, then advance fake timers to prove scheduled polling remains. Cover a real session change through the same seam. No live RomM service is required.
+
+## Progress
+
+- [x] Slice 1: Located `useSettingsController`'s inline runtime merge, confirmed `useSettingsRommLifecycle` should remain unchanged, and identified `settings-romm.test.jsx` as the focused regression seam.
+- [x] Slice 2: Memoized the merged runtime by its four dependency functions and added focused coverage for unrelated rerenders, 30-second polling, and URL/token session changes. Focused tests, typecheck, build, changed-file Ultracite, and diff checks pass; the repository-wide frontend lint retains 49 pre-existing violations outside this change.
+- [x] Slice 3: Two-axis code review approved the final change against repository standards and the ticket after focused corrections removed a new helper and unrelated controller restructuring.
+
+## Answer
+
+Settings now memoizes its merged runtime by the four injected dependency functions, so ordinary rerenders retain the same lifecycle dependency while genuine runtime/session changes still restart the existing check. Focused lifecycle coverage proves unrelated rerenders stay connected without another immediate check, the 30-second poll continues, and changed RomM URL/token sessions are checked.

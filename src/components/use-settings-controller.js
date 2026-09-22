@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { ARGOSY_SOUND_ENTRIES } from "../argosy-sounds";
 import {
   DEFAULT_GAMEPAD_DEADZONE,
@@ -162,6 +164,7 @@ const useSettingsControllerStates = ({
 };
 
 /** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onRetroAchievementsChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, onBack?: () => void, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. @returns {import("./settings-types").SettingsPanelProps} Settings state and actions. */
+// eslint-disable-next-line max-lines-per-function -- Runtime memoization names each dependency field to prevent lifecycle resets.
 const useSettingsController = ({
   rommToken,
   rommUrl: rommUrlProp,
@@ -175,7 +178,16 @@ const useSettingsController = ({
   initialSection = "general",
   dependencies = {},
 }) => {
-  const runtime = { ...defaultSettingsRuntime, ...dependencies };
+  const {
+    invoke = defaultSettingsRuntime.invoke,
+    listen = defaultSettingsRuntime.listen,
+    openDialog = defaultSettingsRuntime.openDialog,
+    shellOpen = defaultSettingsRuntime.shellOpen,
+  } = dependencies;
+  const runtime = useMemo(
+    () => ({ invoke, listen, openDialog, shellOpen }),
+    [invoke, listen, openDialog, shellOpen]
+  );
   const { activeCount: activeRomDownloadCount } = useRomDownloads();
   const { themeMode, setThemeMode, accentHue, setAccentHue } = useAppTheme();
   const {
