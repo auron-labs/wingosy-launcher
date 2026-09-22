@@ -68,6 +68,7 @@ const DRAWER_WIDTH = 260;
  * @property {(url: string, token: string) => void} onRommConnect Saves a RomM session.
  * @property {() => void} onRommDisconnect Clears the RomM session.
  * @property {() => void|Promise<void>} onLibraryChange Refreshes the library.
+ * @property {(view: string, options?: object) => void} [onNavigate] Changes the desktop view.
  */
 /** @typedef {object} RommSyncPanelProps
  * @property {import("../components/use-romm-sync-monitor").RommSyncMonitorState} monitor RomM monitor state.
@@ -79,6 +80,7 @@ const DRAWER_WIDTH = 260;
  * @property {DetailsPanelProps} detailsProps Details panel properties.
  * @property {SettingsPanelProps} settingsProps Settings panel properties.
  * @property {RommSyncPanelProps} rommSyncProps RomM sync monitor properties.
+ * @property {(view: string, options?: object) => void} onNavigate Changes the desktop view.
  */
 /** @typedef {object} AppDesktopProps
  * @property {PlatformEntry[]} platforms Available library platforms.
@@ -232,6 +234,7 @@ const SettingsPanel = ({
   onRommConnect,
   onRommDisconnect,
   onLibraryChange,
+  onNavigate,
 }) => (
   <Box
     sx={{
@@ -250,6 +253,7 @@ const SettingsPanel = ({
       onRommConnect={onRommConnect}
       onRommDisconnect={onRommDisconnect}
       onLibraryChange={onLibraryChange}
+      onNavigate={onNavigate}
     />
   </Box>
 );
@@ -269,6 +273,7 @@ const MainView = ({
   detailsProps,
   rommSyncProps,
   settingsProps,
+  onNavigate,
 }) => {
   if (view === "downloads") {
     return <DownloadsPanel {...downloadsProps} />;
@@ -280,7 +285,7 @@ const MainView = ({
     return <DetailsPanel {...detailsProps} />;
   }
   if (view === "settings") {
-    return <SettingsPanel {...settingsProps} />;
+    return <SettingsPanel {...settingsProps} onNavigate={onNavigate} />;
   }
   if (view === "romm-sync") {
     return <RommSyncPanel {...rommSyncProps} />;
@@ -304,16 +309,18 @@ const AppDesktop = ({
   settingsProps,
 }) => (
   <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-    <Sidebar
-      platforms={platforms}
-      selectedPlatform={selectedPlatform}
-      onSelectPlatform={onSelectPlatform}
-      onNavigate={onNavigate}
-      currentView={view}
-      libraryFilterBy={libraryFilterBy}
-      drawerWidth={DRAWER_WIDTH}
-      rommUrl={rommUrl}
-    />
+    {view === "settings" ? null : (
+      <Sidebar
+        platforms={platforms}
+        selectedPlatform={selectedPlatform}
+        onSelectPlatform={onSelectPlatform}
+        onNavigate={onNavigate}
+        currentView={view}
+        libraryFilterBy={libraryFilterBy}
+        drawerWidth={DRAWER_WIDTH}
+        rommUrl={rommUrl}
+      />
+    )}
     <Box
       component="main"
       sx={{
@@ -333,6 +340,7 @@ const AppDesktop = ({
         detailsProps={detailsProps}
         rommSyncProps={rommSyncProps}
         settingsProps={settingsProps}
+        onNavigate={onNavigate}
       />
     </Box>
   </Box>

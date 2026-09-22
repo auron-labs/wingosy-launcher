@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cleanupSettingsTest,
@@ -74,6 +74,19 @@ describe("Settings navigation status", () => {
     await expect(screen.findByRole("tooltip")).resolves.toHaveTextContent(
       "Connect to a RomM server"
     );
+  });
+});
+
+describe("Settings desktop navigation", () => {
+  afterEach(cleanupSettingsTest);
+
+  it("offers a semantic Back to Library button that uses desktop navigation", () => {
+    const onNavigate = vi.fn(() => {});
+    renderSettings({ onNavigate });
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Library" }));
+
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("library");
   });
 });
 

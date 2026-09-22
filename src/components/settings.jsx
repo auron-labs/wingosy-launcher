@@ -1,3 +1,4 @@
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CloudIcon from "@mui/icons-material/Cloud";
 import DesktopWindowsIcon from "@mui/icons-material/DesktopWindows";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
@@ -8,6 +9,7 @@ import StorageIcon from "@mui/icons-material/Storage";
 import SystemUpdateIcon from "@mui/icons-material/SystemUpdate";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -125,6 +127,56 @@ const SettingsPanel = ({ settings }) => {
   );
 };
 
+/** @param {{onNavigate?: (view: string) => void, settings: Pick<import("./settings-types").SettingsPanelProps, "rommConnectionStatus"|"rommUrl">}} props Settings header properties. */
+const SettingsHeader = ({ onNavigate, settings }) => (
+  <Box
+    sx={{
+      alignItems: "center",
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 2,
+      mb: 2,
+    }}
+  >
+    {onNavigate ? (
+      <Button
+        {...tauriNoDragProps()}
+        color="inherit"
+        data-argosy-sound="back"
+        onClick={() => {
+          onNavigate("library");
+        }}
+        startIcon={<ArrowBackIcon />}
+        sx={{ ...tauriNoDragSx, flexShrink: 0 }}
+      >
+        Back to Library
+      </Button>
+    ) : null}
+    <Box
+      {...tauriDragRegionProps()}
+      sx={{
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        minHeight: 40,
+        minWidth: 120,
+        ...tauriDragRegionSx,
+      }}
+    >
+      <Typography variant="h4" sx={{ mb: 0 }}>
+        Settings
+      </Typography>
+    </Box>
+    <Box {...tauriNoDragProps()} sx={{ ...tauriNoDragSx, flexShrink: 0 }}>
+      <SyncStatusChip
+        status={settings.rommConnectionStatus}
+        serverUrl={settings.rommUrl}
+        data-testid="settings-sync-status"
+      />
+    </Box>
+  </Box>
+);
+
 /** @param {{settingsSection: string, loadNativeControllers: () => void|Promise<void>}} props Emulator section loading properties. */
 const useEmulatorSectionLoading = ({
   loadNativeControllers,
@@ -144,8 +196,8 @@ const useEmulatorSectionLoading = ({
   }, [settingsSection]);
 };
 
-/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onRetroAchievementsChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, onBack?: () => void, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. */
-const Settings = (props) => {
+/** @param {{rommToken: string|null, rommUrl?: string, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null, onLibraryChange?: (() => void|Promise<void>)|null, onImmersiveModeChange?: ((enabled: boolean) => void)|null, onFullscreenChange?: ((enabled: boolean) => void)|null, onRetroAchievementsChange?: ((enabled: boolean) => void)|null, onControllerDeadzoneChange?: ((value: number) => void)|null, onNavigate?: (view: string) => void, onBack?: () => void, initialSection?: string, dependencies?: Partial<import("./settings-runtime").SettingsRuntime>}} props Settings properties. */
+const Settings = ({ onNavigate, ...props }) => {
   const settings = useSettingsController(props);
   const { settingsSection, setSettingsSection } = settings;
   useEmulatorSectionLoading({
@@ -167,38 +219,7 @@ const Settings = (props) => {
         width: "100%",
       }}
     >
-      <Box
-        sx={{
-          alignItems: "center",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 2,
-          mb: 2,
-        }}
-      >
-        <Box
-          {...tauriDragRegionProps()}
-          sx={{
-            alignItems: "center",
-            display: "flex",
-            flex: 1,
-            minHeight: 40,
-            minWidth: 120,
-            ...tauriDragRegionSx,
-          }}
-        >
-          <Typography variant="h4" sx={{ mb: 0 }}>
-            Settings
-          </Typography>
-        </Box>
-        <Box {...tauriNoDragProps()} sx={{ ...tauriNoDragSx, flexShrink: 0 }}>
-          <SyncStatusChip
-            status={settings.rommConnectionStatus}
-            serverUrl={settings.rommUrl}
-            data-testid="settings-sync-status"
-          />
-        </Box>
-      </Box>
+      <SettingsHeader onNavigate={onNavigate} settings={settings} />
 
       <Box
         sx={{

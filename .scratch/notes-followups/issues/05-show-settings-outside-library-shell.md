@@ -4,14 +4,14 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Acceptance
 
-- [ ] In windowed desktop Settings, library and platform sidebar navigation are absent.
-- [ ] One keyboard-accessible Back to Library action returns to the Library through the existing navigation behavior.
-- [ ] `SettingsNavigation` sections and the Settings sync-status chip remain visible and usable.
-- [ ] Library, Downloads, Details, and RomM Sync keep their existing shell/sidebar behavior.
+- [x] In windowed desktop Settings, library and platform sidebar navigation are absent.
+- [x] One keyboard-accessible Back to Library action returns to the Library through the existing navigation behavior.
+- [x] `SettingsNavigation` sections and the Settings sync-status chip remain visible and usable.
+- [x] Library, Downloads, Details, and RomM Sync keep their existing shell/sidebar behavior.
 
 ## Evidence and context
 
@@ -30,3 +30,15 @@ Do not add a route, history mechanism, shell framework, styling redesign, contro
 ## Targeted verification
 
 Run relevant existing app/navigation checks. Perform the minimum Tauri MCP smoke check: open windowed Settings, verify no library/sidebar navigation, activate Back to Library, and confirm Library returns. Existing checks and visual inspection are sufficient; do not create CSS-value tests.
+
+## Progress
+
+- [x] Slice 1: Update the desktop Settings shell and add the Back to Library action. (`AppDesktop` now omits the sidebar only for Settings and the Settings header uses the existing navigation callback.)
+- [x] Slice 2: Add or update focused behavioral coverage and run targeted checks. (Focused tests cover Settings sidebar removal, preserved route sidebars, and Back to Library navigation; 26 targeted tests, typecheck, targeted lint, and diff checks pass.)
+- [x] Review: The code-review skill approved the implementation with no findings; focused tests, typecheck, lint, and build passed.
+
+## Answer
+
+Desktop Settings now renders outside the library sidebar shell and includes one semantic Back to Library header button using the existing `onNavigate("library")` flow. Settings navigation and sync status are unchanged, while Library, Downloads, Details, and RomM Sync retain their sidebar.
+
+Verification: the focused Settings/shell suites passed (26 tests), the full unit suite passed (297 tests), typecheck and targeted type-aware lint passed, and the reviewer verified a production build. Tauri MCP was not available in this session's tool catalog, so the equivalent Settings-to-Library flow was exercised through focused component integration coverage instead of a live Tauri smoke check.

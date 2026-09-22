@@ -56,7 +56,7 @@ const soundValue = {
   uiSoundsVolume: 80,
 };
 
-/** @typedef {{emulators?: SettingsEmulator[], config?: SettingsConfig, initialSection?: string, inventory?: CoreInventory[]|(() => CoreInventory[]), nativeControllers?: NativeController[], savedRommSession?: boolean, rommConnectionStatus?: string, rommToken?: string|null, rommUrl?: string, syncGames?: SettingsGame[], platforms?: Array<[SettingsPlatform, number]>, biosFirmware?: BiosFirmware[], storageOverview?: StorageOverview, uiSoundsEnabled?: boolean}} SettingsFixtureOptions */
+/** @typedef {{emulators?: SettingsEmulator[], config?: SettingsConfig, initialSection?: string, inventory?: CoreInventory[]|(() => CoreInventory[]), nativeControllers?: NativeController[], onNavigate?: (view: string) => void, savedRommSession?: boolean, rommConnectionStatus?: string, rommToken?: string|null, rommUrl?: string, syncGames?: SettingsGame[], platforms?: Array<[SettingsPlatform, number]>, biosFirmware?: BiosFirmware[], storageOverview?: StorageOverview, uiSoundsEnabled?: boolean}} SettingsFixtureOptions */
 
 const resetMocks = () => {
   invoke.mockReset();
@@ -139,8 +139,13 @@ const createSettingsInvoke = (options) => {
 // @ts-expect-error -- Vitest does not preserve the overloaded runtime invoke signature.
 const runtimeInvoke = invoke;
 
-/** @param {{initialSection: string, rommToken: string|null, rommUrl: string}} props Settings component props. */
-const createSettingsElement = ({ initialSection, rommToken, rommUrl }) => (
+/** @param {{initialSection: string, onNavigate?: (view: string) => void, rommToken: string|null, rommUrl: string}} props Settings component props. */
+const createSettingsElement = ({
+  initialSection,
+  onNavigate,
+  rommToken,
+  rommUrl,
+}) => (
   <MuiTestProvider>
     <ThemeContext.Provider value={themeValue}>
       <UiSoundsContext.Provider value={soundValue}>
@@ -153,6 +158,7 @@ const createSettingsElement = ({ initialSection, rommToken, rommUrl }) => (
           }}
           onRommConnect={noOp}
           onLibraryChange={noOp}
+          onNavigate={onNavigate}
           rommToken={rommToken}
           rommUrl={rommUrl}
           initialSection={initialSection}
@@ -169,6 +175,7 @@ export const renderSettings = ({
   initialSection = "general",
   inventory = [],
   nativeControllers = [],
+  onNavigate,
   savedRommSession = false,
   rommConnectionStatus,
   rommToken = "test-token",
@@ -196,7 +203,7 @@ export const renderSettings = ({
     })
   );
   listen.mockResolvedValue(noOp);
-  const settingsProps = { initialSection, rommToken, rommUrl };
+  const settingsProps = { initialSection, onNavigate, rommToken, rommUrl };
   const view = render(createSettingsElement(settingsProps));
   return {
     ...view,
