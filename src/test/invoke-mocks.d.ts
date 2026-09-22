@@ -4,6 +4,7 @@ import type {
   GameDetailsConfig,
   EmulatorInfo,
   GameDetailsSave,
+  GameDetailsSwitchContentStatus,
   GameDetailsSwitchPathInfo,
   GameDetailsSwitchSaveRestoreProtection,
   GameDetailsSwitchSyncResult,
@@ -67,6 +68,10 @@ export interface GameDetailsTestInvoke {
     command: "get_switch_save_restore_protection",
     args?: TestInvokeArgs
   ): Promise<GameDetailsSwitchSaveRestoreProtection | null>;
+  (
+    command: "get_switch_content_status",
+    args?: TestInvokeArgs
+  ): Promise<GameDetailsSwitchContentStatus>;
   (
     command: "resume_switch_save_normal_sync",
     args?: TestInvokeArgs

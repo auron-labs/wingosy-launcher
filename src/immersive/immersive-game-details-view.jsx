@@ -96,6 +96,7 @@ const createContentProps = ({
     setDownloadStatus: actions.setDownloadStatus,
     setMenuAnchor: actions.setMenuAnchor,
     switchContentProgress: controller.switchContentProgress,
+    switchContentStatus: actions.switchContentStatus,
     switchContentSyncing: actions.switchContentSyncing,
     switchRestoreProtection: controller.saves.switchRestoreProtection,
     switchSyncBusy: controller.saves.switchSyncBusy,

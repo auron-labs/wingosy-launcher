@@ -130,6 +130,7 @@ fn main() {
             commands::get_romm_retroachievements,
             commands::download_rom,
             commands::sync_switch_content,
+            commands::get_switch_content_status,
             bios::get_bios_directory,
             bios::set_bios_directory,
             bios::list_bios_firmware,

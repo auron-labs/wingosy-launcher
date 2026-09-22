@@ -77,6 +77,22 @@ export const formatLastPlayed = (value) => {
   });
 };
 
+/** @typedef {import("./game-details-types").GameDetailsSwitchContentStatus} GameDetailsSwitchContentStatus */
+
+/** @param {GameDetailsSwitchContentStatus|null|undefined} status Read-only Switch content status. @returns {string|null} User-facing status label, or null when unknown. */
+export const getSwitchContentStatusLabel = (status) => {
+  if (status?.status === "current") {
+    return "Wingosy update & DLC files are current";
+  }
+  if (status?.status === "missing") {
+    return "Wingosy update & DLC files are missing";
+  }
+  if (status?.status === "changed") {
+    return "Update & DLC files need re-syncing";
+  }
+  return null;
+};
+
 /** @param {string|undefined} stage Launch progress stage. */
 export const launchStageLabel = (stage) => {
   /** @type {Record<string, string>} */

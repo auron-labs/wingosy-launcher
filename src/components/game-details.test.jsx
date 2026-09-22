@@ -158,6 +158,83 @@ describe("GameDetails Switch content progress", () => {
   });
 });
 
+describe("GameDetails Switch content status", () => {
+  afterEach(cleanupGameDetailsTest);
+
+  it("loads the read-only status on open and again after reopening", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_switch_content_status") {
+        return { status: "current" };
+      }
+      return { display: {} };
+    });
+
+    const view = renderDetails({ game: switchRemoteGame });
+    await expect(
+      screen.findByTestId("switch-content-status")
+    ).resolves.toHaveTextContent("Wingosy update & DLC files are current");
+    view.unmount();
+
+    renderDetails({ game: switchRemoteGame });
+    await expect(
+      screen.findByTestId("switch-content-status")
+    ).resolves.toHaveTextContent("Wingosy update & DLC files are current");
+    expect(
+      invoke.mock.calls.filter(
+        ([command]) => command === "get_switch_content_status"
+      )
+    ).toHaveLength(2);
+  });
+
+  it("refreshes the status after a successful Sync Updates & DLC", async () => {
+    let status = "missing";
+    invoke.mockImplementation((command) => {
+      if (command === "get_switch_content_status") {
+        return { status };
+      }
+      if (command === "sync_switch_content") {
+        status = "current";
+        return {
+          downloaded: 1,
+          message: "Synced Switch content: 1 downloaded, 0 reused.",
+          reused: 0,
+          success: true,
+        };
+      }
+      return { display: {} };
+    });
+    renderDetails({ game: switchRemoteGame });
+
+    await expect(
+      screen.findByTestId("switch-content-status")
+    ).resolves.toHaveTextContent("Wingosy update & DLC files are missing");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("switch-content-status")).toHaveTextContent(
+        "Wingosy update & DLC files are current"
+      );
+    });
+  });
+
+  it("does not claim current when the status lookup is unavailable", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "get_switch_content_status") {
+        throw new Error("RomM is offline");
+      }
+      return { display: {} };
+    });
+    renderDetails({ game: switchRemoteGame });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("switch-content-status")
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/current/u)).not.toBeInTheDocument();
+  });
+});
+
 describe("GameDetails ROM downloads", () => {
   afterEach(cleanupGameDetailsTest);
 

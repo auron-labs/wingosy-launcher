@@ -140,6 +140,23 @@ describe("ImmersiveGameDetails Switch content action", () => {
   });
 });
 
+describe("ImmersiveGameDetails Switch content status", () => {
+  afterEach(resetImmersiveGameDetailsTest);
+
+  it("shows the read-only content status beside the sync action", async () => {
+    invoke.mockImplementation((command) =>
+      command === "get_switch_content_status"
+        ? { status: "changed" }
+        : { display: {} }
+    );
+    renderDetails(undefined, switchRemoteGame);
+
+    await expect(
+      screen.findByTestId("switch-content-status")
+    ).resolves.toHaveTextContent("Update & DLC files need re-syncing");
+  });
+});
+
 describe("ImmersiveGameDetails protected Eden saves", () => {
   afterEach(resetImmersiveGameDetailsTest);
 

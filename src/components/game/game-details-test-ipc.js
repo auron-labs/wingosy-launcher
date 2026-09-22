@@ -20,9 +20,14 @@ const createMissingEmulatorRecoveryIpc = (invoke) => {
   return { downloadEmulator, getEmulatorsForPlatform };
 };
 
+/** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {GameDetailsIpc["getSwitchContentStatus"]} Switch content status adapter. */
+const createSwitchContentStatus = (invoke) => async (gameId) =>
+  await invoke("get_switch_content_status", { gameId });
+
 /** @param {GameDetailsInvoke} invoke Test IPC command invoker. @returns {GameDetailsIpc} Game details IPC adapter. */
 export const createGameDetailsTestIpc = (invoke) => {
   const missingEmulatorRecoveryIpc = createMissingEmulatorRecoveryIpc(invoke);
+  const getSwitchContentStatus = createSwitchContentStatus(invoke);
   /** @type {(command: "get_romm_retroachievements", args?: Record<string, unknown>) => Promise<import("./game-details-types").GameDetailsAchievementsAchievement[]>} */
   const invokeRommRetroAchievements = invoke;
   /** @type {GameDetailsIpc["addGameToCollection"]} */
@@ -108,6 +113,7 @@ export const createGameDetailsTestIpc = (invoke) => {
     getGameDetailsConfig,
     getGameSaves,
     getRommRetroAchievements,
+    getSwitchContentStatus,
     getSwitchGameSaves,
     getSwitchSavePathInfo,
     getSwitchSaveRestoreProtection,

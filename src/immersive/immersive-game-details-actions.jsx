@@ -10,6 +10,7 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 
+import { SwitchContentStatusLabel } from "../components/game/switch-content-status-label";
 import { DetailsMenu } from "./immersive-game-details-menu";
 import { FocusBrackets } from "./immersive-shell";
 
@@ -120,29 +121,36 @@ const RedownloadAction = ({
   </Button>
 );
 
-/** @param {{downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleSyncSwitchContent: () => Promise<void>}} props Switch action properties. */
+/** @param {{downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, switchContentStatus: import("../components/game/game-details-types").GameDetailsSwitchContentStatus|null, handleSyncSwitchContent: () => Promise<void>}} props Switch action properties. */
 const SwitchContentAction = ({
   downloading,
   launchActive,
   switchContentSyncing,
+  switchContentStatus,
   handleSyncSwitchContent,
 }) => (
-  <Button
-    variant="outlined"
-    size="medium"
-    startIcon={switchContentSyncing ? null : <SyncIcon />}
-    onClick={fireAndForget(handleSyncSwitchContent)}
-    disabled={switchContentSyncing || launchActive || downloading}
-    sx={{
-      borderColor: "rgba(255,255,255,0.22)",
-      borderRadius: 2,
-      color: "common.white",
-      fontWeight: 700,
-      textTransform: "none",
-    }}
-  >
-    {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
-  </Button>
+  <>
+    <Button
+      variant="outlined"
+      size="medium"
+      startIcon={switchContentSyncing ? null : <SyncIcon />}
+      onClick={fireAndForget(handleSyncSwitchContent)}
+      disabled={switchContentSyncing || launchActive || downloading}
+      sx={{
+        borderColor: "rgba(255,255,255,0.22)",
+        borderRadius: 2,
+        color: "common.white",
+        fontWeight: 700,
+        textTransform: "none",
+      }}
+    >
+      {switchContentSyncing ? "Syncing Updates & DLC…" : "Sync Updates & DLC"}
+    </Button>
+    <SwitchContentStatusLabel
+      status={switchContentStatus}
+      sx={{ alignSelf: "center", color: "rgba(245,241,232,0.7)" }}
+    />
+  </>
 );
 
 /** @param {{game: ImmersiveGame, onToggleFavorite: (gameId: number|string) => void|Promise<void>}} props Favorite action properties. */
@@ -207,7 +215,7 @@ const MoreAction = ({ menuAnchor, setMenuAnchor, menuProps }) => (
   </>
 );
 
-/** @param {{primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, game: ImmersiveGame, onToggleFavorite: (gameId: number|string) => void|Promise<void>, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps}} props Action properties. */
+/** @param {{primaryActionRef: {current: HTMLButtonElement|null}, canPlay: boolean, hasRomm: boolean, rommConfigured: boolean, hasLocalFile: boolean, canDownload: boolean, canSyncSwitchContent: boolean, downloading: boolean, launchActive: boolean, switchContentSyncing: boolean, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, handleSyncSwitchContent: () => Promise<void>, game: ImmersiveGame, switchContentStatus: import("../components/game/game-details-types").GameDetailsSwitchContentStatus|null, onToggleFavorite: (gameId: number|string) => void|Promise<void>, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, menuProps: DetailsMenuProps}} props Action properties. */
 export const DetailsActions = (props) => {
   const {
     canDownload,
@@ -227,6 +235,7 @@ export const DetailsActions = (props) => {
     primaryActionRef,
     rommConfigured,
     setMenuAnchor,
+    switchContentStatus,
     switchContentSyncing,
   } = props;
   const showPrimary = canPlay || (hasRomm && !hasLocalFile);
@@ -278,6 +287,7 @@ export const DetailsActions = (props) => {
               downloading={downloading}
               handleSyncSwitchContent={handleSyncSwitchContent}
               launchActive={launchActive}
+              switchContentStatus={switchContentStatus}
               switchContentSyncing={switchContentSyncing}
             />
           ) : null}

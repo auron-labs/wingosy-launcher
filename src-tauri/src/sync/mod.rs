@@ -12,4 +12,3 @@ pub use switch_romm::{
     download_switch_save_to_eden, resume_switch_save_normal_sync, upload_switch_save_from_eden,
     SwitchSaveSyncResult,
 };
-pub use switch_save::resolve_local_title_save_path;

@@ -4,15 +4,15 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Acceptance
 
-- [ ] On open or reopen of an eligible RomM Switch title, the existing detail surface reports current, missing, or changed update/DLC content relative to RomM.
-- [ ] “Current” means Wingosy-managed files match RomM metadata/files; it does not certify Eden-installed content.
-- [ ] A successful existing Sync Updates & DLC action refreshes the displayed status.
-- [ ] Failed or unavailable status lookup does not display current; existing sync error handling and retry guidance remain intact.
-- [ ] Non-Switch/ineligible titles and the existing explicit sync flow retain their current behavior.
+- [x] On open or reopen of an eligible RomM Switch title, the existing detail surface reports current, missing, or changed update/DLC content relative to RomM.
+- [x] “Current” means Wingosy-managed files match RomM metadata/files; it does not certify Eden-installed content.
+- [x] A successful existing Sync Updates & DLC action refreshes the displayed status.
+- [x] Failed or unavailable status lookup does not display current; existing sync error handling and retry guidance remain intact.
+- [x] Non-Switch/ineligible titles and the existing explicit sync flow retain their current behavior.
 
 ## Evidence and context
 
@@ -31,3 +31,22 @@ No automatic downloads, scheduler, manifest/schema change, timestamp/history das
 ## Targeted verification
 
 Add focused Rust helper tests for current versus missing/changed manifest files. Add existing UI coverage for open/reopen lookup and refresh after explicit sync; mock RomM/IPC rather than using network-heavy tests.
+
+## Progress
+
+- [x] Slice 1: Add the read-only Rust comparison and Tauri/IPC seam. (`get_switch_content_status` reuses `select_eligible_files`/`read_manifest`/`content_file_status`; `manifest_has_current_file` now delegates to the shared per-file classifier. Focused Rust tests cover current, missing, changed, stale-manifest, and missing-over-changed precedence.)
+- [x] Slice 2: Load and render the status in both Details surfaces and refresh after explicit sync. (`useSwitchContentStatus` loads on open/reopen and is refreshed by `syncSwitchContentAction`; desktop and immersive render a shared caption component beside “Sync Updates & DLC”, hiding it when the lookup is unavailable.)
+- [x] Slice 3: Focused frontend coverage. (`game-details.test.jsx` covers open/reopen, post-sync refresh, and unavailable lookups; `immersive-game-details-actions.test.jsx` covers the immersive surface.)
+- [x] Review: Two-axis code review completed; see Notes.
+
+## Notes
+
+- Baseline repair required: `HEAD` did not compile. The `feat/import-upstream` merge (`6857b74`) resolved `src/sync/switch_romm.rs` to a version missing `get_switch_saves_for_device`, `sync_current_switch_save`, and the `SwitchSaveSyncResult.backup_save_id`/`backup_slot` fields that `src/commands.rs` still referenced. Restored the two functions (the sync wrapper now takes `&Database`, matching `negotiated_launch_sync`), dropped the stale test field initializers, and removed an unused `resolve_local_title_save_path` re-export. This was necessary for the ticket’s Rust verification to build at all.
+- Rust verification ran with `RUSTC_WRAPPER= /home/aaron/.cargo/bin/cargo ...` because the local `mbx` shim drops colon-containing Tauri dependency env names. `switch_content` tests pass 15/15; full Rust suite 369 passed / 6 pre-existing failures (below).
+- Known pre-existing failures unrelated to this ticket (present at `HEAD` after the merge): 6 Rust tests (`emulators::launcher` needs a configured emulator; `eden_save_sync_round_trips…` fails its multipart fixture), and 4 Clippy errors (`api/download.rs` `div_ceil`, `database/connection.rs` needless borrow, two `switch_romm.rs` `too_many_arguments`).
+- Review follow-ups applied: (a) `evaluate_content_status` now reports `changed` when the manifest holds a file RomM no longer lists, so stale managed content cannot read as `current`; (b) the `changed` label is neutral (“Update & DLC files need re-syncing”) because it can mean a corrupt/truncated local file, not only a newer server file; (c) the two surface labels share `SwitchContentStatusLabel`; (d) the hook’s lookup logic is factored into one `fetchSwitchContentStatus` callback; (e) the IPC result carries only `status` (dropped unused `title_id`/`total_files`).
+- Frontend verification: full Vitest suite 301/301, typecheck passes. Scoped `ultracite` reports only pre-existing `game-details.test.jsx` (`max-lines`, `sort-keys`, `require-await`, two `curly`) and `game-details-utils.js` (`no-duplicate-type-constituents`) findings; no new lint findings were introduced.
+
+## Answer
+
+Eligible RomM Switch details now show a read-only “Wingosy update & DLC files are current / missing / Update & DLC files need re-syncing” caption beside **Sync Updates & DLC** on both the desktop and immersive Details surfaces. The status is computed by a new read-only `get_switch_content_status` command that compares RomM child-file metadata against the same manifest identity used by the explicit sync, loads on open/reopen, refreshes after a successful explicit sync, and renders nothing when the lookup is unavailable — so it never claims “current” without evidence. Non-Switch and ineligible titles are unchanged, and the explicit sync flow is untouched.

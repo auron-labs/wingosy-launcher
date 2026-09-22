@@ -2920,6 +2920,31 @@ pub async fn sync_switch_content(
 }
 
 #[tauri::command]
+pub async fn get_switch_content_status(
+    game_id: i64,
+) -> Result<crate::sync::switch_content::SwitchContentStatusResult, String> {
+    let db = Database::open().map_err(|e| e.to_string())?;
+    let game = db
+        .get_game(game_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Game not found")?;
+    if game.source != GameSource::RomM || game.romm_id.is_none() {
+        return Err("Switch content status requires a game linked to RomM".to_string());
+    }
+    if game.platform_id != "switch" {
+        return Err("Switch content status is only available for Switch games".to_string());
+    }
+
+    let session = restore_romm_session().await?.ok_or(
+        "No saved authenticated RomM session is available; reconnect in Settings > RomM, then retry",
+    )?;
+    let client = RomMClient::new(&session.server_url).with_token(session.access_token);
+    crate::sync::switch_content::get_switch_content_status(&game, &client)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_game_saves(
     romm_id: i32,
     server_url: String,
@@ -3060,7 +3085,7 @@ pub async fn sync_current_switch_save(
         .get_game(game_id)
         .map_err(|e| e.to_string())?
         .ok_or("Game not found")?;
-    crate::sync::switch_romm::sync_current_switch_save(&game, &mut config)
+    crate::sync::switch_romm::sync_current_switch_save(&game, &mut config, &db)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -5898,8 +5923,6 @@ mod tests {
             local_path: None,
             romm_save_id: Some(19),
             slot: Some("autosave".to_string()),
-            backup_save_id: None,
-            backup_slot: None,
         };
         assert_eq!(save_sync_transfer_message(Some(no_op)), None);
 
@@ -5909,8 +5932,6 @@ mod tests {
             local_path: Some("save/title".to_string()),
             romm_save_id: Some(19),
             slot: Some("autosave".to_string()),
-            backup_save_id: None,
-            backup_slot: None,
         };
         assert_eq!(
             save_sync_transfer_message(Some(restored)).as_deref(),

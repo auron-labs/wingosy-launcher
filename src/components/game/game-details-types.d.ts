@@ -100,6 +100,10 @@ export interface GameDetailsSwitchSaveRestoreProtection {
   selected_revision: GameDetailsSwitchSaveRevision;
 }
 
+export interface GameDetailsSwitchContentStatus {
+  status: "current" | "missing" | "changed";
+}
+
 export interface GameDetailsSwitchPathInfo {
   title_id: string;
   local_save_path: string;

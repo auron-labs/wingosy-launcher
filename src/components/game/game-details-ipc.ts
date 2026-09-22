@@ -8,6 +8,7 @@ import type {
   EmulatorInfo,
   GameDetailsGame,
   GameDetailsSave,
+  GameDetailsSwitchContentStatus,
   GameDetailsSwitchPathInfo,
   GameDetailsSwitchSaveRestoreProtection,
   GameDetailsSwitchSyncResult,
@@ -53,6 +54,11 @@ export const downloadRom = async (
 
 export const syncSwitchContent = async (gameId: GameDetailsGame["id"]) =>
   await command<GameDetailsSwitchSyncResult>("sync_switch_content", { gameId });
+
+export const getSwitchContentStatus = async (gameId: GameDetailsGame["id"]) =>
+  await command<GameDetailsSwitchContentStatus>("get_switch_content_status", {
+    gameId,
+  });
 
 export const getGameSaves = async (
   rommId: number,
@@ -177,6 +183,7 @@ export const gameDetailsIpc = {
   getGameDetailsConfig,
   getGameSaves,
   getRommRetroAchievements,
+  getSwitchContentStatus,
   getSwitchGameSaves,
   getSwitchSavePathInfo,
   getSwitchSaveRestoreProtection,

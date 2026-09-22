@@ -12,12 +12,14 @@ import Typography from "@mui/material/Typography";
 
 import { formatDownloadLabel } from "../../rom-downloads-format";
 import { launchStageLabel } from "./game-details-utils";
+import { SwitchContentStatusLabel } from "./switch-content-status-label";
 
 /** @typedef {import("./game-details-types").GameDetailsGame} GameDetailsGame */
 /** @typedef {import("./game-details-types").GameDetailsProgress} GameDetailsProgress */
+/** @typedef {import("./game-details-types").GameDetailsSwitchContentStatus} GameDetailsSwitchContentStatus */
 /** @typedef {import("./game-details-types").EmulatorInfo} EmulatorInfo */
 
-/** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, saveSyncBusy: boolean, switchContentSyncing: boolean, canSyncSwitchContent: boolean, cloudSaveStatus?: import("react").ReactNode, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
+/** @typedef {{game: GameDetailsGame, canPlay: boolean, canDownload: boolean, hasLocalFile: boolean, downloading: boolean, launchActive: boolean, saveSyncBusy: boolean, switchContentSyncing: boolean, switchContentStatus: GameDetailsSwitchContentStatus|null, canSyncSwitchContent: boolean, cloudSaveStatus?: import("react").ReactNode, onLaunch: () => Promise<void>, onDownload: () => Promise<void>, onSyncSwitchContent: () => Promise<void>}} GameDetailsPlayControlsProps */
 
 /** @param {{downloading: boolean, launchActive: boolean, onLaunch: () => Promise<void>, saveSyncBusy: boolean, switchContentSyncing: boolean}} props Play button properties. */
 const PlayButton = ({
@@ -132,6 +134,7 @@ export const GameDetailsPlayControls = ({
   onLaunch,
   onSyncSwitchContent,
   saveSyncBusy,
+  switchContentStatus,
   switchContentSyncing,
 }) => (
   <Box
@@ -171,12 +174,20 @@ export const GameDetailsPlayControls = ({
       />
     )}
     {canSyncSwitchContent && (
-      <SwitchContentButton
-        downloading={downloading}
-        launchActive={launchActive}
-        onSyncSwitchContent={onSyncSwitchContent}
-        switchContentSyncing={switchContentSyncing}
-      />
+      <Box
+        sx={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 1 }}
+      >
+        <SwitchContentButton
+          downloading={downloading}
+          launchActive={launchActive}
+          onSyncSwitchContent={onSyncSwitchContent}
+          switchContentSyncing={switchContentSyncing}
+        />
+        <SwitchContentStatusLabel
+          status={switchContentStatus}
+          sx={{ color: "text.secondary" }}
+        />
+      </Box>
     )}
   </Box>
 );

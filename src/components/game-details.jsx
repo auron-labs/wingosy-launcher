@@ -227,6 +227,7 @@ const GameDetailsProgressContent = ({
       onLaunch={actions.handleLaunchGame}
       onSyncSwitchContent={actions.handleSyncSwitchContent}
       saveSyncBusy={saves.switchSyncBusy}
+      switchContentStatus={actions.switchContentStatus}
       switchContentSyncing={actions.switchContentSyncing}
     />
     <GameDetailsLaunchStatus

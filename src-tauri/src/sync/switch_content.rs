@@ -49,6 +49,26 @@ pub struct SwitchContentSyncResult {
     pub total_files: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchContentStatus {
+    Current,
+    Missing,
+    Changed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SwitchContentStatusResult {
+    pub status: SwitchContentStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentFileStatus {
+    Current,
+    Missing,
+    Changed,
+}
+
 #[derive(Debug, Clone)]
 struct SelectedContentFile {
     id: i32,
@@ -104,6 +124,96 @@ where
         || eden_process_is_running(&eden_executable),
     )
     .await
+}
+
+/// Read-only comparison of Wingosy-managed update/DLC files against the
+/// current RomM child-file metadata. Does not download, register, or mutate
+/// anything; callers treat any error as an unavailable status.
+pub async fn get_switch_content_status(
+    game: &Game,
+    client: &RomMClient,
+) -> Result<SwitchContentStatusResult> {
+    let data_root = AppConfig::data_dir()?;
+    get_switch_content_status_at_root(game, client, &data_root).await
+}
+
+async fn get_switch_content_status_at_root(
+    game: &Game,
+    client: &RomMClient,
+    data_root: &Path,
+) -> Result<SwitchContentStatusResult> {
+    validate_game(game)?;
+    let rom = client
+        .get_rom(game.romm_id.context("Game has no RomM ID")?)
+        .await?;
+    let title_id = resolve_base_title_id(&rom)?;
+    let files = select_eligible_files(&rom)?;
+    if files.is_empty() {
+        anyhow::bail!(
+            "RomM detailed metadata contains no Switch files categorized as update or dlc; verify the child-file categories, then retry"
+        );
+    }
+    let content_directory = content_directory(data_root, &title_id);
+    let manifest = read_manifest(&content_directory)?;
+    let status = evaluate_content_status(&manifest, &files, &content_directory);
+    Ok(SwitchContentStatusResult { status })
+}
+
+fn evaluate_content_status(
+    manifest: &ContentManifest,
+    files: &[SelectedContentFile],
+    content_directory: &Path,
+) -> SwitchContentStatus {
+    let selected_ids = files.iter().map(|file| file.id).collect::<HashSet<_>>();
+    // A manifest entry for a file RomM no longer lists means Wingosy still
+    // holds content the server metadata no longer describes.
+    let has_stale_entries = manifest
+        .files
+        .iter()
+        .any(|entry| !selected_ids.contains(&entry.file_id));
+    let mut overall = if has_stale_entries {
+        SwitchContentStatus::Changed
+    } else {
+        SwitchContentStatus::Current
+    };
+    for file in files {
+        let relative_path = content_relative_path(file);
+        let destination = content_directory.join(&relative_path);
+        match content_file_status(manifest, file, &relative_path, &destination) {
+            ContentFileStatus::Current => {}
+            ContentFileStatus::Missing => return SwitchContentStatus::Missing,
+            ContentFileStatus::Changed => overall = SwitchContentStatus::Changed,
+        }
+    }
+    overall
+}
+
+fn content_file_status(
+    manifest: &ContentManifest,
+    file: &SelectedContentFile,
+    relative_path: &str,
+    destination: &Path,
+) -> ContentFileStatus {
+    let Some(entry) = manifest
+        .files
+        .iter()
+        .find(|entry| entry.file_id == file.id)
+    else {
+        return ContentFileStatus::Missing;
+    };
+    if entry.relative_path != relative_path
+        || entry.expected_size != file.expected_size
+        || entry.server_change_marker != file.server_change_marker
+    {
+        return ContentFileStatus::Changed;
+    }
+    match fs::metadata(destination) {
+        Ok(metadata) if metadata.is_file() && metadata.len() == file.expected_size => {
+            ContentFileStatus::Current
+        }
+        Ok(_) => ContentFileStatus::Changed,
+        Err(_) => ContentFileStatus::Missing,
+    }
 }
 
 async fn sync_switch_content_at_root<F, P>(
@@ -519,16 +629,10 @@ fn manifest_has_current_file(
     relative_path: &str,
     destination: &Path,
 ) -> bool {
-    manifest.files.iter().any(|entry| {
-        entry.file_id == file.id
-            && entry.expected_size == file.expected_size
-            && entry.server_change_marker == file.server_change_marker
-            && entry.relative_path == relative_path
-            && destination.is_file()
-            && fs::metadata(destination)
-                .map(|metadata| metadata.len() == file.expected_size)
-                .unwrap_or(false)
-    })
+    matches!(
+        content_file_status(manifest, file, relative_path, destination),
+        ContentFileStatus::Current
+    )
 }
 
 fn remove_old_paths(
@@ -1143,6 +1247,145 @@ mod tests {
             &relative,
             &destination
         ));
+    }
+
+    #[test]
+    fn content_status_reports_current_for_matching_manifest_and_file() {
+        let temp = tempdir().unwrap();
+        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected = &selected[0];
+        let relative = content_relative_path(selected);
+        let destination = temp.path().join(&relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&destination, vec![0; selected.expected_size as usize]).unwrap();
+        assert_eq!(
+            evaluate_content_status(
+                &manifest_with(selected, &relative),
+                std::slice::from_ref(selected),
+                temp.path()
+            ),
+            SwitchContentStatus::Current
+        );
+    }
+
+    #[test]
+    fn content_status_reports_missing_without_manifest_entry_or_file() {
+        let temp = tempdir().unwrap();
+        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected = &selected[0];
+        let relative = content_relative_path(selected);
+        assert_eq!(
+            evaluate_content_status(
+                &ContentManifest::default(),
+                std::slice::from_ref(selected),
+                temp.path()
+            ),
+            SwitchContentStatus::Missing
+        );
+        assert_eq!(
+            evaluate_content_status(
+                &manifest_with(selected, &relative),
+                std::slice::from_ref(selected),
+                temp.path()
+            ),
+            SwitchContentStatus::Missing
+        );
+    }
+
+    #[test]
+    fn content_status_reports_changed_when_server_or_local_content_differs() {
+        let temp = tempdir().unwrap();
+        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected = &selected[0];
+        let relative = content_relative_path(selected);
+        let destination = temp.path().join(&relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&destination, vec![0; selected.expected_size as usize]).unwrap();
+
+        let mut changed_marker = selected.clone();
+        changed_marker.server_change_marker = "updated_at=changed;last_modified=".into();
+        assert_eq!(
+            evaluate_content_status(
+                &manifest_with(selected, &relative),
+                &[changed_marker],
+                temp.path()
+            ),
+            SwitchContentStatus::Changed
+        );
+
+        fs::write(&destination, vec![0; (selected.expected_size + 1) as usize]).unwrap();
+        assert_eq!(
+            evaluate_content_status(
+                &manifest_with(selected, &relative),
+                std::slice::from_ref(selected),
+                temp.path()
+            ),
+            SwitchContentStatus::Changed
+        );
+    }
+
+    #[test]
+    fn content_status_reports_changed_for_manifest_entries_romm_no_longer_lists() {
+        let temp = tempdir().unwrap();
+        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected = &selected[0];
+        let relative = content_relative_path(selected);
+        let destination = temp.path().join(&relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&destination, vec![0; selected.expected_size as usize]).unwrap();
+        let mut manifest = manifest_with(selected, &relative);
+        manifest.files.push(ContentManifestEntry {
+            file_id: 99,
+            category: "dlc".into(),
+            file_name: "stale.nsp".into(),
+            relative_path: "dlc/99-stale.nsp".into(),
+            expected_size: 5,
+            server_change_marker: "updated_at=old;last_modified=".into(),
+        });
+        assert_eq!(
+            evaluate_content_status(&manifest, std::slice::from_ref(selected), temp.path()),
+            SwitchContentStatus::Changed
+        );
+    }
+
+    #[test]
+    fn content_status_prefers_missing_over_changed() {
+        let temp = tempdir().unwrap();
+        let selected = select_eligible_files(&selected_rom(Some(vec![
+            child(1, "update"),
+            child(2, "dlc"),
+        ])))
+        .unwrap();
+        let missing = &selected[0];
+        let changed = &selected[1];
+        let changed_relative = content_relative_path(changed);
+        let changed_destination = temp.path().join(&changed_relative);
+        fs::create_dir_all(changed_destination.parent().unwrap()).unwrap();
+        fs::write(&changed_destination, vec![0; changed.expected_size as usize]).unwrap();
+        let mut changed_file = changed.clone();
+        changed_file.server_change_marker = "updated_at=changed;last_modified=".into();
+        assert_eq!(
+            evaluate_content_status(
+                &manifest_with(changed, &changed_relative),
+                &[missing.clone(), changed_file],
+                temp.path()
+            ),
+            SwitchContentStatus::Missing
+        );
+    }
+
+    fn manifest_with(file: &SelectedContentFile, relative: &str) -> ContentManifest {
+        ContentManifest {
+            version: MANIFEST_VERSION,
+            files: vec![ContentManifestEntry {
+                file_id: file.id,
+                category: file.category.clone(),
+                file_name: file.file_name.clone(),
+                relative_path: relative.to_string(),
+                expected_size: file.expected_size,
+                server_change_marker: file.server_change_marker.clone(),
+            }],
+        }
     }
 
     #[test]

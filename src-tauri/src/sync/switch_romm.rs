@@ -278,6 +278,28 @@ pub async fn upload_switch_save_from_eden(
     Ok(result)
 }
 
+/// List the device-scoped save records that Switch restore accepts for this game.
+pub async fn get_switch_saves_for_device(
+    game: &Game,
+    config: &mut AppConfig,
+) -> Result<Vec<RomMSave>> {
+    let romm_id = game.romm_id.context("Game is not linked to RomM")?;
+    let client = romm_client(config)?;
+    let device_id = ensure_device_id(config);
+    client.get_saves_for_rom_device(romm_id, &device_id).await
+}
+
+/// Negotiate a user-requested synchronization of the current local save.
+/// Remote-newer and conflict decisions remain errors so the UI can offer a
+/// safe backup or restore choice instead of overwriting either side.
+pub async fn sync_current_switch_save(
+    game: &Game,
+    config: &mut AppConfig,
+    db: &Database,
+) -> Result<SwitchSaveSyncResult> {
+    negotiated_launch_sync(game, config, false, db).await
+}
+
 async fn upload_switch_save_from_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,
