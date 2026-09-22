@@ -58,7 +58,7 @@ pub fn default_emulators() -> Vec<Emulator> {
             id: "retroarch".into(),
             name: "RetroArch".into(),
             executable_path: None,
-            supported_platforms: vec!["*".into()],
+            supported_platforms: retroarch_cores().into_keys().collect(),
             launch_args: vec!["--fullscreen".into()],
             rom_arg: "{rom}".into(),
             core_name: None,
@@ -305,4 +305,24 @@ pub fn retroarch_cores() -> HashMap<String, &'static str> {
     cores.insert("psp".into(), "ppsspp_libretro.dll");
     cores.insert("arcade".into(), "mame_libretro.dll");
     cores
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_emulators, retroarch_cores};
+    use std::collections::HashSet;
+
+    #[test]
+    fn retroarch_advertises_exactly_platforms_with_mapped_cores() {
+        let retroarch = default_emulators()
+            .into_iter()
+            .find(|emulator| emulator.id == "retroarch")
+            .expect("default catalog includes RetroArch");
+        let advertised_platforms: HashSet<_> = retroarch.supported_platforms.into_iter().collect();
+        let mapped_platforms: HashSet<_> = retroarch_cores().into_keys().collect();
+
+        assert_eq!(advertised_platforms, mapped_platforms);
+        assert!(!advertised_platforms.contains("switch"));
+        assert!(!advertised_platforms.contains("*"));
+    }
 }

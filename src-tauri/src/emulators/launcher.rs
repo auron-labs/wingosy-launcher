@@ -409,7 +409,9 @@ impl EmulatorLauncher {
         if let Ok(Some(config)) = self.db.get_emulator_for_game(game.id, &game.platform_id) {
             let emulators = crate::models::default_emulators();
 
-            if let Some(mut emu) = emulators.into_iter().find(|e| e.id == config.emulator_id) {
+            if let Some(mut emu) = emulators.into_iter().find(|e| {
+                e.id == config.emulator_id && e.supported_platforms.contains(&game.platform_id)
+            }) {
                 emu.executable_path = self.get_emulator_path(&emu.id);
                 emu.core_name = config.core_name;
                 if emu.is_retroarch && emu.core_name.is_none() {
@@ -430,7 +432,9 @@ impl EmulatorLauncher {
         {
             let emulators = crate::models::default_emulators();
 
-            if let Some(mut emu) = emulators.into_iter().find(|e| &e.id == default_emu_id) {
+            if let Some(mut emu) = emulators.into_iter().find(|e| {
+                &e.id == default_emu_id && e.supported_platforms.contains(&game.platform_id)
+            }) {
                 emu.executable_path = self.get_emulator_path(&emu.id);
 
                 if emu.is_retroarch {
@@ -454,9 +458,7 @@ impl EmulatorLauncher {
         let mut emulators = crate::models::default_emulators();
 
         for emu in &mut emulators {
-            if emu.supported_platforms.contains(&game.platform_id)
-                || emu.supported_platforms.contains(&"*".to_string())
-            {
+            if emu.supported_platforms.contains(&game.platform_id) {
                 emu.executable_path = self.get_emulator_path(&emu.id);
 
                 if emu.is_retroarch {
@@ -471,8 +473,11 @@ impl EmulatorLauncher {
             }
         }
 
-        // 4. Fallback to RetroArch if available
-        if let Some(retroarch) = emulators.iter_mut().find(|e| e.id == "retroarch") {
+        // 4. Fallback to a compatible RetroArch installation if available
+        if let Some(retroarch) = emulators
+            .iter_mut()
+            .find(|e| e.id == "retroarch" && e.supported_platforms.contains(&game.platform_id))
+        {
             retroarch.executable_path = self.get_emulator_path("retroarch");
             if let Some(core) = retroarch_cores().get(&game.platform_id) {
                 retroarch.core_name = Some(core.to_string());
@@ -736,6 +741,119 @@ mod tests {
         .unwrap();
         let id = db.insert_game(game).unwrap();
         game.id = id;
+    }
+
+    #[test]
+    fn resolve_switch_auto_and_invalid_platform_default_use_eden() {
+        for platform_default in [None, Some("retroarch")] {
+            let dir = tempfile::tempdir().unwrap();
+            let retroarch = dir.path().join("retroarch.exe");
+            let eden = dir.path().join("eden.exe");
+            fs::write(&retroarch, b"retroarch").unwrap();
+            fs::write(&eden, b"eden").unwrap();
+
+            let mut config = AppConfig::default();
+            config.emulators.retroarch = Some(retroarch);
+            config.emulators.eden = Some(eden.clone());
+            if let Some(default_emu_id) = platform_default {
+                config
+                    .emulators
+                    .platform_defaults
+                    .insert("switch".to_string(), default_emu_id.to_string());
+            }
+            let game = Game::new(
+                "Switch Game".to_string(),
+                "switch-game.xci".to_string(),
+                "switch".to_string(),
+            );
+
+            let emulator = EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+                .resolve_emulator(&game)
+                .unwrap();
+
+            assert_eq!(emulator.id, "eden");
+            assert_eq!(emulator.executable_path, Some(eden));
+        }
+    }
+
+    #[test]
+    fn resolve_switch_ignores_incompatible_per_game_retroarch_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let retroarch = dir.path().join("retroarch.exe");
+        let eden = dir.path().join("eden.exe");
+        fs::write(&retroarch, b"retroarch").unwrap();
+        fs::write(&eden, b"eden").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(retroarch);
+        config.emulators.eden = Some(eden.clone());
+        let db = Database::open_in_memory().unwrap();
+        let mut game = Game::new(
+            "Switch Game".to_string(),
+            "switch-game.xci".to_string(),
+            "switch".to_string(),
+        );
+        persist_game_for_override(&db, &mut game);
+        db.set_emulator_for_game(game.id, "retroarch", None)
+            .unwrap();
+
+        let emulator = EmulatorLauncher::new(config, db)
+            .resolve_emulator(&game)
+            .unwrap();
+
+        assert_eq!(emulator.id, "eden");
+        assert_eq!(emulator.executable_path, Some(eden));
+    }
+
+    #[test]
+    fn resolve_switch_with_only_retroarch_returns_missing_emulator_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let retroarch = dir.path().join("retroarch.exe");
+        fs::write(&retroarch, b"retroarch").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(retroarch);
+        let game = Game::new(
+            "Switch Game".to_string(),
+            "switch-game.xci".to_string(),
+            "switch".to_string(),
+        );
+
+        let error = EmulatorLauncher::new(config, Database::open_in_memory().unwrap())
+            .resolve_emulator(&game)
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "No emulator configured for platform: switch"
+        );
+    }
+
+    #[test]
+    fn resolve_mapped_retroarch_per_game_override_uses_mapped_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let retroarch = dir.path().join("retroarch.exe");
+        fs::write(&retroarch, b"retroarch").unwrap();
+
+        let mut config = AppConfig::default();
+        config.emulators.retroarch = Some(retroarch.clone());
+        let db = Database::open_in_memory().unwrap();
+        let mut game = Game::new(
+            "NES Game".to_string(),
+            "nes-game.nes".to_string(),
+            "nes".to_string(),
+        );
+        persist_game_for_override(&db, &mut game);
+        db.set_emulator_for_game(game.id, "retroarch", None)
+            .unwrap();
+
+        let emulator = EmulatorLauncher::new(config, db)
+            .resolve_emulator(&game)
+            .unwrap();
+
+        assert_eq!(emulator.id, "retroarch");
+        assert_eq!(emulator.executable_path, Some(retroarch));
+        assert_eq!(emulator.core_name.as_deref(), Some("fceumm_libretro.dll"));
     }
 
     #[test]

@@ -259,6 +259,47 @@ describe("Settings emulator download metadata", () => {
 describe("Settings platform defaults", () => {
   afterEach(cleanupSettingsTest);
 
+  it("offers installed Switch emulators without RetroArch", async () => {
+    renderSettings({
+      emulators: [
+        {
+          id: "retroarch",
+          install_type: "external",
+          installed_path: "C:\\RetroArch\\retroarch.exe",
+          is_installed: true,
+          name: "RetroArch",
+          supported_platforms: ["nes"],
+        },
+        {
+          id: "eden",
+          install_type: "external",
+          installed_path: "C:\\Eden\\eden.exe",
+          is_installed: true,
+          name: "Eden",
+          supported_platforms: ["switch"],
+        },
+      ],
+      initialSection: "emulators",
+      platforms: [[{ id: "switch", name: "Nintendo Switch" }, 1]],
+    });
+
+    const platformDefault = await screen.findByTestId(
+      "platform-default-switch"
+    );
+    const selectTrigger = platformDefault.querySelector('[role="combobox"]');
+    if (selectTrigger === null) {
+      throw new Error("Switch platform default select trigger is missing");
+    }
+    fireEvent.mouseDown(selectTrigger);
+
+    await expect(
+      screen.findByRole("option", { name: "Eden" })
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole("option", { name: "RetroArch" })
+    ).not.toBeInTheDocument();
+  });
+
   it("aligns platform defaults and displays Auto", async () => {
     renderSettings({
       emulators: [

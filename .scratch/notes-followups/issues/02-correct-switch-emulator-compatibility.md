@@ -4,14 +4,14 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Acceptance
 
-- [ ] Switch Settings choices do not offer RetroArch; compatible choices remain available.
-- [ ] With RetroArch and Eden installed, automatic Switch resolution chooses Eden, including when a previously saved invalid Switch platform default names RetroArch.
-- [ ] With no compatible Switch emulator installed, launch reports the existing missing-emulator outcome, not “No RetroArch core is configured.”
-- [ ] RetroArch remains selectable and resolvable for platforms with a mapped, ready RetroArch core; valid configured compatible emulator choices remain honored.
+- [x] Switch Settings choices do not offer RetroArch; compatible choices remain available.
+- [x] With RetroArch and Eden installed, automatic Switch resolution chooses Eden, including when a previously saved invalid Switch platform default names RetroArch.
+- [x] With no compatible Switch emulator installed, launch reports the existing missing-emulator outcome, not “No RetroArch core is configured.”
+- [x] RetroArch remains selectable and resolvable for platforms with a mapped, ready RetroArch core; valid configured compatible emulator choices remain honored.
 
 ## Evidence and context
 
@@ -30,3 +30,14 @@ Prefer catalog and selection corrections over a compatibility service or duplica
 ## Targeted verification
 
 Add focused existing Rust launcher regressions for RetroArch plus Eden installed on Switch, including a prior invalid platform default, and for mapped RetroArch preservation. Extend existing Settings-choice coverage only as needed to prove Switch excludes RetroArch; do not add a broad suite.
+
+## Progress
+
+- [x] Slice 1: RetroArch now derives its advertised platforms from `retroarch_cores()`; focused model coverage proves the catalog exactly matches mapped cores and excludes Switch/wildcard. Formatting, the isolated model test, and diff checks pass; the direct crate test remains blocked by the pre-existing unknown `core:window:allow-start-dragging` capability permission.
+- [x] Slice 2: Launcher resolution now skips catalog-incompatible per-game choices and platform defaults, auto-detects only compatible emulators, and limits the RetroArch fallback to mapped platforms. Focused regressions cover Switch auto/default/per-game behavior, the missing-emulator error, and mapped RetroArch preservation. Formatting and diff checks pass; Rust execution remains blocked by the existing Tauri capability error (and unrelated compile failures in a temporary-copy attempt).
+- [x] Slice 3: Added focused Settings coverage proving Eden remains offered for Switch while RetroArch is excluded. The focused test, all 280 frontend unit tests, typecheck, build, Rust formatting, changed-file Ultracite, and diff checks pass. Repository-wide frontend lint retains 49 pre-existing errors outside changed paths; Rust tests and Clippy remain blocked by the pre-existing unknown Tauri capability permission.
+- [x] Slice 4: Two-axis `code-review` approved the working-tree diff with zero Standards findings and zero Spec findings. Focused Settings tests, Rust formatting, changed-file Ultracite, and diff checks were reconfirmed; Rust test execution remains blocked by the pre-existing Tauri capability error.
+
+## Answer
+
+RetroArch now advertises only the platforms backed by `retroarch_cores()`, so Switch Settings offers Eden but not RetroArch. Launcher resolution applies that catalog compatibility to per-game overrides, saved platform defaults, automatic detection, and fallback selection: stale incompatible Switch choices are skipped, Eden is selected when installed, and otherwise the existing missing-emulator error is returned. Focused Rust regressions preserve mapped RetroArch resolution, and Settings coverage proves the visible Switch choices.
