@@ -38,9 +38,7 @@ export const useSwitchContentStatus = ({ game, ipc, eligible }) => {
     eligible && statusState.gameId === game.id ? statusState.status : null;
   const fetchSwitchContentStatus = useCallback(async () => {
     try {
-      return toSwitchContentStatus(
-        await ipc.getSwitchContentStatus(game.id)
-      );
+      return toSwitchContentStatus(await ipc.getSwitchContentStatus(game.id));
     } catch {
       // An unavailable lookup must never report "current".
       return null;

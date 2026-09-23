@@ -22,11 +22,16 @@ const launchProgressLabel = (progress) => {
   return downloadLabel;
 };
 
-/** @param {{controller: DetailsController}} options View model. @returns {() => void} Save section callback. */
+/** @param {{controller: DetailsController, game: ImmersiveGame}} options View model. @returns {() => void} Save management callback. */
 const createSaveSectionHandler =
-  ({ controller }) =>
+  ({ controller, game }) =>
   () => {
     controller.actions.setMenuAnchor(null);
+    if (game.platform_id === "switch") {
+      controller.setSaveHistoryOpen(true);
+      return;
+    }
+    void controller.saves.handleListSaves();
     controller.savesSectionRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -43,8 +48,8 @@ const createContentProps = ({
   platformLabel,
   retroachievementsEnabled,
 }) => {
-  const { actions } = controller;
-  const onSaveScroll = createSaveSectionHandler({ controller });
+  const { actions, saves } = controller;
+  const onSaveScroll = createSaveSectionHandler({ controller, game });
   return {
     achievementState: controller.achievementState,
     actionStatus: actions.actionStatus,
@@ -70,36 +75,48 @@ const createContentProps = ({
     onClearSaveStatus: () => {
       controller.saves.setSaveStatus(null);
     },
+    onCreateBackup: saves.handleCreateSwitchBackup,
     onDelete: () => {
       actions.setMenuAnchor(null);
       actions.setDeleteDialogOpen(true);
     },
+    onDownloadSave: saves.handleDownloadSave,
+    onEnableSaveSync: saves.handleEnableSaveSync,
     onHideGame: actions.handleHideGame,
+    onListSaves: saves.handleListSaves,
     onOpenIntegrations,
     onOpenLocation: actions.handleOpenLocation,
     onRefreshMetadata: actions.handleRefreshMetadata,
-    onResumeSwitchSaveNormalSync:
-      controller.saves.handleResumeSwitchSaveNormalSync,
+    onResumeSwitchSaveNormalSync: saves.handleResumeSwitchSaveNormalSync,
     onSaveScroll,
+    onSyncCurrentSave: saves.handleSyncCurrentSwitchSave,
     onToggleFavorite,
+    onUploadSave: saves.handleUploadSave,
     platformLabel,
     primaryActionRef: controller.primaryActionRef,
     refreshing: actions.refreshing,
     retroachievementsEnabled,
     romDl: controller.romDl,
     rommConfigured: controller.rommConfigured,
+    saveHistoryOpen: controller.saveHistoryOpen,
     saveStatus: controller.saves.saveStatus,
+    saveSyncEnabled: saves.saveSyncEnabled,
+    saves: saves.saves,
+    savesLoaded: saves.savesLoaded,
+    savesLoading: saves.savesLoading,
     savesSectionRef: controller.savesSectionRef,
     screenshots: game.screenshot_paths ?? [],
     setActionStatus: actions.setActionStatus,
     setDeleteDialogOpen: actions.setDeleteDialogOpen,
     setDownloadStatus: actions.setDownloadStatus,
     setMenuAnchor: actions.setMenuAnchor,
+    setSaveHistoryOpen: controller.setSaveHistoryOpen,
     switchContentProgress: controller.switchContentProgress,
     switchContentStatus: actions.switchContentStatus,
     switchContentSyncing: actions.switchContentSyncing,
-    switchRestoreProtection: controller.saves.switchRestoreProtection,
-    switchSyncBusy: controller.saves.switchSyncBusy,
+    switchPathInfo: saves.switchPathInfo,
+    switchRestoreProtection: saves.switchRestoreProtection,
+    switchSyncBusy: saves.switchSyncBusy,
   };
 };
 

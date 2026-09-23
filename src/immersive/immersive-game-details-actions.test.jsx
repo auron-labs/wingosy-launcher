@@ -268,11 +268,7 @@ describe("ImmersiveGameDetails Switch content retry", () => {
 
     screen.getByRole("button", { name: "Sync Updates & DLC" }).click();
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          /Eden is running.*Choose “Sync Updates & DLC” to retry/u
-        )
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Eden is running/u)).toBeInTheDocument();
     });
   });
 });

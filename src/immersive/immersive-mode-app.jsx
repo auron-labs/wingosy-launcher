@@ -6,6 +6,11 @@ import {
   isTextInputTarget,
   logControllerOutcome,
 } from "./controller-debug";
+import {
+  clickFocusedElement,
+  getSpatialDirection,
+  moveSpatialFocus,
+} from "./controller-spatial-navigation";
 import { getVisibleControllerOverlay } from "./immersive-controller-overlay";
 import ImmersiveModeView from "./immersive-mode-view";
 import {
@@ -67,12 +72,24 @@ const getControllerOverlayTarget = (overlay) => {
   return overlay;
 };
 
-/** @param {Element} overlay @param {string} key @param {ReturnType<typeof import("./controller-debug").getControllerAction>} action Dispatch to the open overlay. */
+/** @param {Element} overlay @param {string} key Controller key. @param {ReturnType<typeof import("./controller-debug").getControllerAction>} action Dispatch to the open overlay. */
 const dispatchControllerToOverlay = (overlay, key, action) => {
   const target = getControllerOverlayTarget(overlay);
   const dispatchResult = target.dispatchEvent(
     buildControllerKeydown(key, action)
   );
+  /** @type {string|null} */
+  let fallbackAction = null;
+  if (dispatchResult) {
+    const direction = getSpatialDirection(key);
+    if (direction !== null) {
+      fallbackAction = moveSpatialFocus({ container: overlay, direction })
+        ? "focus-moved"
+        : "focus-boundary";
+    } else if (key === "Enter" && clickFocusedElement({ container: overlay })) {
+      fallbackAction = "activate-focused";
+    }
+  }
   if (action !== null) {
     const role = overlay.getAttribute("role") ?? "overlay";
     debugLog("controller", "action routed", {
@@ -81,6 +98,7 @@ const dispatchControllerToOverlay = (overlay, key, action) => {
         {
           defaultPrevented: !dispatchResult,
           element: describeControllerElement(target),
+          fallbackAction,
           type: target === overlay ? role : `${role}-item`,
         },
       ],
@@ -104,6 +122,16 @@ const useImmersiveModeControllerRoute = ({ view }) => {
             view === "library" && !isShellControllerKey(key)
               ? "library"
               : "shell";
+          if (
+            key === "Escape" &&
+            document.activeElement instanceof HTMLElement
+          ) {
+            document.activeElement.blur();
+            logControllerOutcome(action, receiver, "handled", {
+              reason: "blur-text-input",
+            });
+            return;
+          }
           logControllerOutcome(action, receiver, "suppressed", {
             reason: "text-input-focused",
           });
@@ -115,15 +143,11 @@ const useImmersiveModeControllerRoute = ({ view }) => {
           return;
         }
         const target =
-          view === "library" && !isShellControllerKey(key)
+          view === "library" &&
+          !isShellControllerKey(key) &&
+          libraryTargetRef.current !== null
             ? libraryTargetRef.current
             : window;
-        if (target === null) {
-          logControllerOutcome(action, "library", "ignored", {
-            reason: "route-target-missing",
-          });
-          return;
-        }
         target.dispatchEvent(buildControllerKeydown(key, action));
       } catch {
         // Ignore a detached view during route transitions or teardown.
@@ -144,6 +168,7 @@ const useImmersiveModeNavigation = ({ display, onExit }) => {
   const [saveSyncMessages, setSaveSyncMessages] = useState(
     getInitialSaveMessages
   );
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const handleExit = async () => {
     await runIgnoringFailure(async () => {
       await display.setFullscreen(false);
@@ -154,13 +179,27 @@ const useImmersiveModeNavigation = ({ display, onExit }) => {
     );
     await onExit?.();
   };
+  const requestExit = () => {
+    setExitConfirmOpen(true);
+  };
+  const confirmExit = () => {
+    setExitConfirmOpen(false);
+    void handleExit();
+  };
+  const cancelExit = () => {
+    setExitConfirmOpen(false);
+  };
   const openSettings = (section = "general") => {
     setSettingsInitialSection(section);
     setView("settings");
   };
   return {
+    cancelExit,
+    confirmExit,
+    exitConfirmOpen,
     handleExit,
     openSettings,
+    requestExit,
     saveSyncMessages,
     setSaveSyncMessages,
     setShowHints,
@@ -277,6 +316,42 @@ const useImmersiveModeAppCallbacks = ({ display, library, navigation }) => {
   };
 };
 
+/** @param {{props: Parameters<typeof useImmersiveModeAppServices>[0], dependencies: NonNullable<Parameters<typeof useImmersiveModeAppServices>[0]["dependencies"]>, display: ReturnType<typeof useImmersiveModeDisplay>, navigation: ReturnType<typeof useImmersiveModeNavigation>, library: ReturnType<typeof useImmersiveModeLibrary>}} options App wiring dependencies. @returns {{commands: ReturnType<typeof useImmersiveModeCommands>, callbacks: ReturnType<typeof useImmersiveModeAppCallbacks>}} Wired hooks. */
+const useImmersiveModeAppWiring = ({
+  props,
+  dependencies,
+  display,
+  navigation,
+  library,
+}) => {
+  useImmersiveSyncRefresh({
+    library,
+    monitor: props.rommSyncMonitor ?? EMPTY_ROMM_SYNC_MONITOR,
+  });
+  const commands = useImmersiveModeCommands({
+    display,
+    library,
+    navigation,
+    prepareLaunch: dependencies.prepareLaunch,
+    toggleGameFavorite: dependencies.toggleGameFavorite,
+    view: navigation.view,
+  });
+  useImmersiveModeHotkeys({
+    loadData: library.loadData,
+    requestExit: navigation.requestExit,
+    setShowHints: navigation.setShowHints,
+    setView: navigation.setView,
+    toggleFullscreen: display.toggleFullscreen,
+    view: navigation.view,
+  });
+  const callbacks = useImmersiveModeAppCallbacks({
+    display,
+    library,
+    navigation,
+  });
+  return { callbacks, commands };
+};
+
 /** @param {{onExit?: () => void|Promise<void>, rommToken?: string|null, rommUrl?: string|null, rommSyncMonitor?: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, onRommConnect?: (url: string, token: string) => void, requestedFullscreen?: boolean, dependencies?: {components?: import("./immersive-mode-view").ImmersiveModeComponents, getConfig?: typeof import("./immersive-mode-ipc").getImmersiveConfig, libraryIpc?: import("./use-immersive-mode-library").ImmersiveLibraryIpc, prepareLaunch?: typeof import("./immersive-mode-ipc").prepareAndLaunchGame, saveConfig?: typeof import("./immersive-mode-ipc").saveImmersiveConfig, toggleGameFavorite?: typeof import("./immersive-mode-ipc").toggleFavorite}}} props App properties. */
 const useImmersiveModeAppServices = (props) => {
   const { dependencies = {} } = props;
@@ -295,36 +370,21 @@ const useImmersiveModeAppServices = (props) => {
     setView: navigation.setView,
     view: navigation.view,
   });
-  useImmersiveSyncRefresh({
-    library,
-    monitor: props.rommSyncMonitor ?? EMPTY_ROMM_SYNC_MONITOR,
-  });
-  const commands = useImmersiveModeCommands({
+  const { callbacks, commands } = useImmersiveModeAppWiring({
+    dependencies,
     display,
     library,
     navigation,
-    prepareLaunch: dependencies.prepareLaunch,
-    toggleGameFavorite: dependencies.toggleGameFavorite,
-    view: navigation.view,
-  });
-  useImmersiveModeHotkeys({
-    handleExit: navigation.handleExit,
-    loadData: library.loadData,
-    setShowHints: navigation.setShowHints,
-    setView: navigation.setView,
-    toggleFullscreen: display.toggleFullscreen,
-    view: navigation.view,
-  });
-  const callbacks = useImmersiveModeAppCallbacks({
-    display,
-    library,
-    navigation,
+    props,
   });
   return {
     ...commands,
     audioConfig: display.audioConfig,
+    cancelExit: navigation.cancelExit,
     components: dependencies.components,
+    confirmExit: navigation.confirmExit,
     error: library.error,
+    exitConfirmOpen: navigation.exitConfirmOpen,
     games: library.games,
     handleExit: navigation.handleExit,
     loadData: library.loadData,

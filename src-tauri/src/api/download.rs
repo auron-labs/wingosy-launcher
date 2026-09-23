@@ -287,7 +287,7 @@ impl DownloadRateEstimator {
 
         const NANOS_PER_SECOND: u128 = 1_000_000_000;
         let elapsed_nanos = elapsed.as_nanos();
-        let rate = (transferred as u128 * NANOS_PER_SECOND + elapsed_nanos - 1) / elapsed_nanos;
+        let rate = (transferred as u128 * NANOS_PER_SECOND).div_ceil(elapsed_nanos);
         Some(rate.min(u64::MAX as u128) as u64)
     }
 }

@@ -107,11 +107,11 @@ const createFirstPageGames = () =>
     name: `Game ${index + 1}`,
   }));
 
-/** @param {{firstPageGames: typeof games, secondPageGames: typeof games}} pages Paginated library fixtures. */
-const configurePagedLibraryIpc = ({ firstPageGames, secondPageGames }) => {
+/** @param {{config?: Record<string, unknown>, extra?: (command: string) => unknown, gamesPage: (args: Record<string, unknown>|undefined) => unknown}} overrides Mock response overrides. */
+const mockLibraryIpc = ({ config = {}, extra, gamesPage }) => {
   invoke.mockImplementation(
     /** @param {string} command @param {Record<string, unknown>|undefined} args */
-    (command, args) => {
+    async (command, args) => {
       if (command === "is_first_run") {
         return false;
       }
@@ -119,52 +119,44 @@ const configurePagedLibraryIpc = ({ firstPageGames, secondPageGames }) => {
         return platforms;
       }
       if (command === "get_config") {
-        return {};
+        return config;
       }
       if (command === "check_for_app_update") {
         return { is_update_available: false };
       }
       if (command === "get_games_page") {
-        if (args?.filterBy === "favorites") {
-          return { games: [firstPageGames[0]], total: 1 };
-        }
-        return {
-          games: args?.page === 2 ? secondPageGames : firstPageGames,
-          total: 61,
-        };
+        return await gamesPage(args);
       }
-      return null;
+      const value = await extra?.(command);
+      return value === undefined ? null : value;
     }
   );
+};
+
+/** @param {{firstPageGames: typeof games, secondPageGames: typeof games}} pages Paginated library fixtures. */
+const configurePagedLibraryIpc = ({ firstPageGames, secondPageGames }) => {
+  mockLibraryIpc({
+    gamesPage: (args) =>
+      args?.filterBy === "favorites"
+        ? { games: [firstPageGames[0]], total: 1 }
+        : {
+            games: args?.page === 2 ? secondPageGames : firstPageGames,
+            total: 61,
+          },
+  });
 };
 
 describe("Favorites navigation", () => {
   afterEach(resetAppTest);
 
   it("filters the real library to favorites and focuses its active control", async () => {
-    invoke.mockImplementation(
-      /** @param {string} command @param {Record<string, unknown>|undefined} args */
-      (command, args) => {
-        if (command === "is_first_run") {
-          return false;
-        }
-        if (command === "get_platforms_with_games") {
-          return platforms;
-        }
-        if (command === "get_config") {
-          return {};
-        }
-        if (command === "check_for_app_update") {
-          return { is_update_available: false };
-        }
-        if (command === "get_games_page") {
-          const visibleGames =
-            args?.filterBy === "favorites" ? [games[0]] : games;
-          return { games: visibleGames, total: visibleGames.length };
-        }
-        return null;
-      }
-    );
+    mockLibraryIpc({
+      gamesPage: (args) => {
+        const visibleGames =
+          args?.filterBy === "favorites" ? [games[0]] : games;
+        return { games: visibleGames, total: visibleGames.length };
+      },
+    });
 
     renderApp();
     await waitForGamesPageRequest();
@@ -304,30 +296,12 @@ describe("Desktop details navigation", () => {
 
   it("preserves platform and search context when returning from details", async () => {
     const searchedGame = { ...games[0], name: "Starred Quest" };
-    invoke.mockImplementation(
-      /** @param {string} command @param {Record<string, unknown>|undefined} args */
-      (command, args) => {
-        if (command === "is_first_run") {
-          return false;
-        }
-        if (command === "get_platforms_with_games") {
-          return platforms;
-        }
-        if (command === "get_config") {
-          return {};
-        }
-        if (command === "check_for_app_update") {
-          return { is_update_available: false };
-        }
-        if (command === "get_games_page") {
-          if (args?.platformId === "switch" && args.searchQuery === "quest") {
-            return { games: [searchedGame], total: 1 };
-          }
-          return { games, total: games.length };
-        }
-        return null;
-      }
-    );
+    mockLibraryIpc({
+      gamesPage: (args) =>
+        args?.platformId === "switch" && args?.searchQuery === "quest"
+          ? { games: [searchedGame], total: 1 }
+          : { games, total: games.length },
+    });
 
     renderApp();
     await waitForGamesPageRequest();
@@ -384,47 +358,30 @@ const rommMonitorOverview = [
 
 /** @param {PromiseWithResolvers<unknown>} sync Deferred sync operation. */
 const configureRommMonitorIpc = (sync, overview = rommMonitorOverview) => {
-  invoke.mockImplementation(
-    /** @param {string} command IPC command. */
-    async (command) => {
-      if (command === "is_first_run") {
-        return false;
-      }
-      if (command === "get_platforms_with_games") {
-        return platforms;
-      }
-      if (command === "get_config") {
-        return {
-          romm: {
-            auth_token: "test-token",
-            server_url: "https://romm.example",
-          },
-        };
-      }
+  mockLibraryIpc({
+    config: {
+      romm: {
+        auth_token: "test-token",
+        server_url: "https://romm.example",
+      },
+    },
+    extra: async (command) => {
       if (command === "restore_romm_session") {
         return {
           access_token: "test-token",
           server_url: "https://romm.example",
         };
       }
-      if (command === "check_for_app_update") {
-        return { is_update_available: false };
-      }
-      if (command === "get_games_page") {
-        return { games, total: games.length };
-      }
       if (command === "list_romm_sync_platforms") {
         return overview;
       }
-      if (command === "sync_romm_platform") {
-        return await sync.promise;
-      }
-      if (command === "sync_romm_library") {
+      if (command === "sync_romm_platform" || command === "sync_romm_library") {
         return await sync.promise;
       }
       return null;
-    }
-  );
+    },
+    gamesPage: () => ({ games, total: games.length }),
+  });
 };
 
 describe("RomM sync monitor", () => {
@@ -544,23 +501,15 @@ describe("Launch save-sync notifications", () => {
       "Uploaded Switch save for 0100A5C00D162000 to RomM (slot: autosave)";
     const restored =
       "Restored Switch save 0100A5C00D162000 from RomM (slot: backup-2026-09-19, save id: 9001)";
-    invoke.mockImplementation((command) => {
-      if (command === "is_first_run") return false;
-      if (command === "get_platforms_with_games") return platforms;
-      if (command === "get_config") return {};
-      if (command === "check_for_app_update") {
-        return { is_update_available: false };
-      }
-      if (command === "get_games_page") {
-        return { games, total: games.length };
-      }
-      if (command === "prepare_and_launch_game") {
-        return {
-          save_sync_messages: [transfer, restored, transfer],
-          success: true,
-        };
-      }
-      return null;
+    mockLibraryIpc({
+      extra: (command) =>
+        command === "prepare_and_launch_game"
+          ? {
+              save_sync_messages: [transfer, restored, transfer],
+              success: true,
+            }
+          : undefined,
+      gamesPage: () => ({ games, total: games.length }),
     });
 
     renderApp();

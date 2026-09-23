@@ -5,12 +5,40 @@ import normalizeUrl from "../utils/normalize-url";
 /** @typedef {{type: "error"|"warning"|"info"|"success", message: string}} SettingsMessage */
 /** @typedef {"checking"|"downloaded-not-synced"|"not-configured"|"offline"|"online"|"remote-only"|"synced"} SyncStatus */
 /** @typedef {{autoSync: boolean, lastSyncedAt: string|null, libraryCount: number|null}} RommSyncMetadata */
-/** @typedef {{pairingAttemptRef: {current: number}, rommUrl: string, rommToken: string|null, runtime: import("./settings-runtime").SettingsRuntime, rommAuthMode: "pairing"|"token", rommDeviceName: string, rommDirectToken: string, rommSessionSaved: boolean, rommConnectionStatus: SyncStatus, setRommUrl: SettingsSetter<string>, setRommPairing: SettingsSetter<RommPairing|null>, setRommStatus: SettingsSetter<SettingsMessage|null>, setRommSessionSaved: SettingsSetter<boolean>, setRommConnectionStatus: SettingsSetter<SyncStatus>, setRommSyncMetadata: SettingsSetter<RommSyncMetadata>, setRommDirectToken: SettingsSetter<string>, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null}} RommActionsContext */
+/** @typedef {{pairingAttemptRef: {current: number}, rommUrl: string, rommToken: string|null, runtime: import("./settings-runtime").SettingsRuntime, rommAuthMode: "pairing"|"token", rommDeviceName: string, rommDirectToken: string, rommSessionSaved: boolean, rommConnectionStatus: SyncStatus, setRommUrl: SettingsSetter<string>, setRommPairing: SettingsSetter<RommPairing|null>, setRommStatus: SettingsSetter<SettingsMessage|null>, setRommSessionSaved: SettingsSetter<boolean>, setRommConnectionStatus: SettingsSetter<SyncStatus>, setRommSyncMetadata: SettingsSetter<RommSyncMetadata>, setRommDirectToken: SettingsSetter<string>, onLibraryChange?: (() => void|Promise<void>)|null, onRommConnect?: (url: string, token: string) => void, onRommDisconnect?: (() => void)|null}} RommActionsContext */
 /** @template T @typedef {(value: T | ((previous: T) => T)) => void} SettingsSetter */
 
 /** @param {unknown} error Error from a RomM operation. */
 const getErrorMessage = (error) =>
   error instanceof Error ? error.message : String(error);
+
+/** @param {Pick<RommActionsContext, "onLibraryChange"|"runtime"|"setRommStatus"|"setRommSyncMetadata"> & {serverUrl: string, token: string}} context Sync dependencies. */
+const syncRommLibrary = async ({
+  onLibraryChange,
+  runtime,
+  serverUrl,
+  setRommStatus,
+  setRommSyncMetadata,
+  token,
+}) => {
+  /** @type {unknown[]} */
+  const games = await runtime.invoke("sync_romm_library", {
+    serverUrl,
+    token,
+  });
+  setRommSyncMetadata((previous) => ({
+    ...previous,
+    lastSyncedAt: new Date().toISOString(),
+    libraryCount: games.length,
+  }));
+  setRommStatus({
+    message: `Synced ${games.length} games from RomM!`,
+    type: "success",
+  });
+  if (onLibraryChange) {
+    await onLibraryChange();
+  }
+};
 
 /** @param {Pick<RommActionsContext, "rommUrl"|"rommToken"|"runtime"|"setRommConnectionStatus"|"setRommSessionSaved"|"setRommSyncMetadata"|"setRommDirectToken"|"setRommStatus"|"onRommDisconnect">} context RomM state. */
 export const checkRommConnection = async ({
@@ -66,7 +94,45 @@ export const checkRommConnection = async ({
   }
 };
 
-/** @param {{pairing: RommPairing, attempt: number, deadline: number, intervalMs: number, pairingAttemptRef: {current: number}, runtime: import("./settings-runtime").SettingsRuntime, setRommSessionSaved: SettingsSetter<boolean>, setRommConnectionStatus: SettingsSetter<string>, setRommPairing: SettingsSetter<RommPairing|null>, setRommStatus: SettingsSetter<object|null>, onRommConnect?: (url: string, token: string) => void, normalizedUrl: string}} context Pairing state. */
+/** @param {{pairing: RommPairing, attempt: number, deadline: number, intervalMs: number, pairingAttemptRef: {current: number}, runtime: import("./settings-runtime").SettingsRuntime, setRommSessionSaved: SettingsSetter<boolean>, setRommConnectionStatus: SettingsSetter<string>, setRommPairing: SettingsSetter<RommPairing|null>, setRommStatus: SettingsSetter<object|null>, setRommSyncMetadata: SettingsSetter<object|null>, onLibraryChange?: (() => void|Promise<void>)|null, onRommConnect?: (url: string, token: string) => void, normalizedUrl: string}} context Pairing state. @param {RommPollResult} result Approved poll result. */
+const finishApprovedPairing = async (context, result) => {
+  const {
+    normalizedUrl,
+    onLibraryChange,
+    onRommConnect,
+    runtime,
+    setRommConnectionStatus,
+    setRommPairing,
+    setRommSessionSaved,
+    setRommStatus,
+    setRommSyncMetadata,
+  } = context;
+  onRommConnect?.(normalizedUrl, result.access_token ?? "");
+  setRommSessionSaved(true);
+  setRommConnectionStatus("online");
+  setRommPairing(null);
+  setRommStatus({
+    message: "Wingosy is paired with RomM. Syncing library...",
+    type: "info",
+  });
+  try {
+    await syncRommLibrary({
+      onLibraryChange,
+      runtime,
+      serverUrl: normalizedUrl,
+      setRommStatus,
+      setRommSyncMetadata,
+      token: result.access_token ?? "",
+    });
+  } catch (syncError) {
+    setRommStatus({
+      message: `Paired with RomM, but the library sync failed: ${getErrorMessage(syncError)}`,
+      type: "error",
+    });
+  }
+};
+
+/** @param {{pairing: RommPairing, attempt: number, deadline: number, intervalMs: number, pairingAttemptRef: {current: number}, runtime: import("./settings-runtime").SettingsRuntime, setRommSessionSaved: SettingsSetter<boolean>, setRommConnectionStatus: SettingsSetter<string>, setRommPairing: SettingsSetter<RommPairing|null>, setRommStatus: SettingsSetter<object|null>, setRommSyncMetadata: SettingsSetter<object|null>, onLibraryChange?: (() => void|Promise<void>)|null, onRommConnect?: (url: string, token: string) => void, normalizedUrl: string}} context Pairing state. */
 const schedulePairingPoll = (context) => {
   const poll = async () => {
     const {
@@ -77,11 +143,8 @@ const schedulePairingPoll = (context) => {
       pairingAttemptRef,
       runtime,
       normalizedUrl,
-      setRommConnectionStatus,
       setRommPairing,
-      setRommSessionSaved,
       setRommStatus,
-      onRommConnect,
     } = context;
     if (pairingAttemptRef.current !== attempt) {
       return;
@@ -120,15 +183,7 @@ const schedulePairingPoll = (context) => {
         result.access_token !== undefined &&
         result.access_token !== ""
       ) {
-        onRommConnect?.(normalizedUrl, result.access_token);
-        setRommSessionSaved(true);
-        setRommConnectionStatus("online");
-        setRommPairing(null);
-        setRommStatus({
-          message:
-            "Wingosy is paired with RomM. Click 'Sync Library' to pull your games.",
-          type: "success",
-        });
+        await finishApprovedPairing(context, result);
         return;
       }
       let message = `RomM pairing failed: ${result.status}`;
@@ -149,7 +204,7 @@ const schedulePairingPoll = (context) => {
   void poll();
 };
 
-/** @param {Pick<RommActionsContext, "pairingAttemptRef"|"rommUrl"|"runtime"|"setRommUrl"|"setRommPairing"|"setRommStatus"|"setRommSessionSaved"|"setRommConnectionStatus"|"onRommConnect">} context RomM state. */
+/** @param {Pick<RommActionsContext, "pairingAttemptRef"|"rommUrl"|"runtime"|"setRommUrl"|"setRommPairing"|"setRommStatus"|"setRommSessionSaved"|"setRommConnectionStatus"|"setRommSyncMetadata"|"onLibraryChange"|"onRommConnect">} context RomM state. */
 const handleDevicePairing = async ({
   pairingAttemptRef,
   rommUrl,
@@ -159,6 +214,8 @@ const handleDevicePairing = async ({
   setRommStatus,
   setRommSessionSaved,
   setRommConnectionStatus,
+  setRommSyncMetadata,
+  onLibraryChange,
   onRommConnect,
 }) => {
   const attempt = pairingAttemptRef.current + 1;
@@ -197,6 +254,7 @@ const handleDevicePairing = async ({
       deadline,
       intervalMs,
       normalizedUrl,
+      onLibraryChange,
       onRommConnect,
       pairing,
       pairingAttemptRef,
@@ -205,6 +263,7 @@ const handleDevicePairing = async ({
       setRommPairing,
       setRommSessionSaved,
       setRommStatus,
+      setRommSyncMetadata,
     });
   } catch (error) {
     if (pairingAttemptRef.current !== attempt) {
@@ -215,7 +274,7 @@ const handleDevicePairing = async ({
   }
 };
 
-/** @param {Pick<RommActionsContext, "rommSessionSaved"|"rommConnectionStatus"|"rommAuthMode"|"runtime"|"setRommStatus"|"rommUrl"|"setRommUrl"|"rommDeviceName"|"rommDirectToken"|"setRommSessionSaved"|"setRommConnectionStatus"|"setRommDirectToken"|"onRommConnect"> & {handleDevicePairing: () => Promise<void>}} context RomM state. */
+/** @param {Pick<RommActionsContext, "rommSessionSaved"|"rommConnectionStatus"|"rommAuthMode"|"runtime"|"setRommStatus"|"rommUrl"|"setRommUrl"|"rommDeviceName"|"rommDirectToken"|"setRommSessionSaved"|"setRommConnectionStatus"|"setRommDirectToken"|"setRommSyncMetadata"|"onLibraryChange"|"onRommConnect"> & {handleDevicePairing: () => Promise<void>}} context RomM state. */
 const handleConnectRomM = async (context) => {
   const {
     rommSessionSaved,
@@ -230,6 +289,8 @@ const handleConnectRomM = async (context) => {
     setRommSessionSaved,
     setRommConnectionStatus,
     setRommDirectToken,
+    setRommSyncMetadata,
+    onLibraryChange,
     onRommConnect,
   } = context;
   if (rommSessionSaved || rommConnectionStatus === "online") {
@@ -258,9 +319,24 @@ const handleConnectRomM = async (context) => {
     setRommConnectionStatus("online");
     setRommDirectToken("");
     setRommStatus({
-      message: "Connected! Click 'Sync Library' to pull your games.",
-      type: "success",
+      message: "Connected! Syncing library...",
+      type: "info",
     });
+    try {
+      await syncRommLibrary({
+        onLibraryChange,
+        runtime: context.runtime,
+        serverUrl: rommUrl,
+        setRommStatus,
+        setRommSyncMetadata,
+        token,
+      });
+    } catch (syncError) {
+      setRommStatus({
+        message: `Connected, but the library sync failed: ${getErrorMessage(syncError)}`,
+        type: "error",
+      });
+    }
   } catch (error) {
     setRommStatus({ message: getErrorMessage(error), type: "error" });
   }
@@ -277,46 +353,64 @@ const cancelDevicePairing = ({
   setRommStatus(null);
 };
 
-/** @param {Pick<RommActionsContext, "rommUrl"|"rommToken"|"runtime"|"setRommStatus"|"setRommSyncMetadata"> & {onLibraryChange?: (() => void|Promise<void>)|null}} context RomM state. */
+/** @param {Pick<RommActionsContext, "rommUrl"|"rommToken"|"runtime"|"setRommStatus"|"setRommSessionSaved"|"setRommConnectionStatus"|"setRommSyncMetadata"|"onLibraryChange"|"onRommConnect">} context RomM state. */
 const handleSyncRomM = async ({
   rommUrl,
   rommToken,
   runtime,
   setRommStatus,
+  setRommSessionSaved,
+  setRommConnectionStatus,
   setRommSyncMetadata,
   onLibraryChange,
+  onRommConnect,
 }) => {
-  if (rommUrl === "") {
+  let serverUrl = rommUrl;
+  let token = rommToken;
+  if (token === null || token === "") {
+    try {
+      /** @type {{server_url?: string, access_token?: string}|null} */
+      const session = await runtime.invoke("restore_romm_session");
+      if (
+        session !== null &&
+        session !== undefined &&
+        session.access_token !== undefined &&
+        session.access_token !== ""
+      ) {
+        token = session.access_token;
+        if (session.server_url !== undefined && session.server_url !== "") {
+          serverUrl = session.server_url;
+        }
+        onRommConnect?.(serverUrl, token);
+        setRommSessionSaved(true);
+        setRommConnectionStatus("online");
+      }
+    } catch {
+      token = null;
+    }
+  }
+  if (serverUrl === "") {
     setRommStatus({ message: "Enter a server URL first.", type: "error" });
+    return;
+  }
+  if (token === null || token === "") {
+    setRommStatus({
+      message:
+        "Connect to RomM first: pair Wingosy or use a client access token above.",
+      type: "error",
+    });
     return;
   }
   try {
     setRommStatus({ message: "Syncing library...", type: "info" });
-    if (rommToken === null || rommToken === "") {
-      setRommStatus({
-        message:
-          "Pair Wingosy with RomM or connect with a client access token first.",
-        type: "error",
-      });
-      return;
-    }
-    /** @type {unknown[]} */
-    const games = await runtime.invoke("sync_romm_library", {
-      serverUrl: rommUrl,
-      token: rommToken,
+    await syncRommLibrary({
+      onLibraryChange,
+      runtime,
+      serverUrl,
+      setRommStatus,
+      setRommSyncMetadata,
+      token,
     });
-    setRommSyncMetadata((previous) => ({
-      ...previous,
-      lastSyncedAt: new Date().toISOString(),
-      libraryCount: games.length,
-    }));
-    setRommStatus({
-      message: `Synced ${games.length} games from RomM!`,
-      type: "success",
-    });
-    if (onLibraryChange) {
-      await onLibraryChange();
-    }
   } catch (error) {
     setRommStatus({ message: getErrorMessage(error), type: "error" });
   }

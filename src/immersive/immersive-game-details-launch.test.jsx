@@ -394,12 +394,12 @@ describe("ImmersiveGameDetails Settings recovery", () => {
 describe("ImmersiveGameDetails cloud saves guidance", () => {
   afterEach(resetImmersiveGameDetailsTest);
 
-  it("names the More options menu directly in the cloud-saves guidance", () => {
+  it("drops the More options menu guidance from cloud saves", () => {
     renderDetails(undefined, remoteOnlyGame);
 
     expect(
-      screen.getByText(/this game's More options menu/u)
-    ).toBeInTheDocument();
+      screen.queryByText(/this game's More options menu/u)
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/the menu above/u)).not.toBeInTheDocument();
   });
 });

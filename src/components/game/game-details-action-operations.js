@@ -100,10 +100,7 @@ export const syncSwitchContentAction = async (context) => {
     });
     await context.refreshSwitchContentStatus?.();
   } catch (error) {
-    context.setActionStatus({
-      message: `${getErrorMessage(error)} Choose “Sync Updates & DLC” to retry after correcting the issue.`,
-      type: "error",
-    });
+    context.setActionStatus({ message: getErrorMessage(error), type: "error" });
   }
   context.switchContentInFlightRef.current = false;
   context.setSwitchContentSyncing(false);

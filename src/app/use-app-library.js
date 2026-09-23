@@ -23,12 +23,19 @@ const getErrorMessage = (error) =>
 
 /** @param {unknown} messages Launch save-sync messages. @returns {string[]} Safe, distinct success notifications. */
 const getSaveSyncMessages = (messages) => {
-  if (!Array.isArray(messages)) return [];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  /** @type {Set<string>} */
   const distinctMessages = new Set();
   for (const value of messages) {
-    if (typeof value !== "string") continue;
-    const message = value.trim();
-    if (message === "") continue;
+    if (Object.prototype.toString.call(value) !== "[object String]") {
+      continue;
+    }
+    const message = String(value).trim();
+    if (message === "") {
+      continue;
+    }
     distinctMessages.add(
       SWITCH_SAVE_TRANSFER_MESSAGE.test(message)
         ? "Cloud save sync completed."

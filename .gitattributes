@@ -1,3 +1,5 @@
+# Keep LF line endings on checkout (CI lint expects LF)
+* text=auto eol=lf
 # Mark vendored/generated files so GitHub doesn't count them in language stats
 e2e-webdriver/Driver_Notes/** linguist-vendored
 .scratch/STATE.md merge=ours

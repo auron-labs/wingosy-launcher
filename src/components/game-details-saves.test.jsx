@@ -207,7 +207,7 @@ describe("GameDetails permanent save failures", () => {
       if (command === "download_switch_save") {
         return { message: "Cloud save restored" };
       }
-      return { display: {}, ...args };
+      return await Promise.resolve({ display: {}, ...args });
     });
     renderDetails({ game: switchRemoteGame });
 
@@ -220,9 +220,9 @@ describe("GameDetails permanent save failures", () => {
     fireEvent.click(
       within(history).getByRole("button", { name: "Sync current save" })
     );
-    expect(
-      await within(history).findByText("Choose a save carefully")
-    ).toBeInTheDocument();
+    await expect(
+      within(history).findByText("Choose a save carefully")
+    ).resolves.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Use cloud" })
     ).not.toBeInTheDocument();

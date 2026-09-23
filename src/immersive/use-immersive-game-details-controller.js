@@ -78,6 +78,7 @@ const useDetailsResources = ({
     rommToken: rommToken ?? null,
     rommUrl: rommUrl ?? null,
   });
+  const [saveHistoryOpen, setSaveHistoryOpen] = useState(false);
   const launchRequest = useCallback(
     /** @param {number|string} gameId Game identifier. */
     async (gameId) => {
@@ -107,8 +108,10 @@ const useDetailsResources = ({
     launchProgress,
     primaryActionRef,
     romDl,
+    saveHistoryOpen,
     saves,
     savesSectionRef,
+    setSaveHistoryOpen,
     staleLaunchProgress,
     switchContentProgress,
   };
@@ -153,8 +156,10 @@ const getDetailsController = ({
   retryableLaunchFailure,
   romDl: resources.romDl,
   rommConfigured,
+  saveHistoryOpen: resources.saveHistoryOpen,
   saves: resources.saves,
   savesSectionRef: resources.savesSectionRef,
+  setSaveHistoryOpen: resources.setSaveHistoryOpen,
   staleLaunchProgress: resources.staleLaunchProgress,
   switchContentProgress: resources.switchContentProgress,
 });

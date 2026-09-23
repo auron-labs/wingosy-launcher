@@ -88,6 +88,7 @@ const createAudioActions = (context) =>
 const createRommActions = (context) =>
   createSettingsRommActions({
     ...context.rommState,
+    onLibraryChange: context.onLibraryChange,
     onRommConnect: context.onRommConnect,
     onRommDisconnect: context.onRommDisconnect,
     rommToken: context.rommToken,

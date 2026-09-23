@@ -157,9 +157,10 @@ export const uploadSwitchSaveAction = async (context, retrySlot) => {
     }
     await context.ipc.uploadSwitchSave(context.game.id, slot);
     await context.refreshSwitchRestoreProtection();
-    const successMessage = slot?.startsWith("backup-")
-      ? "Backup created."
-      : "Current save synced.";
+    const successMessage =
+      slot?.startsWith("backup-") === true
+        ? "Backup created."
+        : "Current save synced.";
     context.setSaveStatus({ message: successMessage, type: "success" });
     try {
       await context.refreshSaveList(true);

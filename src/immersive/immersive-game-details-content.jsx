@@ -1,13 +1,13 @@
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 
+import { GameDetailsSavesSection } from "../components/game/game-details-saves-section";
 import {
   DetailsStatusArea,
   DetailsSummary,
@@ -16,12 +16,8 @@ import {
   HeroBackdrop,
   ImmersiveShellLayout,
   ImmersiveTopBar,
-  PlatformSpine,
 } from "./immersive-shell";
-import {
-  getImmersiveCoverSrc,
-  toSpinePlatformOptions,
-} from "./immersive-shell-utils";
+import { getImmersiveCoverSrc } from "./immersive-shell-utils";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
 /** @typedef {import("./immersive-types").PlatformEntry} PlatformEntry */
@@ -29,7 +25,7 @@ import {
 /** @typedef {{message: string, type: "error"|"info"|"success"}} DetailsStatus */
 /** @typedef {Record<string, string>} DetailsColors */
 
-/** @typedef {{game: ImmersiveGame, achievementState: ReturnType<typeof import("../components/game/use-game-details-achievements").useGameDetailsAchievements>, colors: DetailsColors, detailsRef: {current: HTMLElement|null}, screenshots: string[], getMediaSrc: (url: string) => string|null, onBack: () => void, onGoToLibrarySection?: ((section: string) => void)|null, section?: string|null, platforms?: PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: ((platform: string|null) => void)|null, searchQuery?: string, onSearchChange?: ((query: string) => void)|null, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, hasRomm: boolean, rommConfigured: boolean, refreshing: boolean, hasLocalFile: boolean, onOpenLocation: () => Promise<void>, onHideGame: () => Promise<void>, onAddToCollection: () => Promise<void>, onRefreshMetadata: () => Promise<void>, onDelete: () => void, onSaveScroll: () => void, downloading: boolean, romDl: DownloadProgress|null, downloadStatus: DetailsStatus|null, setDownloadStatus: (status: DetailsStatus|null) => void, actionStatus: DetailsStatus|null, setActionStatus: (status: DetailsStatus|null) => void, saveStatus: import("../components/game/game-details-types").GameDetailsStatus|null, onClearSaveStatus: () => void, onResumeSwitchSaveNormalSync: () => Promise<void>, isSwitch: boolean, switchRestoreProtection: import("../components/game/game-details-types").GameDetailsSwitchSaveRestoreProtection|null, switchSyncBusy: boolean, switchContentSyncing: boolean, switchContentStatus: import("../components/game/game-details-types").GameDetailsSwitchContentStatus|null, switchContentProgress: DownloadProgress|null, canPlay: boolean, launchActive: boolean, primaryActionRef: {current: HTMLButtonElement|null}, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, canDownload: boolean, canSyncSwitchContent: boolean, handleSyncSwitchContent: () => Promise<void>, onToggleFavorite: (gameId: number|string) => void|Promise<void>, setDeleteDialogOpen: (open: boolean) => void, savesSectionRef: {current: HTMLElement|null}}} ImmersiveDetailsContentProps */
+/** @typedef {{game: ImmersiveGame, achievementState: ReturnType<typeof import("../components/game/use-game-details-achievements").useGameDetailsAchievements>, colors: DetailsColors, detailsRef: {current: HTMLElement|null}, screenshots: string[], getMediaSrc: (url: string) => string|null, onBack: () => void, onGoToLibrarySection?: ((section: string) => void)|null, section?: string|null, platforms?: PlatformEntry[], selectedPlatform?: string|null, onSelectedPlatformChange?: ((platform: string|null) => void)|null, searchQuery?: string, onSearchChange?: ((query: string) => void)|null, platformLabel?: string|null, retroachievementsEnabled: boolean, onOpenIntegrations: (() => void)|null, menuAnchor: HTMLElement|null, setMenuAnchor: (anchor: HTMLElement|null) => void, hasRomm: boolean, rommConfigured: boolean, refreshing: boolean, hasLocalFile: boolean, onOpenLocation: () => Promise<void>, onHideGame: () => Promise<void>, onAddToCollection: () => Promise<void>, onRefreshMetadata: () => Promise<void>, onDelete: () => void, onSaveScroll: () => void, downloading: boolean, romDl: DownloadProgress|null, downloadStatus: DetailsStatus|null, setDownloadStatus: (status: DetailsStatus|null) => void, actionStatus: DetailsStatus|null, setActionStatus: (status: DetailsStatus|null) => void, saveStatus: import("../components/game/game-details-types").GameDetailsStatus|null, onClearSaveStatus: () => void, onResumeSwitchSaveNormalSync: () => Promise<void>, isSwitch: boolean, switchRestoreProtection: import("../components/game/game-details-types").GameDetailsSwitchSaveRestoreProtection|null, switchSyncBusy: boolean, switchContentSyncing: boolean, switchContentStatus: import("../components/game/game-details-types").GameDetailsSwitchContentStatus|null, switchContentProgress: DownloadProgress|null, canPlay: boolean, launchActive: boolean, primaryActionRef: {current: HTMLButtonElement|null}, handleLaunchGame: () => Promise<void>, handleDownloadRom: () => Promise<void>, canDownload: boolean, canSyncSwitchContent: boolean, handleSyncSwitchContent: () => Promise<void>, onToggleFavorite: (gameId: number|string) => void|Promise<void>, setDeleteDialogOpen: (open: boolean) => void, savesSectionRef: {current: HTMLElement|null}, saveHistoryOpen?: boolean, setSaveHistoryOpen?: (open: boolean) => void, onCreateBackup: () => Promise<void>, onDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>, onEnableSaveSync: () => Promise<void>, onListSaves: () => Promise<void>, onSyncCurrentSave: () => Promise<void>, onUploadSave: (retryFilePath?: string|null) => Promise<void>, saveSyncEnabled?: boolean, saves?: import("../components/game/game-details-types").GameDetailsSave[], savesLoaded?: boolean, savesLoading?: boolean, switchPathInfo?: import("../components/game/game-details-types").GameDetailsSwitchPathInfo|null}} ImmersiveDetailsContentProps */
 
 /** @param {import("react").FocusEvent<HTMLElement>} event Focus event. */
 const markDetailsActionFocus = ({ target }) => {
@@ -76,99 +72,73 @@ const getDetailsMenuProps = ({
   rommConfigured,
 });
 
-/** @param {Pick<ImmersiveDetailsContentProps, "saveStatus"|"switchSyncBusy"|"onClearSaveStatus">} props Save status properties. */
-const DetailsSaveStatus = ({
-  onClearSaveStatus,
-  saveStatus,
-  switchSyncBusy,
-}) => {
-  if (saveStatus === null) {
-    return null;
-  }
+/** @param {ImmersiveDetailsContentProps} props Save section properties. */
+const DetailsSharedSaves = (props) => {
+  const {
+    game,
+    isSwitch,
+    launchActive,
+    onClearSaveStatus,
+    onCreateBackup,
+    onDownloadSave,
+    onEnableSaveSync,
+    onListSaves,
+    onResumeSwitchSaveNormalSync,
+    onSyncCurrentSave,
+    onUploadSave,
+    saveHistoryOpen,
+    saveStatus,
+    saveSyncEnabled,
+    saves,
+    savesLoaded,
+    savesLoading,
+    setSaveHistoryOpen,
+    switchPathInfo,
+    switchRestoreProtection,
+    switchSyncBusy,
+  } = props;
   return (
-    <Alert
-      action={
-        saveStatus.retry ? (
-          <Button
-            color="inherit"
-            disabled={switchSyncBusy}
-            onClick={() => {
-              void saveStatus.retry?.();
-            }}
-            size="small"
-          >
-            Retry
-          </Button>
-        ) : undefined
-      }
-      onClose={onClearSaveStatus}
-      severity={saveStatus.type}
-      sx={{ mt: 2 }}
-    >
-      {saveStatus.message}
-    </Alert>
+    <GameDetailsSavesSection
+      game={game}
+      historyOpen={saveHistoryOpen === true}
+      isSwitch={isSwitch}
+      launchActive={launchActive}
+      onClearStatus={onClearSaveStatus}
+      onCloseHistory={() => {
+        setSaveHistoryOpen?.(false);
+      }}
+      onCreateBackup={onCreateBackup}
+      onDownloadSave={onDownloadSave}
+      onEnableSaveSync={onEnableSaveSync}
+      onListSaves={onListSaves}
+      onResumeSwitchSaveNormalSync={onResumeSwitchSaveNormalSync}
+      onSyncCurrentSave={onSyncCurrentSave}
+      onUploadSave={onUploadSave}
+      saveStatus={saveStatus}
+      saveSyncEnabled={saveSyncEnabled === true}
+      saves={saves ?? []}
+      savesLoaded={savesLoaded === true}
+      savesLoading={savesLoading === true}
+      switchPathInfo={switchPathInfo ?? null}
+      switchRestoreProtection={switchRestoreProtection}
+      switchSyncBusy={switchSyncBusy}
+    />
   );
 };
 
-/** @param {Pick<ImmersiveDetailsContentProps, "isSwitch"|"onResumeSwitchSaveNormalSync"|"switchRestoreProtection"|"switchSyncBusy">} props Eden protection properties. */
-const SwitchRestoreProtection = ({
-  isSwitch,
-  onResumeSwitchSaveNormalSync,
-  switchRestoreProtection,
-  switchSyncBusy,
-}) => {
-  if (!isSwitch || switchRestoreProtection === null) {
-    return null;
-  }
-  const revision = switchRestoreProtection.selected_revision;
-  const metadata = [
-    revision.file_name,
-    revision.slot,
-    revision.updated_at ?? revision.created_at,
-  ].filter(Boolean);
-  return (
-    <Alert severity="info" sx={{ mt: 2 }}>
-      <Typography sx={{ fontWeight: 700 }} variant="body2">
-        Protected Eden revision
-      </Typography>
-      <Typography variant="body2">
-        Automatic sync will keep this restored revision until local save
-        contents change or you resume normal sync.
-      </Typography>
-      {metadata.length > 0 ? (
-        <Typography sx={{ display: "block" }} variant="caption">
-          Selected revision: {metadata.join(" · ")}
-        </Typography>
-      ) : null}
-      <Button
-        disabled={switchSyncBusy}
-        onClick={() => {
-          void onResumeSwitchSaveNormalSync();
-        }}
-        size="small"
-        sx={{ mt: 1 }}
-        variant="outlined"
-      >
-        Resume normal sync
-      </Button>
-    </Alert>
-  );
-};
-
-/** @param {Pick<ImmersiveDetailsContentProps, "hasRomm"|"rommConfigured"|"savesSectionRef"|"isSwitch"|"onClearSaveStatus"|"onResumeSwitchSaveNormalSync"|"saveStatus"|"switchRestoreProtection"|"switchSyncBusy">} props Save section properties. */
-const DetailsSavesSection = ({
-  hasRomm,
-  isSwitch,
-  onClearSaveStatus,
-  onResumeSwitchSaveNormalSync,
-  rommConfigured,
-  saveStatus,
-  savesSectionRef,
-  switchRestoreProtection,
-  switchSyncBusy,
-}) => {
+/** @param {ImmersiveDetailsContentProps} props Save section properties. */
+const DetailsSavesSection = (props) => {
+  const { hasRomm, isSwitch, rommConfigured, savesSectionRef } = props;
   if (!hasRomm || !rommConfigured) {
     return null;
+  }
+  const sharedSaves = <DetailsSharedSaves {...props} />;
+  if (!isSwitch) {
+    return (
+      <Box ref={savesSectionRef} sx={{ maxWidth: 720 }}>
+        {sharedSaves}
+      </Box>
+    );
   }
   return (
     <Box ref={savesSectionRef} sx={{ maxWidth: 720, mt: 4 }}>
@@ -185,26 +155,7 @@ const DetailsSavesSection = ({
       >
         Saves (RomM)
       </Box>
-      <Box
-        component="p"
-        sx={{ color: "rgba(245,241,232,0.65)", fontSize: "0.875rem", m: 0 }}
-      >
-        Select <strong>Manage cached saves</strong> in this game&apos;s More
-        options menu to jump here when cloud saves are configured on the server.
-      </Box>
-      <SwitchRestoreProtection
-        isSwitch={isSwitch}
-        onResumeSwitchSaveNormalSync={onResumeSwitchSaveNormalSync}
-        switchRestoreProtection={switchRestoreProtection}
-        switchSyncBusy={switchSyncBusy}
-      />
-      {isSwitch ? (
-        <DetailsSaveStatus
-          onClearSaveStatus={onClearSaveStatus}
-          saveStatus={saveStatus}
-          switchSyncBusy={switchSyncBusy}
-        />
-      ) : null}
+      {sharedSaves}
     </Box>
   );
 };
@@ -245,76 +196,40 @@ const DetailsBackLine = ({ onBack }) => (
   </Stack>
 );
 
-/** @returns {(HTMLButtonElement|null)[]} Initial platform button refs. */
-const getInitialPlatformButtonRefs = () => [];
-
 /** @returns {HTMLInputElement|null} Initial search input ref. */
 const getInitialSearchInputRef = () => null;
 
-/** @param {{platforms?: PlatformEntry[]}} props Spine options properties. @returns {{options: import("./immersive-shell-utils").SpinePlatformOption[], platformButtonRefs: {current: (HTMLButtonElement|null)[]}}} Spine state. */
-const useDetailsSpine = ({ platforms }) => {
-  const platformButtonRefs = useRef(getInitialPlatformButtonRefs());
-  const options = useMemo(
-    () => toSpinePlatformOptions(platforms ?? []),
-    [platforms]
-  );
-  return { options, platformButtonRefs };
-};
-
-/** @param {Pick<ImmersiveDetailsContentProps, "game"|"section"|"onGoToLibrarySection"|"searchQuery"|"onSearchChange"|"platforms"|"selectedPlatform"|"onSelectedPlatformChange"|"onBack">} props Frame properties. */
+/** @param {Pick<ImmersiveDetailsContentProps, "game"|"section"|"onGoToLibrarySection"|"searchQuery"|"onSearchChange">} props Frame properties. */
 const DetailsFrame = (props) => {
-  const {
-    game,
-    section,
-    onGoToLibrarySection,
-    searchQuery,
-    onSearchChange,
-    platforms,
-    selectedPlatform,
-    onSelectedPlatformChange,
-    onBack,
-  } = props;
+  const { game, section, onGoToLibrarySection, searchQuery, onSearchChange } =
+    props;
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const { options, platformButtonRefs } = useDetailsSpine({ platforms });
   const searchInputRef = useRef(getInitialSearchInputRef());
-  /** @param {string|null} platform Selected platform identifier. */
-  const handlePlatformSelect = (platform) => {
-    onSelectedPlatformChange?.(platform);
-    onBack();
-  };
   return (
-    <>
-      <PlatformSpine
-        options={options}
-        selectedPlatform={selectedPlatform ?? null}
-        platformButtonRefs={platformButtonRefs}
-        onSelectedPlatformChange={handlePlatformSelect}
+    <Box
+      sx={{
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        minHeight: 0,
+        minWidth: 0,
+        position: "relative",
+      }}
+    >
+      <HeroBackdrop
+        coverSrc={getImmersiveCoverSrc(game.cover_path)}
+        reducedMotion={reducedMotion}
       />
-      <Box
-        sx={{
-          display: "flex",
-          flex: 1,
-          flexDirection: "column",
-          minHeight: 0,
-          minWidth: 0,
-          position: "relative",
-        }}
-      >
-        <HeroBackdrop
-          coverSrc={getImmersiveCoverSrc(game.cover_path)}
-          reducedMotion={reducedMotion}
+      <Box sx={{ position: "relative", zIndex: 1 }}>
+        <ImmersiveTopBar
+          section={section ?? null}
+          onSectionChange={onGoToLibrarySection ?? null}
+          searchInputRef={searchInputRef}
+          searchQuery={searchQuery ?? ""}
+          onSearchChange={onSearchChange ?? undefined}
         />
-        <Box sx={{ position: "relative", zIndex: 1 }}>
-          <ImmersiveTopBar
-            section={section ?? null}
-            onSectionChange={onGoToLibrarySection ?? null}
-            searchInputRef={searchInputRef}
-            searchQuery={searchQuery ?? ""}
-            onSearchChange={onSearchChange ?? undefined}
-          />
-        </Box>
       </Box>
-    </>
+    </Box>
   );
 };
 

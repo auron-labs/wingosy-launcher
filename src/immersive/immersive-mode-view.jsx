@@ -1,5 +1,12 @@
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
 import Snackbar from "@mui/material/Snackbar";
+import { useRef } from "react";
 
 import RomDownloadsView from "../components/rom-downloads-view";
 import RommSyncMonitor from "../components/romm-sync-monitor";
@@ -8,6 +15,7 @@ import AmbientAudioPlayer from "./ambient-audio-player";
 import ImmersiveGameDetails from "./immersive-game-details";
 import ImmersiveHintBar from "./immersive-hint-bar";
 import ImmersiveLibrary from "./immersive-library";
+import { useImmersiveSettingsNavigation } from "./use-immersive-settings-navigation";
 
 /** @typedef {import("./immersive-types").AmbientAudioConfig} AmbientAudioConfig */
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
@@ -16,7 +24,7 @@ import ImmersiveLibrary from "./immersive-library";
 
 /** @typedef {{audio?: typeof AmbientAudioPlayer, details?: typeof ImmersiveGameDetails, downloads?: typeof RomDownloadsView, hintBar?: typeof ImmersiveHintBar, library?: typeof ImmersiveLibrary, settings?: typeof Settings}} ImmersiveModeComponents */
 
-/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, controllerRouteRef?: {current: HTMLDivElement|null}, rommSyncMonitor: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, components?: ImmersiveModeComponents, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, onRetroAchievementsChange: (enabled: boolean) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void}} ImmersiveModeViewProps */
+/** @typedef {{view: string, selectedGame: ImmersiveGame|null, settingsInitialSection: string, games: ImmersiveGame[], platforms: PlatformEntry[], selectedPlatform: string|null, searchQuery: string, selectedIndex: number, loading: boolean, error: string|null, audioConfig: AmbientAudioConfig|null, showHints: boolean, unsupportedGamepad: boolean, saveSyncMessages: string[], platformDisplayNameById: Map<string, string>, controllerRouteRef?: {current: HTMLDivElement|null}, rommSyncMonitor: ReturnType<typeof import("../components/use-romm-sync-monitor").useRommSyncMonitor>, components?: ImmersiveModeComponents, rommToken?: string|null, rommUrl?: string|null, retroachievementsEnabled: boolean, onRommConnect?: (url: string, token: string) => void, onImmersiveModeChange: (enabled: boolean) => void, onFullscreenChange: (enabled: boolean) => void, onControllerDeadzoneChange: (value: number) => void, onRetroAchievementsChange: (enabled: boolean) => void, handleExit: () => Promise<void>, handleLaunchGame: (gameId: number|string) => Promise<LaunchResult|null>, handleToggleFavorite: (gameId: number|string) => Promise<void>, onSelectedPlatformChange: (platform: string|null) => void, onSearchChange: (query: string) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, onSelectGame: (game: ImmersiveGame) => void, loadData: () => Promise<ImmersiveGame[]>, openSettings: (section?: string) => void, setView: (view: string) => void, setSelectedGame: (game: ImmersiveGame|null) => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, setSaveSyncMessages: (messages: string[]) => void, exitConfirmOpen?: boolean, confirmExit?: () => void, cancelExit?: () => void}} ImmersiveModeViewProps */
 
 /** @param {{components: ImmersiveModeComponents, setView: (view: string) => void}} props Downloads view properties. */
 const DownloadsMain = ({ components, setView }) => {
@@ -87,8 +95,11 @@ const SettingsMain = ({
   loadData,
 }) => {
   const SettingsView = components.settings ?? Settings;
+  const settingsRootRef = useRef(null);
+  useImmersiveSettingsNavigation(settingsRootRef);
   return (
     <Box
+      ref={settingsRootRef}
       sx={{
         bgcolor: "background.default",
         display: "flex",
@@ -242,16 +253,42 @@ const ImmersiveModeView = (props) => {
       }}
     >
       <AudioPlayer audio={props.audioConfig} />
-      <HintBar
-        view={props.view}
-        visible={props.showHints}
-        unsupportedGamepad={props.unsupportedGamepad}
-      />
       <Box
         sx={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0 }}
       >
         <MainView {...props} components={components} />
       </Box>
+      <HintBar
+        view={props.view}
+        visible={props.showHints}
+        unsupportedGamepad={props.unsupportedGamepad}
+      />
+      <Dialog
+        open={props.exitConfirmOpen === true}
+        onClose={() => props.cancelExit?.()}
+        aria-labelledby="immersive-exit-dialog-title"
+      >
+        <DialogTitle id="immersive-exit-dialog-title">
+          Exit immersive mode?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Immersive mode will close and the window will leave fullscreen.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button autoFocus onClick={() => props.cancelExit?.()}>
+            Stay
+          </Button>
+          <Button
+            color="primary"
+            onClick={() => props.confirmExit?.()}
+            variant="contained"
+          >
+            Exit
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Snackbar
         open={props.saveSyncMessages.length > 0}
         autoHideDuration={7000}
