@@ -1,10 +1,8 @@
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import * as Mui from "@mui/material";
 
 import AmbientMusicSettings from "./settings-ambient-music";
 import * as Components from "./settings-components";
-import * as Shared from "./settings-view-shared";
 
 /** @typedef {import("./settings-types").SettingsPanelProps} SettingsPanelProps */
 /** @typedef {import("./settings-types").SettingsSliderValue} SettingsSliderValue */
@@ -83,18 +81,14 @@ const UiSoundSettings = (settings) => (
 
 /** @param {SettingsPanelProps} settings Settings panel state and actions. */
 const SoundSettings = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 1 }}>
-      <VolumeUpIcon color="primary" />
-      <Mui.Typography variant="h6">Sound</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard>
     <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       UI feedback and background music are used while Immersive mode is active;
       desktop mode remains silent.
     </Mui.Typography>
     <UiSoundSettings {...settings} />
     <AmbientMusicSettings {...settings} />
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 export default SoundSettings;

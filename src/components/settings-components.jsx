@@ -4,4 +4,6 @@ export { default as BiosSettings } from "./bios-settings";
 export { default as ConfirmDestructiveDialog } from "./confirm-destructive-dialog";
 export { default as KeyboardHint } from "./keyboard-hint";
 export { default as SettingSlider } from "./setting-slider";
+export { default as SettingsCard } from "./settings-card";
+export { default as SettingsStatTile } from "./settings-stat-tile";
 export { default as SyncStatusChip } from "./sync-status-chip";

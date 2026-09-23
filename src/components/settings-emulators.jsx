@@ -9,8 +9,6 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
-import TuneIcon from "@mui/icons-material/Tune";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -20,15 +18,14 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
+import SettingsCard from "./settings-card";
 import NativeControllerCard from "./settings-native-controller-card";
 import { formatOptionalStorageBytes } from "./settings-presentation";
 import RetroArchDetails from "./settings-retroarch-details";
-import * as Shared from "./settings-view-shared";
 
 /** @typedef {Pick<import("./settings-types").SettingsPanelProps, "availableEmus"|"config"|"downloadingCore"|"emuInstallProgress"|"emuMenuAnchor"|"emuMessage"|"expandedEmu"|"getInstallTypeLabel"|"handleApplyPaths"|"handleCaptureNativeController"|"handleCopyEmulatorPath"|"handleDownloadCore"|"handleDownloadEmulator"|"handleEmuMenuClose"|"handleEmuMenuOpen"|"handleLaunchEmulator"|"handleOpenLocation"|"handleOpenRetroarchInputSetup"|"handleRepairRetroarchProfile"|"handleResetRetroarchControllerAdditions"|"handleRetroarchBetaProfileChange"|"handleSetDefaultEmulator"|"handleUninstallEmulator"|"installedEmus"|"loadEmulators"|"loadMissingCores"|"loadNativeControllers"|"missingCores"|"nativeControllerCapture"|"nativeControllerLoading"|"nativeControllerMessage"|"nativeControllers"|"platformDefaults"|"platforms"|"retroarchCoreInventory"|"runtime"|"selectedEmu"|"setEmuMessage"|"setExpandedEmu"|"unavailableEmus">} EmulatorsSettingsProps */
 /** @typedef {import("./settings-types").SettingsEmulator} SettingsEmulator */
@@ -42,6 +39,7 @@ const EmulatorHeader = (settings) => (
       flexWrap: "wrap",
       gap: 1.5,
       mb: 2,
+      rowGap: 1,
     }}
   >
     <Box
@@ -49,12 +47,11 @@ const EmulatorHeader = (settings) => (
         alignItems: "center",
         display: "flex",
         flex: 1,
+        flexWrap: "wrap",
         gap: 1,
         minWidth: 0,
       }}
     >
-      <SportsEsportsIcon color="primary" />
-      <Typography variant="h6">Emulators</Typography>
       <Chip
         label={`${settings.installedEmus.length} installed`}
         size="small"
@@ -352,13 +349,9 @@ const UnavailableEmulators = (settings) => {
 
 /** @param {EmulatorsSettingsProps} settings - Settings panel state and actions. */
 const EmulatorCatalog = (settings) => (
-  <Paper
-    sx={{
-      ...Shared.SETTINGS_CARD_SX,
-      flex: 1,
-      minWidth: 0,
-      overflow: "hidden",
-    }}
+  <SettingsCard
+    sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}
+    title="Emulator catalog"
   >
     <EmulatorHeader {...settings} />
     <>
@@ -380,40 +373,26 @@ const EmulatorCatalog = (settings) => (
       <DownloadableEmulators {...settings} />
       <UnavailableEmulators {...settings} />
     </>
-  </Paper>
+  </SettingsCard>
 );
 
 /** @param {EmulatorsSettingsProps} settings - Settings panel state and actions. */
 const PlatformDefaults = (settings) => {
   if (settings.platforms.length === 0 || settings.installedEmus.length === 0) {
     return (
-      <Paper sx={{ ...Shared.SETTINGS_CARD_GRADIENT_SX, flex: 1, minWidth: 0 }}>
-        <Typography variant="h6">
-          <TuneIcon color="primary" /> Platform defaults
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Add games to your library and install at least one emulator to choose
-          a default per platform.
-        </Typography>
-      </Paper>
+      <SettingsCard
+        sx={{ flex: 1, minWidth: 0 }}
+        subtitle="Add games to your library and install at least one emulator to choose a default per platform."
+        title="Platform defaults"
+      />
     );
   }
   return (
-    <Paper
-      sx={{
-        ...Shared.SETTINGS_CARD_GRADIENT_SX,
-        flex: 1,
-        minWidth: 0,
-        overflow: "hidden",
-      }}
+    <SettingsCard
+      sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}
+      subtitle="Choose the default emulator for each platform. Platforms not listed here stay on Auto."
+      title="Platform defaults"
     >
-      <Typography variant="h6">
-        <TuneIcon color="primary" /> Platform defaults
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Choose the default emulator for each platform. Platforms not listed here
-        stay on Auto.
-      </Typography>
       {settings.platforms.map(([platform]) => {
         const compatible = settings.installedEmus.filter(
           (emu) =>
@@ -457,7 +436,7 @@ const PlatformDefaults = (settings) => {
           </Box>
         );
       })}
-    </Paper>
+    </SettingsCard>
   );
 };
 

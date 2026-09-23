@@ -1,29 +1,19 @@
 import DownloadIcon from "@mui/icons-material/Download";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
-import MemoryIcon from "@mui/icons-material/Memory";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 
 import { BiosFirmwareGroups } from "./bios-firmware-groups";
+import SettingsCard from "./settings-card";
 
 /** @typedef {import("./bios-types").BiosGroup} BiosGroup */
 /** @typedef {import("./bios-types").BiosMessage} BiosMessage */
 /** @typedef {import("./bios-types").BiosTotals} BiosTotals */
-
-const CARD_SX = {
-  borderRadius: 3,
-  boxSizing: "border-box",
-  maxWidth: "100%",
-  mb: 3,
-  p: 3,
-  width: "100%",
-};
 
 /** @param {BiosTotals} totals BIOS counts. @returns {"success"|"default"} Summary chip color. */
 const getBiosSummaryColor = (totals) => {
@@ -65,32 +55,20 @@ const getAvailabilityExplanation = (totals) => {
 
 /** @param {Pick<BiosSettingsViewProps, "busy"|"load"|"loading"|"totals">} props BIOS summary state. */
 const BiosSummaryHeader = ({ busy, load, loading, totals }) => (
-  <Box
-    sx={{
-      alignItems: "center",
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 1,
-      mb: 2,
-    }}
-  >
-    <MemoryIcon color="primary" />
-    <Typography variant="h6" sx={{ flex: 1 }}>
-      BIOS &amp; Firmware
-    </Typography>
+  <Box sx={{ alignItems: "center", display: "flex", gap: 1 }}>
     <Chip
-      size="small"
-      label={`${totals.downloaded} downloaded · ${totals.missing} missing`}
       color={getBiosSummaryColor(totals)}
+      label={`${totals.downloaded} downloaded · ${totals.missing} missing`}
+      size="small"
     />
     <Button
-      size="small"
-      variant="outlined"
-      startIcon={<RefreshIcon />}
+      disabled={loading || Boolean(busy)}
       onClick={() => {
         void load();
       }}
-      disabled={loading || Boolean(busy)}
+      size="small"
+      startIcon={<RefreshIcon />}
+      variant="outlined"
     >
       Refresh list
     </Button>
@@ -193,13 +171,17 @@ const BiosSummaryCard = ({
   resetDirectory,
   totals,
 }) => (
-  <Paper sx={CARD_SX}>
-    <BiosSummaryHeader
-      busy={busy}
-      load={load}
-      loading={loading}
-      totals={totals}
-    />
+  <SettingsCard
+    actions={
+      <BiosSummaryHeader
+        busy={busy}
+        load={load}
+        loading={loading}
+        totals={totals}
+      />
+    }
+    title="Firmware"
+  >
     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       Download firmware from your RomM server, verify its checksum, then install
       it into known emulator BIOS folders. For Switch, Wingosy installs
@@ -232,7 +214,7 @@ const BiosSummaryCard = ({
         {message.text}
       </Alert>
     )}
-  </Paper>
+  </SettingsCard>
 );
 
 /** @param {Pick<BiosSettingsViewProps, "busy"|"downloadGroup"|"downloadOne"|"expanded"|"getBiosProgress"|"getBiosRecentDownload"|"groups"|"libraryPlatformIds"|"loading"|"setExpanded">} props BIOS group content. */
@@ -291,10 +273,7 @@ const BiosGroupsCard = ({
   loading,
   setExpanded,
 }) => (
-  <Paper sx={CARD_SX}>
-    <Typography variant="h6" gutterBottom>
-      Available from RomM
-    </Typography>
+  <SettingsCard title="Available from RomM">
     <BiosGroupsContent
       busy={busy}
       downloadGroup={downloadGroup}
@@ -307,7 +286,7 @@ const BiosGroupsCard = ({
       loading={loading}
       setExpanded={setExpanded}
     />
-  </Paper>
+  </SettingsCard>
 );
 
 /** @param {BiosSettingsViewProps} props - BIOS settings view state and actions. */

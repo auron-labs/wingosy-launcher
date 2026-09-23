@@ -107,11 +107,7 @@ const UpdateChannelControl = (settings) => (
 
 /** @param {SettingsPanelProps} settings Settings panel state and actions. */
 const UpdatesSettings = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}>
-      <SystemUpdateIcon color="primary" />
-      <Mui.Typography variant="h6">Updates</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard>
     <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       Wingosy checks GitHub for your selected channel. When a newer signed build
       is published, use <strong>Download &amp; install</strong> for an in-place
@@ -158,7 +154,7 @@ const UpdatesSettings = (settings) => (
       <Mui.LinearProgress sx={{ borderRadius: 1, mt: 2 }} />
     )}
     <UpdateResult {...settings} />
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 export default UpdatesSettings;

@@ -6,11 +6,6 @@ export const SETTINGS_CARD_SX = {
   p: 3,
   width: "100%",
 };
-export const SETTINGS_CARD_GRADIENT_SX = {
-  ...SETTINGS_CARD_SX,
-  background: "linear-gradient(135deg, #1e1e26 0%, #252530 100%)",
-};
-
 /** @param {string|null|undefined} dll - Libretro DLL filename. */
 export const formatLibretroDllLabel = (dll) => {
   if (dll === null || dll === undefined || dll === "") {

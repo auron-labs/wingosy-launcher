@@ -2,11 +2,11 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import * as Mui from "@mui/material";
 
+import * as Components from "./settings-components";
 import {
   formatOptionalStorageBytes,
   formatStorageBytes,
 } from "./settings-presentation";
-import * as Shared from "./settings-view-shared";
 
 /** @typedef {import("./settings-types").SettingsPanelProps} SettingsPanelProps */
 
@@ -24,38 +24,23 @@ const StorageOverviewCards = ({ overview }) => {
         mb: 3,
       }}
     >
-      <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 2 }}>
-        <Mui.Typography variant="caption" color="text.secondary">
-          Tracked ROMs
-        </Mui.Typography>
-        <Mui.Typography variant="h6">
-          {overview.tracked_rom_count}
-        </Mui.Typography>
-      </Mui.Paper>
-      <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 2 }}>
-        <Mui.Typography variant="caption" color="text.secondary">
-          Tracked size
-        </Mui.Typography>
-        <Mui.Typography variant="h6">
-          {formatStorageBytes(overview.tracked_rom_bytes)}
-        </Mui.Typography>
-      </Mui.Paper>
-      <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 2 }}>
-        <Mui.Typography variant="caption" color="text.secondary">
-          Active downloads
-        </Mui.Typography>
-        <Mui.Typography variant="h6">
-          {overview.active_rom_downloads}
-        </Mui.Typography>
-      </Mui.Paper>
-      <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 2 }}>
-        <Mui.Typography variant="caption" color="text.secondary">
-          Free disk space
-        </Mui.Typography>
-        <Mui.Typography variant="h6" data-testid="storage-free-space-value">
-          {formatOptionalStorageBytes(overview.free_disk_bytes)}
-        </Mui.Typography>
-      </Mui.Paper>
+      <Components.SettingsStatTile
+        label="Tracked ROMs"
+        value={overview.tracked_rom_count}
+      />
+      <Components.SettingsStatTile
+        label="Tracked size"
+        value={formatStorageBytes(overview.tracked_rom_bytes)}
+      />
+      <Components.SettingsStatTile
+        label="Active downloads"
+        value={overview.active_rom_downloads}
+      />
+      <Components.SettingsStatTile
+        label="Free disk space"
+        testId="storage-free-space-value"
+        value={formatOptionalStorageBytes(overview.free_disk_bytes)}
+      />
     </Mui.Box>
   );
 };
@@ -205,11 +190,7 @@ const StorageLocationList = (settings) => {
 
 /** @param {SettingsPanelProps} settings Storage settings state and actions. */
 const StorageSettings = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 1 }}>
-      <FolderOpenIcon color="primary" />
-      <Mui.Typography variant="h6">Storage</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard>
     <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       Review Wingosy file locations and choose where ROM downloads are stored.
     </Mui.Typography>
@@ -252,7 +233,7 @@ const StorageSettings = (settings) => (
         {settings.scanMessage.message}
       </Mui.Alert>
     )}
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 export default StorageSettings;
