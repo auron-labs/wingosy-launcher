@@ -126,6 +126,104 @@ const useSwitchRestoreProtection = (game, isSwitch, ipc) => {
   return { refreshSwitchRestoreProtection, switchRestoreProtection };
 };
 
+/** @param {GameDetailsSavesOptions["ipc"]} ipc Game details IPC. @returns {{saveSyncEnabled: boolean, setSaveSyncEnabled: (enabled: boolean) => void}} Automatic save sync preference state. */
+const useSaveSyncEnabled = (ipc) => {
+  const [saveSyncEnabled, setSaveSyncEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSyncState = async () => {
+      try {
+        const config = await ipc.getGameDetailsConfig();
+        if (!cancelled) {
+          setSaveSyncEnabled(config.romm?.sync_saves === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSaveSyncEnabled(false);
+        }
+      }
+    };
+    void loadSyncState();
+    return () => {
+      cancelled = true;
+    };
+  }, [ipc]);
+
+  return { saveSyncEnabled, setSaveSyncEnabled };
+};
+
+/** @param {import("./game-details-types").GameDetailsLaunchResult|null|undefined} result Completed launch result. @returns {GameDetailsStatus|null} Status to display, or null when nothing changed. */
+const getLaunchSaveSyncStatus = (result) => {
+  const syncWarnings = Array.isArray(result?.save_sync_warnings)
+    ? result.save_sync_warnings.filter((warning) =>
+        /^(?:pre|post)-launch save sync:/iu.test(warning)
+      )
+    : [];
+  if (syncWarnings.length > 0) {
+    const warningStatus = getSaveSyncErrorStatus(syncWarnings.join("\n"));
+    return warningStatus.conflict === true
+      ? warningStatus
+      : {
+          ...warningStatus,
+          message:
+            "Automatic cloud sync did not finish. Review the cloud copies below, then use Sync current save after resolving the issue.",
+        };
+  }
+  if (
+    Array.isArray(result?.save_sync_messages) &&
+    result.save_sync_messages.length > 0
+  ) {
+    return { message: "Cloud save sync completed.", type: "success" };
+  }
+  return null;
+};
+
+/** @typedef {{handleCreateSwitchBackup: () => Promise<void>, handleDownloadSave: (saveId: number, retrySlot?: string|null) => Promise<void>, handleDownloadSwitchSave: (retrySlot?: string|null) => Promise<void>, handleEnableSaveSync: () => Promise<void>, handleListSaves: (isRetry?: boolean) => Promise<void>, handleResumeSwitchSaveNormalSync: () => Promise<void>, handleSyncCurrentSwitchSave: () => Promise<void>, handleUploadSave: (retryFilePath?: string|null) => Promise<void>, handleUploadSwitchSave: (retrySlot?: string|null) => Promise<void>}} SaveActionHandlers */
+
+/** @param {() => import("./game-details-save-actions").SaveActionContext} getActionContext Action context getter. @param {(enabled: boolean) => void} setSaveSyncEnabled Save sync preference setter. @returns {SaveActionHandlers} Save action handlers bound to the context. */
+const buildSaveActionHandlers = (getActionContext, setSaveSyncEnabled) => ({
+  handleCreateSwitchBackup: async () => {
+    await uploadSwitchSaveAction(getActionContext(), createSwitchBackupName());
+  },
+  handleDownloadSave: async (saveId, retrySlot) => {
+    await downloadGameSaveAction(getActionContext(), saveId, retrySlot);
+  },
+  handleDownloadSwitchSave: async (retrySlot) => {
+    await downloadSwitchSaveAction(getActionContext(), retrySlot);
+  },
+  handleEnableSaveSync: async () => {
+    try {
+      await getActionContext().ipc.setSaveSyncEnabled(true);
+      setSaveSyncEnabled(true);
+      getActionContext().setSaveStatus({
+        message: "Automatic save sync is enabled for future launches.",
+        type: "success",
+      });
+    } catch (error) {
+      getActionContext().setSaveStatus({
+        message: `Could not enable automatic save sync: ${error instanceof Error ? error.message : String(error)}`,
+        type: "error",
+      });
+    }
+  },
+  handleListSaves: async (isRetry = false) => {
+    await listGameSaves(getActionContext(), isRetry);
+  },
+  handleResumeSwitchSaveNormalSync: async () => {
+    await resumeSwitchSaveNormalSyncAction(getActionContext());
+  },
+  handleSyncCurrentSwitchSave: async () => {
+    await syncCurrentSwitchSaveAction(getActionContext());
+  },
+  handleUploadSave: async (retryFilePath) => {
+    await uploadGameSaveAction(getActionContext(), retryFilePath);
+  },
+  handleUploadSwitchSave: async (retrySlot) => {
+    await uploadSwitchSaveAction(getActionContext(), retrySlot);
+  },
+});
+
 /** @param {GameDetailsSavesOptions} options Hook options. */
 export const useGameDetailsSaves = ({
   game,
@@ -143,28 +241,8 @@ export const useGameDetailsSaves = ({
   const { refreshSwitchRestoreProtection, switchRestoreProtection } =
     useSwitchRestoreProtection(game, isSwitch, ipc);
   const [switchSyncBusy, setSwitchSyncBusy] = useState(false);
-  const [saveSyncEnabled, setSaveSyncEnabledState] = useState(false);
+  const { saveSyncEnabled, setSaveSyncEnabled } = useSaveSyncEnabled(ipc);
   const saveSyncInFlightRef = useRef(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadSyncState = async () => {
-      try {
-        const config = await ipc.getGameDetailsConfig();
-        if (!cancelled) {
-          setSaveSyncEnabledState(config.romm?.sync_saves === true);
-        }
-      } catch {
-        if (!cancelled) {
-          setSaveSyncEnabledState(false);
-        }
-      }
-    };
-    void loadSyncState();
-    return () => {
-      cancelled = true;
-    };
-  }, [ipc]);
 
   const baseActionContext = {
     game,
@@ -186,93 +264,27 @@ export const useGameDetailsSaves = ({
     await refreshGameSaveList(baseActionContext, preserveStatus);
   };
   const actionContext = { ...baseActionContext, refreshSaveList };
+  const actionHandlers = buildSaveActionHandlers(
+    () => actionContext,
+    setSaveSyncEnabled
+  );
 
-  /** @param {boolean} [isRetry] Whether this is a retry operation. */
-  const handleListSaves = async (isRetry = false) => {
-    await listGameSaves(actionContext, isRetry);
-  };
-  /** @param {number} saveId Save identifier. @param {string|null|undefined} retrySlot Slot from a retry. */
-  const handleDownloadSave = async (saveId, retrySlot) => {
-    await downloadGameSaveAction(actionContext, saveId, retrySlot);
-  };
-  /** @param {string|null|undefined} retrySlot Slot from a retry. */
-  const handleUploadSwitchSave = async (retrySlot) => {
-    await uploadSwitchSaveAction(actionContext, retrySlot);
-  };
-  const handleSyncCurrentSwitchSave = async () => {
-    await syncCurrentSwitchSaveAction(actionContext);
-  };
-  const handleCreateSwitchBackup = async () => {
-    await uploadSwitchSaveAction(actionContext, createSwitchBackupName());
-  };
-  const handleResumeSwitchSaveNormalSync = async () => {
-    await resumeSwitchSaveNormalSyncAction(actionContext);
-  };
-  const handleEnableSaveSync = async () => {
-    try {
-      await ipc.setSaveSyncEnabled(true);
-      setSaveSyncEnabledState(true);
-      setSaveStatus({
-        message: "Automatic save sync is enabled for future launches.",
-        type: "success",
-      });
-    } catch (error) {
-      setSaveStatus({
-        message: `Could not enable automatic save sync: ${error instanceof Error ? error.message : String(error)}`,
-        type: "error",
-      });
-    }
-  };
   /** @param {import("./game-details-types").GameDetailsLaunchResult|null|undefined} result Completed launch result. */
   const handleLaunchSaveSyncResult = (result) => {
-    if (!isSwitch) return;
-    const syncWarnings = Array.isArray(result?.save_sync_warnings)
-      ? result.save_sync_warnings.filter((warning) =>
-          /^(?:pre|post)-launch save sync:/iu.test(warning)
-        )
-      : [];
-    if (syncWarnings.length > 0) {
-      const warningStatus = getSaveSyncErrorStatus(syncWarnings.join("\n"));
-      setSaveStatus(
-        warningStatus.conflict
-          ? warningStatus
-          : {
-              ...warningStatus,
-              message:
-                "Automatic cloud sync did not finish. Review the cloud copies below, then use Sync current save after resolving the issue.",
-            }
-      );
+    if (!isSwitch) {
       return;
     }
-    if (
-      Array.isArray(result?.save_sync_messages) &&
-      result.save_sync_messages.length > 0
-    ) {
-      setSaveStatus({ message: "Cloud save sync completed.", type: "success" });
+    const status = getLaunchSaveSyncStatus(result);
+    if (status !== null) {
+      setSaveStatus(status);
     }
-  };
-  /** @param {string|null|undefined} retrySlot Slot from a retry. */
-  const handleDownloadSwitchSave = async (retrySlot) => {
-    await downloadSwitchSaveAction(actionContext, retrySlot);
-  };
-  /** @param {string|null|undefined} retryFilePath Save path from a retry. */
-  const handleUploadSave = async (retryFilePath) => {
-    await uploadGameSaveAction(actionContext, retryFilePath);
   };
 
   return {
-    handleCreateSwitchBackup,
-    handleDownloadSave,
-    handleDownloadSwitchSave,
-    handleEnableSaveSync,
+    ...actionHandlers,
     handleLaunchSaveSyncResult,
-    handleListSaves,
-    handleResumeSwitchSaveNormalSync,
-    handleSyncCurrentSwitchSave,
-    handleUploadSave,
-    handleUploadSwitchSave,
-    saveSyncEnabled,
     saveStatus,
+    saveSyncEnabled,
     saves,
     savesLoaded,
     savesLoading,

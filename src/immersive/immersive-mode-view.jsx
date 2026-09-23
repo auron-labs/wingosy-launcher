@@ -277,10 +277,7 @@ const ImmersiveModeView = (props) => {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button
-            autoFocus
-            onClick={() => props.cancelExit?.()}
-          >
+          <Button autoFocus onClick={() => props.cancelExit?.()}>
             Stay
           </Button>
           <Button

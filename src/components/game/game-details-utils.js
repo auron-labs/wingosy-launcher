@@ -77,6 +77,12 @@ export const formatLastPlayed = (value) => {
   });
 };
 
+/** @typedef {import("./game-details-types").GameDetailsSave} GameDetailsSave */
+
+/** @param {GameDetailsSave} save Save history item. @returns {string} User-facing save timestamp. */
+export const getSaveTime = (save) =>
+  formatLastPlayed(save.updated_at ?? save.created_at) ?? "Date unavailable";
+
 /** @typedef {import("./game-details-types").GameDetailsSwitchContentStatus} GameDetailsSwitchContentStatus */
 
 /** @param {GameDetailsSwitchContentStatus|null|undefined} status Read-only Switch content status. @returns {string|null} User-facing status label, or null when unknown. */
