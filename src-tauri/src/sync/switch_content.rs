@@ -1422,8 +1422,8 @@ mod tests {
             1
         );
         assert!(contents.contains("Paths\\external_content_dirs\\size=4"));
-        let owned_text = owned.to_string_lossy();
-        assert_eq!(contents.matches(owned_text.as_ref()).count(), 1);
+        let owned_text = encode_qsettings_value(&owned.to_string_lossy());
+        assert_eq!(contents.matches(owned_text.as_str()).count(), 1);
         assert!(contents.contains("[Other]\nkeep=yes"));
         assert!(!contents.contains("[UI/Paths]"));
     }

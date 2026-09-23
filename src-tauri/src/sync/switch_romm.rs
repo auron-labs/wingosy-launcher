@@ -375,6 +375,7 @@ pub async fn download_switch_save_to_eden(
 
 /// Restore a server revision selected explicitly by the user. The restored
 /// local autosave set is durably protected before RomM is acknowledged.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn restore_switch_save_to_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,
@@ -398,6 +399,7 @@ pub(crate) async fn restore_switch_save_to_eden_with_title_id(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn download_switch_save_to_eden_with_title_id(
     game: &Game,
     config: &mut AppConfig,

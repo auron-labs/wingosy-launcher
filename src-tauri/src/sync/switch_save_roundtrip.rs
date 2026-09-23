@@ -6,7 +6,9 @@ use crate::sync::switch_romm::{
     post_launch_sync_result, pre_launch_sync_result, restore_switch_save_to_eden_with_title_id,
     resume_switch_save_normal_sync, upload_switch_save_from_eden,
 };
-use crate::sync::switch_save::{fingerprint_title_folder, zip_title_folder, DEFAULT_SAVE_SLOT};
+use crate::sync::switch_save::{
+    fingerprint_title_folder, zip_title_folder, ARGOSY_LATEST_SAVE_NAME, DEFAULT_SAVE_SLOT,
+};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -256,7 +258,14 @@ async fn serve_request_inner(
                 require_query(&query, "overwrite", "false")?;
                 require_query(&query, "autocleanup", "true")?;
                 require_query(&query, "autocleanup_limit", "10")?;
-                let uploaded = multipart_save_file(&headers, &body, SAVE_FILE_NAME)?;
+                let expected_filename = if expected_slot.eq_ignore_ascii_case(DEFAULT_SAVE_SLOT)
+                    || expected_slot.eq_ignore_ascii_case(ARGOSY_LATEST_SAVE_NAME)
+                {
+                    SAVE_FILE_NAME.to_string()
+                } else {
+                    format!("{expected_slot}.zip")
+                };
+                let uploaded = multipart_save_file(&headers, &body, &expected_filename)?;
                 let (save_id, size, failure) = {
                     let mut state = state.lock().unwrap();
                     let failure = state.device_upload_failure.take();

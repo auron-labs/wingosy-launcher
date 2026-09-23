@@ -21,7 +21,7 @@ impl Database {
             std::fs::create_dir_all(parent).context("Failed to create database directory")?;
         }
 
-        let conn = Connection::open(&db_path).context("Failed to open database")?;
+        let conn = Connection::open(db_path).context("Failed to open database")?;
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),

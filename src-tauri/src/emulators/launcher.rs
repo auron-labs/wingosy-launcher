@@ -673,8 +673,8 @@ mod tests {
 
     fn process_test_launcher_with_executable(executable: std::path::PathBuf) -> EmulatorLauncher {
         let mut config = AppConfig::default();
-        let emulator_id = "melonds";
-        config.emulators.melonds = Some(executable);
+        let emulator_id = "mgba";
+        config.emulators.mgba = Some(executable);
         config
             .emulators
             .platform_defaults
@@ -1749,9 +1749,9 @@ mod tests {
                 command,
                 ..
             } => {
-                assert_eq!(id, "melonds");
+                assert_eq!(id, "mgba");
                 assert_eq!(*exit_code, Some(7));
-                assert_eq!(command.emulator_id, "melonds");
+                assert_eq!(command.emulator_id, "mgba");
             }
             other => panic!("expected unsuccessful exit, got {other:?}"),
         }
