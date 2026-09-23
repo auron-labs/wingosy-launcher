@@ -6,22 +6,44 @@ import {
 } from "./controller-debug";
 
 /** @typedef {import("./immersive-types").ImmersiveGame} ImmersiveGame */
-/** @typedef {{columns: number, gridRef: {current: HTMLElement|null}, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, platformOptions: {length: number}, rootRef: {current: HTMLElement|null}, visibleGames: ImmersiveGame[]}} LibraryKeyboardData */
+/** @typedef {{columns: number, gridRef: {current: HTMLElement|null}, platformButtonRefs: {current: (HTMLButtonElement|null)[]}, platformOptions: {id: string|null}[], selectedPlatform: string|null, rootRef: {current: HTMLElement|null}, visibleGames: ImmersiveGame[]}} LibraryKeyboardData */
+
+/** @param {HTMLElement|null} grid Game grid element. @param {number} index Game index to focus. @returns {HTMLElement|null} Focused element. */
+export const focusGameAtIndex = (grid, index) => {
+  const card =
+    grid?.querySelector?.(`[data-immersive-index="${index}"] button`) ??
+    grid?.querySelector?.(`[data-immersive-index="${index}"]`);
+  if (card instanceof HTMLElement) {
+    card.focus();
+    return card;
+  }
+  return null;
+};
 
 /** @param {HTMLElement|null} grid Game grid element. */
 export const focusFirstGame = (grid) => {
-  const firstGame =
-    grid?.querySelector?.('[data-immersive-index="0"] button') ??
-    grid?.querySelector?.('[data-immersive-index="0"]');
-  if (firstGame instanceof HTMLElement) {
-    firstGame.focus();
-  }
+  focusGameAtIndex(grid, 0);
 };
 
 /** @param {number} index Platform index. @param {{current: (HTMLButtonElement|null)[]}} refs Platform button refs. @param {number} count Platform count. */
 const focusPlatform = (index, refs, count) => {
   const nextIndex = Math.max(0, Math.min(count - 1, index));
   refs.current[nextIndex]?.focus?.();
+};
+
+/** @param {{platformOptions: {id: string|null}[], platformButtonRefs: {current: (HTMLButtonElement|null)[]}, selectedPlatform: string|null}} data Library keyboard data. */
+const focusSelectedPlatform = (data) => {
+  const selectedIndex = Math.max(
+    0,
+    data.platformOptions.findIndex(
+      (option) => option.id === data.selectedPlatform
+    )
+  );
+  focusPlatform(
+    selectedIndex,
+    data.platformButtonRefs,
+    data.platformOptions.length
+  );
 };
 
 /** @param {{event: KeyboardEvent, platformButton: HTMLButtonElement, refs: {current: (HTMLButtonElement|null)[]}, visibleGames: {length: number, [index: number]: ImmersiveGame|undefined}, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, gridRef: {current: HTMLElement|null}, rootRef: {current: HTMLElement|null}}} options Platform keyboard dependencies. */
@@ -38,25 +60,46 @@ const handlePlatformKeyDown = ({
   if (platformIndex === -1) {
     return false;
   }
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    platformButton.click();
-    return true;
-  }
-  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-    event.preventDefault();
-    const delta = event.key === "ArrowRight" ? 1 : -1;
-    focusPlatform(platformIndex + delta, refs, refs.current.length);
-    return true;
-  }
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
+  const focusGrid = () => {
     if (visibleGames.length > 0) {
       onSelectedIndexChange(0, visibleGames[0]);
       focusFirstGame(gridRef.current);
     } else {
       rootRef.current?.focus?.();
     }
+  };
+  /** @param {number} nextIndex Platform index to move to and select. */
+  const selectPlatform = (nextIndex) => {
+    const clamped = Math.max(0, Math.min(refs.current.length - 1, nextIndex));
+    focusPlatform(clamped, refs, refs.current.length);
+    refs.current[clamped]?.click?.();
+  };
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    platformButton.click();
+    return true;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    selectPlatform(platformIndex - 1);
+    return true;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (platformIndex < refs.current.length - 1) {
+      selectPlatform(platformIndex + 1);
+    } else {
+      focusGrid();
+    }
+    return true;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    focusGrid();
+    return true;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
     return true;
   }
   return false;
@@ -182,6 +225,25 @@ const handleGridKeyDown = ({
   return true;
 };
 
+/** @param {KeyboardEvent} event Keyboard event. @param {LibraryKeyboardData} data Library keyboard data. @param {number} selectedIndex Focused game index. @returns {boolean} Whether the event moved focus to the platform filter. */
+const handlePlatformEdgeKey = (event, data, selectedIndex) => {
+  const { columns, platformOptions } = data;
+  if (platformOptions.length === 0) {
+    return false;
+  }
+  const atPlatformEdge =
+    (event.key === "ArrowLeft" &&
+      columns > 0 &&
+      selectedIndex % columns === 0) ||
+    (event.key === "ArrowUp" && selectedIndex === 0);
+  if (!atPlatformEdge) {
+    return false;
+  }
+  event.preventDefault();
+  focusSelectedPlatform(data);
+  return true;
+};
+
 /** @param {KeyboardEvent} event Keyboard event. @param {{data: LibraryKeyboardData, loading: boolean, selectedIndex: number, onOpenSettings: () => void, onSelectGame: (game: ImmersiveGame) => void, onSelectedIndexChange: (index: number, game?: ImmersiveGame) => void, cycleSection: (delta: number) => void}} options Library keyboard dependencies. */
 export const handleLibraryKeyDown = (event, options) => {
   const {
@@ -195,6 +257,14 @@ export const handleLibraryKeyDown = (event, options) => {
   } = options;
   const action = getControllerAction(event);
   if (isTextInputTarget(event.target)) {
+    if (event.key === "Escape" && event.target instanceof HTMLElement) {
+      event.preventDefault();
+      event.target.blur();
+      logControllerOutcome(action, "library", "handled", {
+        reason: "blur-text-input",
+      });
+      return;
+    }
     logControllerOutcome(action, "library", "suppressed", {
       reason: "text-input-focused",
     });
@@ -236,13 +306,10 @@ export const handleLibraryKeyDown = (event, options) => {
     });
     return;
   }
-  if (
-    event.key === "ArrowUp" &&
-    selectedIndex === 0 &&
-    data.platformOptions.length > 0
-  ) {
-    event.preventDefault();
-    focusPlatform(0, data.platformButtonRefs, data.platformOptions.length);
+  if (handlePlatformEdgeKey(event, data, selectedIndex)) {
+    logControllerOutcome(action, "library", "handled", {
+      reason: "focus-platform",
+    });
     return;
   }
   handleGridKeyDown({

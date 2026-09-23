@@ -42,7 +42,7 @@ export const getErrorMessage = (error) => {
 
 /**
  * @param {unknown} error Error value from save synchronization.
- * @param {(() => Promise<void>)|undefined} [retry] Retry callback for transient failures.
+ * @param {(() => Promise<void>)} [retry] Retry callback for transient failures.
  * @returns {GameDetailsStatus} User-facing save synchronization status.
  */
 export const getSaveSyncErrorStatus = (error, retry) => {
@@ -82,7 +82,7 @@ export const formatLastPlayed = (value) => {
 /** @param {GameDetailsSwitchContentStatus|null|undefined} status Read-only Switch content status. @returns {string|null} User-facing status label, or null when unknown. */
 export const getSwitchContentStatusLabel = (status) => {
   if (status?.status === "current") {
-    return "Wingosy update & DLC files are current";
+    return null;
   }
   if (status?.status === "missing") {
     return "Wingosy update & DLC files are missing";

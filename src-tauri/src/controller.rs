@@ -337,6 +337,134 @@ pub fn prepare_eden_profile(
     Ok(Some(path))
 }
 
+const EDEN_CONTROLS_SECTION: &str = "[Controls]";
+const EDEN_NAVIGATION_KEY: &str = "controller_navigation";
+const EDEN_NAVIGATION_DEFAULT_KEY: &str = "controller_navigation\\default";
+const EDEN_NAVIGATION_DEFAULT_LINE: &str = "controller_navigation\\default=false";
+const EDEN_NAVIGATION_LINE: &str = "controller_navigation=true";
+const EDEN_PLAYER_TYPE_KEY: &str = "player_1_type";
+// DualJoyconDetached: emits the controller-navigation keys Eden's dialogs
+// listen for while keeping a full button map; ProController emits none.
+const EDEN_PLAYER_TYPE_LINE: &str = "player_1_type=1";
+
+/// Enables Eden's controller-driven UI navigation so gamepad input reaches
+/// its dialogs (for example the exit confirmation). The player-1 controller
+/// type is set only when Eden has never recorded one, so an explicit user
+/// choice is preserved; a Handheld type would additionally force docked mode
+/// off, which is why the value is never overwritten.
+pub fn ensure_eden_controller_navigation(executable: &Path) -> Result<()> {
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    let root = crate::bios::eden_data_root(executable, appdata.as_deref())?;
+    let ini_path = root.join("config").join("qt-config.ini");
+    let contents = match std::fs::read_to_string(&ini_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("Failed to read Eden config {}", ini_path.display()))
+        }
+    };
+    let updated = update_eden_qsettings_controls(&contents);
+    if updated == contents {
+        return Ok(());
+    }
+    write_eden_profile(&ini_path, &updated)
+}
+
+fn update_eden_qsettings_controls(contents: &str) -> String {
+    let line_ending = if contents.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let lines = contents
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_string())
+        .collect::<Vec<_>>();
+    let mut section_start = None;
+    let mut section_end = lines.len();
+    let mut in_section = false;
+    for (index, line) in lines.iter().enumerate() {
+        if line.starts_with('[') && line.ends_with(']') {
+            if in_section {
+                section_end = index;
+                break;
+            }
+            in_section = line == EDEN_CONTROLS_SECTION;
+            if in_section {
+                section_start = Some(index);
+            }
+        }
+    }
+    let Some(section_start) = section_start else {
+        let mut result = contents.to_string();
+        if !result.is_empty() && !result.ends_with(line_ending) {
+            result.push_str(line_ending);
+        }
+        result.push_str(EDEN_CONTROLS_SECTION);
+        result.push_str(line_ending);
+        result.push_str(EDEN_NAVIGATION_DEFAULT_LINE);
+        result.push_str(line_ending);
+        result.push_str(EDEN_NAVIGATION_LINE);
+        result.push_str(line_ending);
+        result.push_str(EDEN_PLAYER_TYPE_LINE);
+        return result;
+    };
+    let mut navigation_line = None;
+    let mut navigation_default_line = None;
+    let mut player_type_line = None;
+    for (index, line) in lines
+        .iter()
+        .enumerate()
+        .take(section_end)
+        .skip(section_start + 1)
+    {
+        let Some((key, _value)) = line.split_once('=') else {
+            continue;
+        };
+        if key == EDEN_NAVIGATION_KEY {
+            navigation_line = Some(index);
+        } else if key == EDEN_NAVIGATION_DEFAULT_KEY {
+            navigation_default_line = Some(index);
+        } else if key == EDEN_PLAYER_TYPE_KEY {
+            player_type_line = Some(index);
+        }
+    }
+    let mut tail: Vec<&'static str> = Vec::new();
+    if navigation_line.is_none() && navigation_default_line.is_none() {
+        tail.push(EDEN_NAVIGATION_DEFAULT_LINE);
+        tail.push(EDEN_NAVIGATION_LINE);
+    }
+    if player_type_line.is_none() {
+        tail.push(EDEN_PLAYER_TYPE_LINE);
+    }
+    let mut output = Vec::with_capacity(lines.len() + 3);
+    for (index, line) in lines.iter().enumerate() {
+        if index == section_end {
+            output.extend(tail.iter().map(|value| (*value).to_string()));
+        }
+        if Some(index) == navigation_line {
+            if navigation_default_line.is_none() {
+                output.push(EDEN_NAVIGATION_DEFAULT_LINE.to_string());
+            }
+            output.push(EDEN_NAVIGATION_LINE.to_string());
+            continue;
+        }
+        if Some(index) == navigation_default_line {
+            output.push(EDEN_NAVIGATION_DEFAULT_LINE.to_string());
+            if navigation_line.is_none() {
+                output.push(EDEN_NAVIGATION_LINE.to_string());
+            }
+            continue;
+        }
+        output.push(line.clone());
+    }
+    if section_end == lines.len() {
+        output.extend(tail.iter().map(|value| (*value).to_string()));
+    }
+    output.join(line_ending)
+}
+
 fn prepare_eden_profile_contents(
     controllers: &[DiscoveredController],
     config: &ControllerConfig,
@@ -773,5 +901,47 @@ mod tests {
         assert!(prepare_eden_profile_contents(&[different_model], &config)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn eden_controls_insertion_creates_section_and_sets_navigation() {
+        let updated = update_eden_qsettings_controls("[General]\nuse_docked_mode=true\n");
+        assert_eq!(
+            updated,
+            "[General]\nuse_docked_mode=true\n[Controls]\ncontroller_navigation\\default=false\ncontroller_navigation=true\nplayer_1_type=1"
+        );
+    }
+
+    #[test]
+    fn eden_controls_update_enables_navigation_and_seeds_player_type() {
+        let updated =
+            update_eden_qsettings_controls("[Controls]\nbutton_a=\"engine:sdl\"\n[Paths]\nx=1\n");
+        assert_eq!(
+            updated,
+            "[Controls]\nbutton_a=\"engine:sdl\"\ncontroller_navigation\\default=false\ncontroller_navigation=true\nplayer_1_type=1\n[Paths]\nx=1\n"
+        );
+    }
+
+    #[test]
+    fn eden_controls_update_flips_disabled_navigation_and_keeps_player_type() {
+        let updated = update_eden_qsettings_controls(
+            "[Controls]\ncontroller_navigation\\default=false\ncontroller_navigation=false\nplayer_1_type=0\n",
+        );
+        assert_eq!(
+            updated,
+            "[Controls]\ncontroller_navigation\\default=false\ncontroller_navigation=true\nplayer_1_type=0\n"
+        );
+    }
+
+    #[test]
+    fn eden_controls_update_is_idempotent() {
+        let updated = update_eden_qsettings_controls(
+            "[Controls]\ncontroller_navigation\\default=false\ncontroller_navigation=true\nplayer_1_type=1\n",
+        );
+        assert_eq!(
+            updated,
+            "[Controls]\ncontroller_navigation\\default=false\ncontroller_navigation=true\nplayer_1_type=1\n"
+        );
+        assert_eq!(update_eden_qsettings_controls(&updated), updated);
     }
 }

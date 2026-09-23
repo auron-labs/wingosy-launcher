@@ -312,7 +312,7 @@ describe("ImmersiveLibrary platform filtering", () => {
 describe("ImmersiveLibrary platform navigation", () => {
   afterEach(cleanupLibraryTest);
 
-  it("moves between platform controls with arrows and activates one with Enter", () => {
+  it("moves between platform controls with up/down and selects as it moves", () => {
     const { onSelectedPlatformChange } = renderLibrary(platformGames, {
       platforms: platformEntries,
     });
@@ -322,11 +322,13 @@ describe("ImmersiveLibrary platform navigation", () => {
     });
 
     allPlatforms.focus();
-    keyDown(allPlatforms, "ArrowRight");
+    keyDown(allPlatforms, "ArrowDown");
     expect(document.activeElement).toBe(superNintendo);
+    expect(onSelectedPlatformChange).toHaveBeenLastCalledWith("snes");
 
-    keyDown(superNintendo, "Enter");
-    expect(onSelectedPlatformChange).toHaveBeenCalledWith("snes");
+    keyDown(superNintendo, "ArrowUp");
+    expect(document.activeElement).toBe(allPlatforms);
+    expect(onSelectedPlatformChange).toHaveBeenLastCalledWith(null);
   });
 
   it("resets focus to the first result and focuses the library for an empty result", async () => {
@@ -425,6 +427,10 @@ describe("ImmersiveLibrary game-name search", () => {
     expect(onSearchChange).toHaveBeenLastCalledWith("");
     expect(document.activeElement).toBe(search);
   });
+});
+
+describe("ImmersiveLibrary search controller input", () => {
+  afterEach(cleanupLibraryTest);
 
   it("isolates typing and editing from controller library shortcuts", async () => {
     vi.stubEnv("VITE_WINGOSY_DEBUG", "1");
@@ -442,7 +448,6 @@ describe("ImmersiveLibrary game-name search", () => {
       "PageDown",
       "PageUp",
       "s",
-      "Escape",
       "F11",
     ]) {
       controllerKeyDown(search, key);
@@ -471,6 +476,25 @@ describe("ImmersiveLibrary game-name search", () => {
       reason: "text-input-focused",
       receiver: "library",
     });
+
+    const root = screen.getByTestId("immersive-library");
+    root.focus();
+    controllerKeyDown(root, "ArrowRight");
+    expect(onSelectedIndexChange).toHaveBeenLastCalledWith(3);
+  });
+
+  it("blurs a focused text input on controller Escape", () => {
+    const { onSelectedIndexChange } = renderLibrary(makeGames(6), {
+      initialIndex: 2,
+    });
+    const search = screen.getByRole("textbox", {
+      name: "Search games by name",
+    });
+    search.focus();
+    expect(document.activeElement).toBe(search);
+
+    controllerKeyDown(search, "Escape");
+    expect(document.activeElement).not.toBe(search);
 
     const root = screen.getByTestId("immersive-library");
     root.focus();

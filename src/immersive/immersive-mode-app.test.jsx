@@ -626,10 +626,20 @@ describe("ImmersiveModeApp controller shell route", () => {
 
     pad.buttons[1].pressed = true;
     await waitFor(() => {
+      expect(
+        screen.getByRole("dialog", { name: "Exit immersive mode?" })
+      ).toBeInTheDocument();
+    });
+    pad.buttons[1].pressed = false;
+
+    screen.getByRole("button", { name: "Exit" }).focus();
+
+    pad.buttons[0].pressed = true;
+    await waitFor(() => {
       expect(onExit).toHaveBeenCalledOnce();
     });
     expect(screen.getByTestId("selected-index")).toHaveTextContent("0");
-    pad.buttons[1].pressed = false;
+    pad.buttons[0].pressed = false;
   });
 });
 

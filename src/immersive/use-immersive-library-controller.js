@@ -6,6 +6,7 @@ import { filterVisibleGames } from "../utils/game-filters";
 import { isTextInputTarget } from "./controller-debug";
 import {
   focusFirstGame,
+  focusGameAtIndex,
   handleLibraryKeyDown,
 } from "./immersive-library-keyboard";
 import { toSpinePlatformOptions } from "./immersive-shell-utils";
@@ -62,14 +63,28 @@ const useLibraryFocusEffects = ({
     let id = null;
     if (!loading) {
       id = window.requestAnimationFrame(() => {
-        if (searchInputRef.current === document.activeElement) {
+        const { activeElement } = document;
+        if (searchInputRef.current === activeElement) {
           return;
         }
         if (visibleGames.length === 0) {
           rootRef.current?.focus?.();
           return;
         }
-        focusFirstGame(gridRef.current);
+        const focusOwnedElsewhere =
+          gridRef.current?.contains?.(activeElement) === true ||
+          (activeElement instanceof Element &&
+            activeElement.closest?.("[data-immersive-platform-filter]") !==
+              null);
+        if (focusOwnedElsewhere) {
+          return;
+        }
+        if (
+          focusGameAtIndex(gridRef.current, selectedIndex) === null &&
+          selectedIndex !== 0
+        ) {
+          focusFirstGame(gridRef.current);
+        }
       });
     }
     return () => {
@@ -77,7 +92,14 @@ const useLibraryFocusEffects = ({
         window.cancelAnimationFrame(id);
       }
     };
-  }, [gridRef, loading, rootRef, searchInputRef, visibleGames.length]);
+  }, [
+    gridRef,
+    loading,
+    rootRef,
+    searchInputRef,
+    selectedIndex,
+    visibleGames.length,
+  ]);
 
   useEffect(() => {
     /** @type {number|null} */
@@ -230,6 +252,7 @@ const useLibraryData = ({
     scrollRef,
     searchInputRef,
     section,
+    selectedPlatform,
     setSection,
     visibleGames,
   };

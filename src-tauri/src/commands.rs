@@ -1460,6 +1460,11 @@ async fn run_launch_pipeline(
             Path::new(&launch_command.executable),
         );
         record_eden_controller_warning(&mut save_sync_warnings, &profile_preparation);
+        if let Err(error) = crate::controller::ensure_eden_controller_navigation(Path::new(
+            &launch_command.executable,
+        )) {
+            tracing::warn!("[Controller] Eden controller navigation setup skipped: {error}");
+        }
         match profile_preparation {
             Ok(Some(_profile_path)) => {
                 launch_command.append_argument("-input-profile");

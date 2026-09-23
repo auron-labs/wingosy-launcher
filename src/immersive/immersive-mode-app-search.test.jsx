@@ -395,6 +395,6 @@ describe("ImmersiveModeApp search shortcuts", () => {
 
     expect(screen.getByTestId("immersive-hints")).toHaveTextContent("true");
     expect(onExit).not.toHaveBeenCalled();
-    expect(search).toHaveFocus();
+    expect(search).not.toHaveFocus();
   });
 });

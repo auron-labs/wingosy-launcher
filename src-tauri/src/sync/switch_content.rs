@@ -150,7 +150,7 @@ async fn get_switch_content_status_at_root(
     let files = select_eligible_files(&rom)?;
     if files.is_empty() {
         anyhow::bail!(
-            "RomM detailed metadata contains no Switch files categorized as update or dlc; verify the child-file categories, then retry"
+            "RomM has no update or DLC files for this game; check that the files are categorized as update or DLC on the RomM server, then retry"
         );
     }
     let content_directory = content_directory(data_root, &title_id);
@@ -194,11 +194,7 @@ fn content_file_status(
     relative_path: &str,
     destination: &Path,
 ) -> ContentFileStatus {
-    let Some(entry) = manifest
-        .files
-        .iter()
-        .find(|entry| entry.file_id == file.id)
-    else {
+    let Some(entry) = manifest.files.iter().find(|entry| entry.file_id == file.id) else {
         return ContentFileStatus::Missing;
     };
     if entry.relative_path != relative_path
@@ -249,7 +245,7 @@ where
     let files = select_eligible_files(&rom)?;
     if files.is_empty() {
         anyhow::bail!(
-            "RomM detailed metadata contains no Switch files categorized as update or dlc; verify the child-file categories, then retry"
+            "RomM has no update or DLC files for this game; check that the files are categorized as update or DLC on the RomM server, then retry"
         );
     }
 
@@ -1252,7 +1248,8 @@ mod tests {
     #[test]
     fn content_status_reports_current_for_matching_manifest_and_file() {
         let temp = tempdir().unwrap();
-        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected =
+            select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
         let selected = &selected[0];
         let relative = content_relative_path(selected);
         let destination = temp.path().join(&relative);
@@ -1271,7 +1268,8 @@ mod tests {
     #[test]
     fn content_status_reports_missing_without_manifest_entry_or_file() {
         let temp = tempdir().unwrap();
-        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected =
+            select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
         let selected = &selected[0];
         let relative = content_relative_path(selected);
         assert_eq!(
@@ -1295,7 +1293,8 @@ mod tests {
     #[test]
     fn content_status_reports_changed_when_server_or_local_content_differs() {
         let temp = tempdir().unwrap();
-        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected =
+            select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
         let selected = &selected[0];
         let relative = content_relative_path(selected);
         let destination = temp.path().join(&relative);
@@ -1327,7 +1326,8 @@ mod tests {
     #[test]
     fn content_status_reports_changed_for_manifest_entries_romm_no_longer_lists() {
         let temp = tempdir().unwrap();
-        let selected = select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
+        let selected =
+            select_eligible_files(&selected_rom(Some(vec![child(1, "update")]))).unwrap();
         let selected = &selected[0];
         let relative = content_relative_path(selected);
         let destination = temp.path().join(&relative);
@@ -1361,7 +1361,11 @@ mod tests {
         let changed_relative = content_relative_path(changed);
         let changed_destination = temp.path().join(&changed_relative);
         fs::create_dir_all(changed_destination.parent().unwrap()).unwrap();
-        fs::write(&changed_destination, vec![0; changed.expected_size as usize]).unwrap();
+        fs::write(
+            &changed_destination,
+            vec![0; changed.expected_size as usize],
+        )
+        .unwrap();
         let mut changed_file = changed.clone();
         changed_file.server_change_marker = "updated_at=changed;last_modified=".into();
         assert_eq!(

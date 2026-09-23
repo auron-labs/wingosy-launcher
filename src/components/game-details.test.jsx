@@ -151,12 +151,15 @@ describe("GameDetails Switch content progress", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
     await expect(
-      screen.findByText(
-        /Eden is running.*Choose “Sync Updates & DLC” to retry/u
-      )
+      screen.findByText(/Eden is running/u)
     ).resolves.toBeInTheDocument();
   });
 });
+
+const countSwitchStatusCalls = () =>
+  invoke.mock.calls.filter(
+    ([command]) => command === "get_switch_content_status"
+  ).length;
 
 describe("GameDetails Switch content status", () => {
   afterEach(cleanupGameDetailsTest);
@@ -170,20 +173,21 @@ describe("GameDetails Switch content status", () => {
     });
 
     const view = renderDetails({ game: switchRemoteGame });
-    await expect(
-      screen.findByTestId("switch-content-status")
-    ).resolves.toHaveTextContent("Wingosy update & DLC files are current");
+    await waitFor(() => {
+      expect(countSwitchStatusCalls()).toBe(1);
+    });
+    expect(
+      screen.queryByTestId("switch-content-status")
+    ).not.toBeInTheDocument();
     view.unmount();
 
     renderDetails({ game: switchRemoteGame });
-    await expect(
-      screen.findByTestId("switch-content-status")
-    ).resolves.toHaveTextContent("Wingosy update & DLC files are current");
+    await waitFor(() => {
+      expect(countSwitchStatusCalls()).toBe(2);
+    });
     expect(
-      invoke.mock.calls.filter(
-        ([command]) => command === "get_switch_content_status"
-      )
-    ).toHaveLength(2);
+      screen.queryByTestId("switch-content-status")
+    ).not.toBeInTheDocument();
   });
 
   it("refreshes the status after a successful Sync Updates & DLC", async () => {
@@ -211,9 +215,9 @@ describe("GameDetails Switch content status", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sync Updates & DLC" }));
     await waitFor(() => {
-      expect(screen.getByTestId("switch-content-status")).toHaveTextContent(
-        "Wingosy update & DLC files are current"
-      );
+      expect(
+        screen.queryByTestId("switch-content-status")
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -435,13 +439,13 @@ describe("GameDetails cloud saves", () => {
         success: true,
       })
       .mockResolvedValueOnce({
-        save_sync_warnings: ["Post-launch save sync: RomM is offline"],
         error: "The game exited unexpectedly",
+        save_sync_warnings: ["Post-launch save sync: RomM is offline"],
         success: false,
       });
     invoke.mockImplementation(async (command) => {
-      if (command === "get_switch_game_saves") return [];
-      if (command === "get_switch_save_path_info") return null;
+      if (command === "get_switch_game_saves") {return [];}
+      if (command === "get_switch_save_path_info") {return null;}
       return { display: {} };
     });
     renderDetails({ game: switchRemoteGame, onLaunch });

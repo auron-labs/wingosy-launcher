@@ -24,8 +24,8 @@ const getSuppressionReason = (event) => {
   return null;
 };
 
-/** @param {{event: KeyboardEvent, view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, handleExit: () => Promise<void>}} options Escape handling options. */
-const handleEscape = ({ event, view, setView, loadData, handleExit }) => {
+/** @param {{event: KeyboardEvent, view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, requestExit: () => void}} options Escape handling options. */
+const handleEscape = ({ event, view, setView, loadData, requestExit }) => {
   if (event.repeat) {
     logControllerOutcome(getControllerAction(event), "shell", "suppressed", {
       reason: "keyboard-repeat",
@@ -55,9 +55,9 @@ const handleEscape = ({ event, view, setView, loadData, handleExit }) => {
     });
     return;
   }
-  void handleExit();
+  requestExit();
   logControllerOutcome(getControllerAction(event), "shell", "handled", {
-    reason: "exit-immersive",
+    reason: "confirm-exit",
   });
 };
 
@@ -79,11 +79,19 @@ const handleShellAction = ({ event, setShowHints, toggleFullscreen }) => {
   return false;
 };
 
-/** @param {{event: KeyboardEvent, view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, handleExit: () => Promise<void>, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, toggleFullscreen: () => Promise<void>}} options Key handling options. */
+/** @param {{event: KeyboardEvent, view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, requestExit: () => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, toggleFullscreen: () => Promise<void>}} options Key handling options. */
 const handleShellKey = (options) => {
   const { event } = options;
   const action = getControllerAction(event);
   if (isTextInputTarget(event.target)) {
+    if (event.key === "Escape" && event.target instanceof HTMLElement) {
+      event.preventDefault();
+      event.target.blur();
+      logControllerOutcome(action, "shell", "handled", {
+        reason: "blur-text-input",
+      });
+      return;
+    }
     logControllerOutcome(action, "shell", "suppressed", {
       reason: "text-input-focused",
     });
@@ -110,7 +118,7 @@ const handleShellKey = (options) => {
   }
 };
 
-/** @param {{view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, handleExit: () => Promise<void>, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, toggleFullscreen: () => Promise<void>}} options Hotkey options. */
+/** @param {{view: string, setView: (view: string) => void, loadData: () => Promise<unknown>, requestExit: () => void, setShowHints: (update: boolean|((previous: boolean) => boolean)) => void, toggleFullscreen: () => Promise<void>}} options Hotkey options. */
 export const useImmersiveModeHotkeys = (options) => {
   useEffect(() => {
     /** @param {KeyboardEvent} event Keyboard event. */
