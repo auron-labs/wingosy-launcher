@@ -1,8 +1,6 @@
-import PaletteIcon from "@mui/icons-material/Palette";
 import * as Mui from "@mui/material";
 
 import * as Components from "./settings-components";
-import * as Shared from "./settings-view-shared";
 import ThemePreviewGrid from "./theme-preview-grid";
 
 /** @typedef {import("./settings-types").SettingsPanelProps} SettingsPanelProps */
@@ -30,11 +28,7 @@ const saveThemeMode = async (settings, mode) => {
 
 /** @param {SettingsPanelProps} settings Settings panel state and actions. */
 const AppearanceSettings = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}>
-      <PaletteIcon color="primary" />
-      <Mui.Typography variant="h6">Appearance</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard>
     <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
       Theme
     </Mui.Typography>
@@ -80,7 +74,7 @@ const AppearanceSettings = (settings) => (
       accentHue={settings.accentHue}
       setAccentHue={settings.setAccentHue}
     />
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 export default AppearanceSettings;

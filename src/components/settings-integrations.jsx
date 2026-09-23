@@ -1,15 +1,10 @@
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import * as Mui from "@mui/material";
 
-import * as Shared from "./settings-view-shared";
+import * as Components from "./settings-components";
 
 /** @param {import("./settings-types").SettingsPanelProps} settings - Settings panel state and actions. */
 const IntegrationsSettings = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_GRADIENT_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}>
-      <EmojiEventsIcon color="primary" />
-      <Mui.Typography variant="h6">Integrations</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard>
     <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       App-wide preferences for third-party services. These apply to your whole
       library, not individual games.
@@ -25,7 +20,7 @@ const IntegrationsSettings = (settings) => (
       }
       label="Enable RetroAchievements"
     />
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 export default IntegrationsSettings;

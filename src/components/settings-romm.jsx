@@ -1,4 +1,3 @@
-import CloudIcon from "@mui/icons-material/Cloud";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import * as Mui from "@mui/material";
@@ -185,22 +184,6 @@ const RommConnectionControls = (settings) => {
   );
 };
 
-/** @param {{label: string, testId: string, value: string}} props Sync metadata value. */
-const SyncMetadataValue = ({ label, testId, value }) => (
-  <Mui.Paper variant="outlined" sx={{ bgcolor: "action.hover", p: 1.5 }}>
-    <Mui.Typography
-      variant="caption"
-      color="text.secondary"
-      sx={{ display: "block" }}
-    >
-      {label}
-    </Mui.Typography>
-    <Mui.Typography variant="body2" data-testid={testId}>
-      {value}
-    </Mui.Typography>
-  </Mui.Paper>
-);
-
 /** @param {SettingsPanelProps} settings RomM sync metadata. */
 const RommSyncMetadata = (settings) => (
   <Mui.Box data-testid="romm-sync-metadata" sx={{ mt: 3 }}>
@@ -214,21 +197,21 @@ const RommSyncMetadata = (settings) => (
         gridTemplateColumns: { sm: "repeat(3, minmax(0, 1fr))", xs: "1fr" },
       }}
     >
-      <SyncMetadataValue
+      <Components.SettingsStatTile
         label="Last synced"
         testId="romm-last-synced-value"
         value={Shared.formatSyncTimestamp(
           settings.rommSyncMetadata.lastSyncedAt
         )}
       />
-      <SyncMetadataValue
+      <Components.SettingsStatTile
         label="RomM library"
         testId="romm-library-count-value"
         value={Shared.formatSyncLibraryCount(
           settings.rommSyncMetadata.libraryCount
         )}
       />
-      <SyncMetadataValue
+      <Components.SettingsStatTile
         label="Next scheduled sync"
         testId="romm-next-sync-value"
         value={
@@ -252,11 +235,10 @@ const RommSyncMetadata = (settings) => (
 /** @param {SettingsPanelProps} settings RomM settings. */
 const RommSettings = (settings) => (
   <>
-    <Mui.Paper sx={Shared.SETTINGS_CARD_SX} data-testid="romm-settings-card">
-      <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 2 }}>
-        <CloudIcon color="primary" />
-        <Mui.Typography variant="h6">RomM Server</Mui.Typography>
-      </Mui.Box>
+    <Components.SettingsCard
+      data-testid="romm-settings-card"
+      title="Connection"
+    >
       <RommAuthenticationFields {...settings} />
       <RommConnectionControls {...settings} />
       <RommSyncMetadata {...settings} />
@@ -265,7 +247,7 @@ const RommSettings = (settings) => (
           {settings.rommStatus.message}
         </Mui.Alert>
       )}
-    </Mui.Paper>
+    </Components.SettingsCard>
     <Components.ConfirmDestructiveDialog
       confirmLabel="Disconnect"
       message="Wingosy removes the saved RomM session from this device. Your library stays locally, and you can pair or connect again at any time."

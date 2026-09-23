@@ -1,11 +1,9 @@
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import DesktopWindowsIcon from "@mui/icons-material/DesktopWindows";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import * as Mui from "@mui/material";
 
 import * as Components from "./settings-components";
-import * as Shared from "./settings-view-shared";
 
 const SUPPORTED_EMULATOR_PATHS_URL =
   "https://github.com/auron-labs/wingosy-launcher/blob/main/.scratch/transparent-romm-launching/emulator-certification.md";
@@ -22,11 +20,7 @@ const immersiveFullscreenInputProps = {
 
 /** @param {import("./settings-types").SettingsPanelProps} settings Settings panel state. */
 const BetaScopeCard = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Box sx={{ alignItems: "center", display: "flex", gap: 1, mb: 1 }}>
-      <DesktopWindowsIcon color="primary" />
-      <Mui.Typography variant="h6">Private Beta</Mui.Typography>
-    </Mui.Box>
+  <Components.SettingsCard title="Private Beta">
     <Mui.Typography variant="subtitle2" sx={{ mb: 1 }}>
       Private beta scope
     </Mui.Typography>
@@ -94,7 +88,7 @@ const BetaScopeCard = (settings) => (
     >
       See the emulator and platform combinations included in this preview.
     </Mui.Typography>
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 /** @param {import("./settings-types").SettingsPanelProps} settings Settings panel state. */
@@ -209,15 +203,10 @@ const ControllerDeadzoneControl = (settings) => (
 
 /** @param {import("./settings-types").SettingsPanelProps} settings Settings panel state. */
 const DisplaySettingsCard = (settings) => (
-  <Mui.Paper sx={Shared.SETTINGS_CARD_SX}>
-    <Mui.Typography variant="h6" gutterBottom>
-      UI
-    </Mui.Typography>
-    <Mui.Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-      Switch between desktop (default) and Immersive mode — a large-type,
-      controller-friendly layout aligned with the Wingosy look. Optional OS
-      fullscreen is ideal for couch play.
-    </Mui.Typography>
+  <Components.SettingsCard
+    subtitle="Switch between desktop (default) and Immersive mode — a large-type, controller-friendly layout aligned with the Wingosy look. Optional OS fullscreen is ideal for couch play."
+    title="Interface"
+  >
     <Mui.Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
       <ImmersiveModeSwitch {...settings} />
       <FullscreenSwitch {...settings} />
@@ -237,7 +226,7 @@ const DisplaySettingsCard = (settings) => (
       </Mui.Typography>
       <ControllerDeadzoneControl {...settings} />
     </Mui.Box>
-  </Mui.Paper>
+  </Components.SettingsCard>
 );
 
 /** @param {import("./settings-types").SettingsPanelProps} settings - Settings panel state and actions. */
