@@ -1,20 +1,20 @@
 use serde::Deserialize;
 
-const DPAD_UP: u16 = 0x0001;
-const DPAD_DOWN: u16 = 0x0002;
-const DPAD_LEFT: u16 = 0x0004;
-const DPAD_RIGHT: u16 = 0x0008;
-const START: u16 = 0x0010;
-const BACK: u16 = 0x0020;
-const LEFT_THUMB: u16 = 0x0040;
-const RIGHT_THUMB: u16 = 0x0080;
-const LEFT_SHOULDER: u16 = 0x0100;
-const RIGHT_SHOULDER: u16 = 0x0200;
-const GUIDE: u16 = 0x0400;
-const A: u16 = 0x1000;
-const B: u16 = 0x2000;
-const X: u16 = 0x4000;
-const Y: u16 = 0x8000;
+pub(crate) const DPAD_UP: u16 = 0x0001;
+pub(crate) const DPAD_DOWN: u16 = 0x0002;
+pub(crate) const DPAD_LEFT: u16 = 0x0004;
+pub(crate) const DPAD_RIGHT: u16 = 0x0008;
+pub(crate) const START: u16 = 0x0010;
+pub(crate) const BACK: u16 = 0x0020;
+pub(crate) const LEFT_THUMB: u16 = 0x0040;
+pub(crate) const RIGHT_THUMB: u16 = 0x0080;
+pub(crate) const LEFT_SHOULDER: u16 = 0x0100;
+pub(crate) const RIGHT_SHOULDER: u16 = 0x0200;
+pub(crate) const GUIDE: u16 = 0x0400;
+pub(crate) const A: u16 = 0x1000;
+pub(crate) const B: u16 = 0x2000;
+pub(crate) const X: u16 = 0x4000;
+pub(crate) const Y: u16 = 0x8000;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
