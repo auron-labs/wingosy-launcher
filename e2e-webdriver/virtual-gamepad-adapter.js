@@ -19,7 +19,11 @@ const DEFAULT_ADAPTER_PATH = path.join(
   "debug",
   ADAPTER_BINARY_NAME
 );
-const RESPONSE_TIMEOUT_MS = 10_000;
+// HIDMaestro-backed adapters take ~11s to connect on Windows (bridge spawn,
+// driver check, device creation); ViGEm's in-process connect was effectively
+// instant, so 10s was sufficient. 30s leaves headroom for slow CI boxes.
+const RESPONSE_TIMEOUT_MS =
+  Number(process.env.WINGOSY_VIRTUAL_GAMEPAD_TIMEOUT_MS) || 30_000;
 const SHUTDOWN_TIMEOUT_MS = 2_000;
 
 function describeError(error) {

@@ -2,7 +2,7 @@
 
 This is a test-owned, standalone process for one implicit Xbox 360 controller.
 It is outside `src-tauri/` and is not part of the Wingosy application runtime.
-The ViGEm dependency is selected only for Windows targets.
+The HIDMaestro dependency is selected only for Windows targets.
 
 ## Checks
 
@@ -16,8 +16,8 @@ mise exec -- cargo check --manifest-path tools/virtual-gamepad-adapter/Cargo.tom
 mise exec -- cargo clippy --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-The available-host checks do not need ViGEmBus. Do not run the real-driver smoke
-on a non-Windows host. On a provisioned Windows test machine, the opt-in smoke is:
+The available-host checks do not need the HIDMaestro bridge or driver. Do not
+run the real-driver smoke on a non-Windows host. On a provisioned Windows test machine, the opt-in smoke is:
 
 ```text
 mise exec -- cargo run --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --example windows_smoke
@@ -76,25 +76,26 @@ later valid `set_state` is accepted normally.
 
 ## Manual Windows provisioning
 
-Provision a dedicated Windows 10/11 test machine manually before using the
-adapter:
+Provision a dedicated Windows test machine manually before using the adapter:
 
-1. Obtain an archived ViGEmBus release from an approved archival or internal
-   source. Deliberately verify the archive's expected checksum and its
-   production Authenticode signature before installation; do not trust an
-   unverified mirror or replacement package.
-2. Install that already-verified release using the machine's normal elevated
-   Windows administration procedure, then confirm that ViGEmBus can create a
-   ready X360 target.
-3. Do not run a retired updater. Its stale configuration may contact the former
-   `vigem.org` domain. Disable or remove that updater behavior according to the
-   machine's security procedure, and do not direct provisioning automation to
-   that retired domain.
+1. Stage the HIDMaestro bridge bundle from the `auron-labs/hidmaestro-rs`
+   checkout once (`scripts/package-windows.ps1 -Mode Stage`). The staged
+   directory (`artifacts/stage/hidmaestro-rs-<version>-win-x64/`) must stay
+   together; `hidmaestro-bridge.exe` needs its sibling payload files.
+2. `connect` discovers the bridge in this order: `HIDMAESTRO_PIPE_NAME`
+   attaches to an already-running elevated broker, `HIDMAESTRO_BRIDGE_PATH`
+   names an explicit bridge executable, then `hidmaestro-bridge.exe` beside
+   the adapter binary, then PATH. Point `HIDMAESTRO_BRIDGE_PATH` at the staged
+   bundle for the simplest setup.
+3. The first `connect` auto-installs the HIDMaestro UMDF driver when it is
+   absent; installation is elevated, so run the adapter (or the named-pipe
+   broker it attaches to) from an elevated context. Installing sweeps
+   pre-existing HIDMaestro devices, so provision on a dedicated machine.
 4. Keep competing physical or virtual controllers out of the test setup so the
    one-controller prerequisite remains deliberate. An abnormal exit may leave
-   an orphaned target; stop the adapter and use existing Windows/driver controls
-   or reboot before trying a fresh `connect`.
+   an orphaned virtual device; stop the adapter and use Windows Device
+   Manager controls before trying a fresh `connect`.
 
 No install, update, download, driver provisioning, or bundling is automated by
-this crate. ViGEmBus and `vigem-rust` are not dependencies of Wingosy's shipped
-runtime; this note and adapter are test-only.
+this crate. HIDMaestro is not a dependency of Wingosy's shipped runtime; this
+note and adapter are test-only.

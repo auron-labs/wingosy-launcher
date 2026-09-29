@@ -3,7 +3,7 @@
  *
  * Prerequisites:
  *   mise exec -- cargo build --manifest-path tools/virtual-gamepad-adapter/Cargo.toml --locked
- *   a provisioned ViGEmBus driver and the normal native E2E prerequisites
+ *   a provisioned HIDMaestro bridge/driver and the normal native E2E prerequisites
  */
 
 import {
